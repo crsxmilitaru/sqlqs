@@ -60,7 +60,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/crsmilitaru97/sqlqs/releases/latest/download/latest.json"
+        "https://github.com/crsxmilitaru/sqlqs/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhFRkMzOTc1OEI5RTEyMDEKUldRQkVwNkxkVG44anZUTHhGY3RwNUk3VVFudDFHZzFQY3lRY25oNmI2cWlhR2xQUWhXUEF3ZmEK"
     }

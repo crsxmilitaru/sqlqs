@@ -142,7 +142,10 @@ pub async fn connect(config: &ConnectionConfig) -> Result<SqlClient, String> {
     }
 
     if config.use_windows_auth {
+        #[cfg(windows)]
         tib_config.authentication(AuthMethod::Integrated);
+        #[cfg(not(windows))]
+        return Err("Windows authentication is only supported on Windows".to_string());
     } else {
         let user = config.username.as_deref().unwrap_or("");
         let pass = config.password.as_deref().unwrap_or("");
