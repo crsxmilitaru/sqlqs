@@ -21,7 +21,10 @@
         "backgroundColor": "#0f172a",
         "transparent": true,
         "windowEffects": {
-          "effects": ["sidebar", "acrylic"],
+          "effects": [
+            "sidebar",
+            "acrylic"
+          ],
           "state": "active",
           "color": "#0000004C"
         }
@@ -37,7 +40,9 @@
     "targets": "all",
     "fileAssociations": [
       {
-        "ext": ["sql"],
+        "ext": [
+          "sql"
+        ],
         "name": "SQL Script",
         "description": "SQL script file",
         "role": "Editor"
