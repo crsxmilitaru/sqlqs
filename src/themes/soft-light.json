@@ -1,0 +1,20 @@
+{
+  "id": "soft-light",
+  "name": "Soft Light",
+  "colors": {
+    "--color-surface": "#fcfcfd",
+    "--color-surface-panel": "#f1f5f9",
+    "--color-surface-raised": "#ffffff",
+    "--color-surface-table": "#fcfcfd",
+    "--color-surface-overlay": "rgba(0, 0, 0, 0.04)",
+    "--color-border": "rgba(0, 0, 0, 0.08)",
+    "--color-text": "#0f172a",
+    "--color-text-muted": "#64748b",
+    "--color-surface-hover": "rgba(0, 0, 0, 0.03)",
+    "--color-surface-active": "rgba(0, 0, 0, 0.06)",
+    "--color-scrollbar": "rgba(0, 0, 0, 0.12)",
+    "--color-accent": "#0369a1",
+    "--color-accent-hover": "#0284c7",
+    "--color-border-focus": "#0085ccff"
+  }
+}

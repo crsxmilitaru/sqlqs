@@ -1,0 +1,20 @@
+{
+  "id": "oled",
+  "name": "OLED Black",
+  "colors": {
+    "--color-surface": "#000000",
+    "--color-surface-panel": "#050507",
+    "--color-surface-raised": "#212124",
+    "--color-surface-table": "#2a2a2d",
+    "--color-surface-overlay": "rgba(255, 255, 255, 0.08)",
+    "--color-border": "rgba(39, 39, 42, 0.8)",
+    "--color-text": "#f4f4f5",
+    "--color-text-muted": "#a1a1aa",
+    "--color-surface-hover": "rgba(255, 255, 255, 0.1)",
+    "--color-surface-active": "rgba(255, 255, 255, 0.18)",
+    "--color-scrollbar": "rgba(255, 255, 255, 0.24)",
+    "--color-accent": "#10b981",
+    "--color-accent-hover": "#34d399",
+    "--color-border-focus": "#10b981"
+  }
+}

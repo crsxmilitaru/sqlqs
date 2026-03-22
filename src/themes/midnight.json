@@ -1,0 +1,20 @@
+{
+  "id": "midnight",
+  "name": "Midnight Blue",
+  "colors": {
+    "--color-surface": "#020617",
+    "--color-surface-panel": "#081020",
+    "--color-surface-raised": "#334155",
+    "--color-surface-table": "#3d4b5f",
+    "--color-surface-overlay": "rgba(255, 255, 255, 0.06)",
+    "--color-border": "rgba(51, 65, 85, 0.8)",
+    "--color-text": "#f1f5f9",
+    "--color-text-muted": "#94a3b8",
+    "--color-surface-hover": "rgba(255, 255, 255, 0.08)",
+    "--color-surface-active": "rgba(255, 255, 255, 0.18)",
+    "--color-scrollbar": "rgba(255, 255, 255, 0.2)",
+    "--color-accent": "#0369a1",
+    "--color-accent-hover": "#0284c7",
+    "--color-border-focus": "#0085ccff"
+  }
+}
