@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings, ConnectionConfig } from "../lib/types";
+import { AiService } from "../lib/ai";
 
 export function useConnection() {
   const [connected, setConnected] = useState(false);
@@ -33,12 +34,14 @@ export function useConnection() {
     setServerName("");
     setCurrentDatabase(undefined);
     setDatabases([]);
+    AiService.invalidateSchemaCache();
   }, []);
 
   const changeDatabase = useCallback(async (db: string) => {
     try {
       await invoke("change_database", { database: db });
       setCurrentDatabase(db);
+      AiService.invalidateSchemaCache();
     } catch {}
   }, []);
 

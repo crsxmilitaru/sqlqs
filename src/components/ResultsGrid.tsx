@@ -300,15 +300,16 @@ export default function ResultsGrid({
         onGenerateSql(buildDeleteSql(tableName, currentResultSet.columns, selectedRow));
       },
     },
-    { id: "sep1", separator: true },
-    {
-      id: "hint-text",
-      label: tableName
-        ? `Target table: ${tableName}`
-        : "Run a single-table SELECT for row actions",
-      disabled: true,
-    },
   ];
+
+  if (!tableName) {
+    contextMenuItems.push({ id: "sep1", separator: true });
+    contextMenuItems.push({
+      id: "hint-text",
+      label: "Run a single-table SELECT for row actions",
+      disabled: true,
+    });
+  }
 
   return (
     <div className="flex flex-col h-full overflow-auto p-3 gap-3">

@@ -9,7 +9,7 @@ import {
   saveMaxHistoryItems,
   savePersistTabs,
 } from "../lib/settings";
-import { THEMES, loadTheme, saveTheme } from "../lib/theme";
+import { loadTheme, saveTheme, THEMES } from "../lib/theme";
 import type { GeminiStatus, UpdateMessageTone } from "../lib/types";
 import Tooltip from "./Tooltip";
 
@@ -42,6 +42,7 @@ export default function SettingsDialog({
   const [maxHistory, setMaxHistory] = useState(prefs.maxHistoryItems);
 
   const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>(AiService.getStatus());
+  const [aiEnabled, setAiEnabled] = useState(AiService.isEnabled());
   const [apiKey, setApiKey] = useState(AiService.getApiKey() || "");
   const [modelId, setModelId] = useState(AiService.getModel());
   const [showApiKey, setShowApiKey] = useState(false);
@@ -97,7 +98,7 @@ export default function SettingsDialog({
               onClick={() => setActiveTab("ai")}
               className={`text-left px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${activeTab === "ai" ? "bg-accent/15 text-accent" : "text-text hover:text-accent hover:bg-surface-hover"}`}
             >
-              Gemini AI
+              AI
             </button>
             <button
               onClick={() => setActiveTab("about")}
@@ -200,13 +201,30 @@ export default function SettingsDialog({
 
             {activeTab === "ai" && (
               <div className="flex-1 animate-in fade-in duration-200">
-                <h3 className="text-xl font-semibold text-text mb-6">Gemini AI Autocomplete</h3>
+                <h3 className="text-xl font-semibold text-text mb-6">Autocomplete</h3>
                 <div className="space-y-6">
-                  <div className="bg-surface p-4 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium text-text">Enable AI Autocomplete</h4>
+                      <p className="text-xs text-text-muted mt-0.5">Get intelligent T-SQL suggestions as you type</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !aiEnabled;
+                        setAiEnabled(next);
+                        AiService.setEnabled(next);
+                      }}
+                      className={`relative w-10 h-[22px] rounded-full transition-colors ${aiEnabled ? "bg-accent" : "bg-white/15"}`}
+                    >
+                      <span className={`absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${aiEnabled ? "translate-x-[18px]" : ""}`} />
+                    </button>
+                  </div>
+
+                  <div className={`bg-surface p-4 rounded-xl border border-white/5 transition-opacity ${aiEnabled ? "" : "opacity-50 pointer-events-none"}`}>
                     <div className="flex items-center gap-3 mb-4">
                       <div>
                         <h4 className="text-sm font-medium text-text">API Configuration</h4>
-                        <p className="text-xs text-text-muted mt-0.5">Google Gemini 2.0 Flash</p>
+                        <p className="text-xs text-text-muted mt-0.5">Google Gemini</p>
                       </div>
                       <div className="flex items-center gap-2 ml-auto">
                         {geminiStatus.hasKey ? (
@@ -230,7 +248,7 @@ export default function SettingsDialog({
                           type="text"
                           value={modelId}
                           onChange={(e) => setModelId(e.target.value)}
-                          placeholder="e.g. gemini-flash-lite-latest"
+                          placeholder="e.g. gemini-3.1-flash-lite-preview"
                           className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-accent/50 outline-none transition-all"
                         />
                       </div>

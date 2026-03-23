@@ -12,8 +12,9 @@ export interface AppPreferences {
 }
 
 export function loadPreferences(): AppPreferences {
+  const rawPersistTabs = localStorage.getItem(STORAGE_KEY_PERSIST_TABS);
   return {
-    persistTabs: localStorage.getItem(STORAGE_KEY_PERSIST_TABS) === "true",
+    persistTabs: rawPersistTabs === null ? true : rawPersistTabs === "true",
     maxHistoryItems: loadMaxHistoryItems(),
   };
 }

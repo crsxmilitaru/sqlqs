@@ -371,6 +371,7 @@ export default function QueryEditorPanel({
               onChange={(val) => onTabUpdate(activeTab.id, { sql: val })}
               onExecute={handleExecute}
               theme={theme}
+              currentDatabase={currentDatabase}
               onContextMenu={handleEditorContextMenu}
             />
           </div>
