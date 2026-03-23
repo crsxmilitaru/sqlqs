@@ -8,7 +8,8 @@
   --color-surface-panel: #181818;
   --color-surface-raised: #18181b;
   --color-surface-table: #1D1D1D;
-  --color-surface-overlay: rgba(255, 255, 255, 0.06);
+  --color-surface-overlay: rgba(255, 255, 255, 0.05);
+  --color-surface-header: rgba(255, 255, 255, 0.075);
   --color-border: rgba(63, 63, 70, 0.8);
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -60,6 +61,7 @@
       opacity: 0;
       transform: translateY(-8px) scale(0.98);
     }
+
     to {
       opacity: 1;
       transform: translateY(0) scale(1);
@@ -101,6 +103,7 @@
 
   .accordion-inner {
     min-height: 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
   }
@@ -109,18 +112,8 @@
     scrollbar-gutter: stable;
   }
 
-  .explorer-content.transitioning [class*="overflow-y-auto"],
   .accordion-content:not(.expanded) [class*="overflow-y-auto"] {
     overflow-y: hidden !important;
-  }
-
-  @keyframes delay-overflow-visible {
-    from { overflow-y: hidden !important; }
-    to { overflow-y: auto !important; }
-  }
-
-  .accordion-content.expanded [class*="overflow-y-auto"] {
-    animation: delay-overflow-visible 0.4s step-end forwards;
   }
 }
 
@@ -151,6 +144,10 @@
     font-family: var(--font-mono);
     font-size: 14px;
     background-color: transparent !important;
+  }
+
+  .cm-scroller {
+    overflow: auto !important;
   }
 
   .cm-editor * {
@@ -289,20 +286,20 @@
 
   .tree-node {
     padding: 5px 8px;
-    margin: 1px 4px;
+    margin: 1px 4px 1px 2px;
     border-radius: var(--radius-sm);
     cursor: default;
     display: flex;
     align-items: center;
     gap: 4px;
     padding-left: calc(var(--depth, 0) * 12px + 8px);
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     color: var(--color-text);
     font-size: 13px;
     transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.1s ease;
     animation: tree-node-in 0.2s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+    content-visibility: auto;
+    contain-intrinsic-height: auto 28px;
   }
 
   @keyframes tree-node-in {
@@ -310,18 +307,13 @@
       opacity: 0;
       transform: translateY(-4px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
     }
   }
 
-  .tree-node span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
 
   .tree-node:hover {
     background: var(--color-surface-hover);
@@ -524,6 +516,7 @@
       opacity: 0;
       transform: translateY(3px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DatabaseObject, ExecutedQuery } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
-import { IconChevronRight, IconColumn, IconDatabase, IconTable, IconView } from "./Icons";
+import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconView } from "./Icons";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -76,7 +76,6 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
   const [folderFilters, setFolderFilters] = useState<Record<string, string>>({});
   const [sectionHeights, setSectionHeights] = useState<ExplorerSectionHeights>(() => loadSectionHeights());
   const [activeResizer, setActiveResizer] = useState<ResizableSection | null>(null);
-  const [isTransitioning, setIsTransitioning] = useState(false);
 
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -86,7 +85,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
     schema: string;
     table: string;
     sql?: string;
-    objectType: "TABLE" | "VIEW" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER";
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER";
   } | null>(null);
 
   const updateFilter = useCallback((folderId: string, value: string) => {
@@ -104,7 +103,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
 
     try {
       localStorage.setItem(EXPLORER_SECTION_HEIGHTS_KEY, JSON.stringify(sectionHeights));
-    } catch {}
+    } catch { }
   }, [sectionHeights]);
 
   const startSectionResize = useCallback(
@@ -178,9 +177,6 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
         }
         return next;
       });
-
-      setIsTransitioning(true);
-      setTimeout(() => setIsTransitioning(false), 450);
     },
     [],
   );
@@ -201,7 +197,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
     db: string = "",
     schema: string = "",
     table: string = "",
-    objectType: "TABLE" | "VIEW" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER",
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER",
     sql?: string
   ) {
     e.preventDefault();
@@ -301,6 +297,54 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
     }
 
     const fullName = `[${database}].[${schema}].[${table}]`;
+
+    if (objectType === "PROCEDURE") {
+      return [
+        {
+          id: "exec",
+          label: "Execute",
+          icon: <i className="fa-solid fa-play" />,
+          onClick: () => onSelect(`EXEC ${fullName}`, false),
+        },
+        {
+          id: "script-alter",
+          label: "Script ALTER",
+          icon: <i className="fa-solid fa-pen" />,
+          onClick: () => onSelect(`-- Script procedure definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+        },
+        { id: "sep-proc-1", separator: true },
+        {
+          id: "copy-name",
+          label: "Copy Name",
+          icon: <i className="fa-solid fa-copy" />,
+          onClick: () => navigator.clipboard.writeText(fullName),
+        },
+      ];
+    }
+
+    if (objectType === "FUNCTION") {
+      return [
+        {
+          id: "script-select",
+          label: "Script SELECT",
+          icon: <i className="fa-solid fa-file-code" />,
+          onClick: () => onSelect(`SELECT ${fullName}()`, false),
+        },
+        {
+          id: "script-alter",
+          label: "Script ALTER",
+          icon: <i className="fa-solid fa-pen" />,
+          onClick: () => onSelect(`-- Script function definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+        },
+        { id: "sep-fn-1", separator: true },
+        {
+          id: "copy-name",
+          label: "Copy Name",
+          icon: <i className="fa-solid fa-copy" />,
+          onClick: () => navigator.clipboard.writeText(fullName),
+        },
+      ];
+    }
 
     return [
       {
@@ -421,9 +465,13 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
       case "database":
         return <div className="w-4 flex justify-center flex-shrink-0"><IconDatabase className="text-accent w-3.5 h-3.5" /></div>;
       case "table":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconTable className="text-accent w-3.5 h-3.5 opacity-80" /></div>;
+        return <div className="w-4 flex justify-center flex-shrink-0"><IconTable className="text-success w-3.5 h-3.5" /></div>;
       case "view":
         return <div className="w-4 flex justify-center flex-shrink-0"><IconView className="text-green-400 w-3.5 h-3.5" /></div>;
+      case "procedure":
+        return <div className="w-4 flex justify-center flex-shrink-0"><IconProcedure className="text-purple-400 w-3.5 h-3.5" /></div>;
+      case "function":
+        return <div className="w-4 flex justify-center flex-shrink-0"><IconFunction className="text-orange-400 w-3.5 h-3.5" /></div>;
       case "column":
         return <div className="w-4 flex justify-center flex-shrink-0"><IconColumn className="text-text-muted w-3.5 h-3.5" /></div>;
       default:
@@ -433,10 +481,10 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
 
   return (
     <div className="flex flex-col h-full bg-transparent">
-      <div className={`flex-1 overflow-hidden pt-3 pb-1 px-2.5 text-xs flex flex-col gap-1 explorer-content ${isTransitioning ? "transitioning" : ""}`}>
+      <div className="flex-1 overflow-hidden pt-3 pb-1 px-2.5 text-xs flex flex-col gap-1 explorer-content">
         <div className={`flex flex-col ${expanded.has("root:databases") ? "flex-1 min-h-0" : "flex-none"}`}>
           <div
-            className="flex items-center justify-between px-3 py-2 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-raised hover:bg-surface-hover rounded-md text-text transition-colors group"
+            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
             onClick={() => toggle("root:databases")}
             onContextMenu={(e) => handleContextMenu(e, "", "", "", "DATABASE_FOLDER")}
           >
@@ -449,7 +497,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           <div className={`accordion-content ${expanded.has("root:databases") ? "expanded flex-1 min-h-0" : ""}`}>
             <div className="accordion-inner h-full">
               {databases.length > 0 && (
-                <div className="mx-0.5 mb-2 h-7 flex-shrink-0" style={{ paddingLeft: "24px" }}>
+                <div className="mx-0.5 mb-2 h-7 flex-shrink-0" style={{ paddingLeft: "12px" }}>
                   <input
                     type="text"
                     placeholder="Filter databases..."
@@ -474,7 +522,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
                         onContextMenu={(e) => handleContextMenu(e, db, "", "", "DATABASE")}
                       >
                         {icon("database")}
-                        <span className={db === currentDatabase ? "font-bold" : ""}>
+                        <span className={`truncate flex-1 min-w-0 ${db === currentDatabase ? "font-bold" : ""}`}>
                           {db}
                         </span>
                         {loading.has(db) && <span className="text-text-muted ml-1 animate-pulse">...</span>}
@@ -486,113 +534,75 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
                           {tableCache[db] ? (
                             <div>
                               {(() => {
-                                const tables = tableCache[db].filter((t) => t.object_type === "TABLE");
-                                const views = tableCache[db].filter((t) => t.object_type === "VIEW");
+                                const cache = tableCache[db];
+                                const groups: { key: string; label: string; type: string; iconName: string; objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION"; items: DatabaseObject[] }[] = [
+                                  { key: "tables", label: "Tables", type: "TABLE", iconName: "table", objectType: "TABLE", items: [] },
+                                  { key: "views", label: "Views", type: "VIEW", iconName: "view", objectType: "VIEW", items: [] },
+                                  { key: "procedures", label: "Stored Procedures", type: "PROCEDURE", iconName: "procedure", objectType: "PROCEDURE", items: [] },
+                                  { key: "functions", label: "Functions", type: "FUNCTION", iconName: "function", objectType: "FUNCTION", items: [] },
+                                ];
+                                for (const obj of cache) {
+                                  const group = groups.find(g => g.type === obj.object_type);
+                                  if (group) group.items.push(obj);
+                                }
 
-                                return (
-                                  <>
-                                    {tables.length > 0 && (
-                                      <div>
-                                        <div
-                                          className="tree-node cursor-pointer group relative"
-                                          style={{ "--depth": 1 } as React.CSSProperties}
-                                          onClick={() => toggle(`${db}:tables`)}
-                                        >
-                                          <i className={`fa-solid ${expanded.has(`${db}:tables`) ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
-                                          <span>Tables ({tables.length})</span>
-                                          {chevron(expanded.has(`${db}:tables`))}
-                                        </div>
-                                        <div className={`accordion-content ${expanded.has(`${db}:tables`) ? "expanded" : ""}`}>
+                                return groups.filter(g => g.items.length > 0).map(group => {
+                                  const folderId = `${db}:${group.key}`;
+                                  const isOpen = expanded.has(folderId);
+                                  const filter = (folderFilters[folderId] || "").toLowerCase();
+                                  const filtered = filter
+                                    ? group.items.filter(o => o.schema_name.toLowerCase().includes(filter) || o.name.toLowerCase().includes(filter))
+                                    : group.items;
+                                  const canDblClick = group.objectType === "TABLE" || group.objectType === "VIEW";
+
+                                  return (
+                                    <div key={group.key}>
+                                      <div
+                                        className="tree-node cursor-pointer group relative"
+                                        style={{ "--depth": 1 } as React.CSSProperties}
+                                        onClick={() => toggle(folderId)}
+                                      >
+                                        <i className={`fa-solid ${isOpen ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
+                                        <span className="truncate flex-1 min-w-0">{group.label} ({group.items.length})</span>
+                                        {chevron(isOpen)}
+                                      </div>
+                                      {isOpen && (
+                                        <div className="accordion-content expanded">
                                           <div className="accordion-inner">
-                                            {tables.length > 0 && (
-                                              <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
-                                                <input
-                                                  type="text"
-                                                  placeholder="Filter tables..."
-                                                  value={folderFilters[`${db}:tables`] || ""}
-                                                  onChange={(e) => updateFilter(`${db}:tables`, e.target.value)}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  className="explorer-filter w-full h-full"
-                                                />
+                                            <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
+                                              <input
+                                                type="text"
+                                                placeholder={`Filter ${group.label.toLowerCase()}...`}
+                                                value={folderFilters[folderId] || ""}
+                                                onChange={(e) => updateFilter(folderId, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="explorer-filter w-full h-full"
+                                              />
+                                            </div>
+                                            {filtered.map((o) => (
+                                              <div
+                                                key={`${db}.${o.schema_name}.${o.name}`}
+                                                className="tree-node cursor-pointer"
+                                                style={{ "--depth": 2 } as React.CSSProperties}
+                                                onDoubleClick={canDblClick ? () => handleTableDoubleClick(db, o.schema_name, o.name) : undefined}
+                                                onContextMenu={(e) => handleContextMenu(e, db, o.schema_name, o.name, group.objectType)}
+                                              >
+                                                {icon(group.iconName)}
+                                                <span className="truncate flex-1 min-w-0">{o.schema_name}.{o.name}</span>
                                               </div>
-                                            )}
-                                            {tables
-                                              .filter(t => t.schema_name.toLowerCase().includes((folderFilters[`${db}:tables`] || "").toLowerCase()) || t.name.toLowerCase().includes((folderFilters[`${db}:tables`] || "").toLowerCase()))
-                                              .map((t) => (
-                                                <div
-                                                  key={`${db}.${t.schema_name}.${t.name}`}
-                                                  className="tree-node cursor-pointer"
-                                                  style={{ "--depth": 2 } as React.CSSProperties}
-                                                  onDoubleClick={() =>
-                                                    handleTableDoubleClick(db, t.schema_name, t.name)
-                                                  }
-                                                  onContextMenu={(e) =>
-                                                    handleContextMenu(e, db, t.schema_name, t.name, "TABLE")
-                                                  }
-                                                >
-                                                  {icon("table")}
-                                                  <span>{t.schema_name}.{t.name}</span>
-                                                </div>
-                                              ))}
+                                            ))}
                                           </div>
                                         </div>
-                                      </div>
-                                    )}
-                                    {views.length > 0 && (
-                                      <div>
-                                        <div
-                                          className="tree-node cursor-pointer group relative"
-                                          style={{ "--depth": 1 } as React.CSSProperties}
-                                          onClick={() => toggle(`${db}:views`)}
-                                        >
-                                          <i className={`fa-solid ${expanded.has(`${db}:views`) ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
-                                          <span>Views ({views.length})</span>
-                                          {chevron(expanded.has(`${db}:views`))}
-                                        </div>
-                                        <div className={`accordion-content ${expanded.has(`${db}:views`) ? "expanded" : ""}`}>
-                                          <div className="accordion-inner">
-                                            {views.length > 0 && (
-                                              <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
-                                                <input
-                                                  type="text"
-                                                  placeholder="Filter views..."
-                                                  value={folderFilters[`${db}:views`] || ""}
-                                                  onChange={(e) => updateFilter(`${db}:views`, e.target.value)}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  className="explorer-filter w-full h-full"
-                                                />
-                                              </div>
-                                            )}
-                                            {views
-                                              .filter(v => v.schema_name.toLowerCase().includes((folderFilters[`${db}:views`] || "").toLowerCase()) || v.name.toLowerCase().includes((folderFilters[`${db}:views`] || "").toLowerCase()))
-                                              .map((v) => (
-                                                <div
-                                                  key={`${db}.${v.schema_name}.${v.name}`}
-                                                  className="tree-node cursor-pointer"
-                                                  style={{ "--depth": 2 } as React.CSSProperties}
-                                                  onDoubleClick={() =>
-                                                    handleTableDoubleClick(db, v.schema_name, v.name)
-                                                  }
-                                                  onContextMenu={(e) =>
-                                                    handleContextMenu(e, db, v.schema_name, v.name, "VIEW")
-                                                  }
-                                                >
-                                                  {icon("view")}
-                                                  <span>{v.schema_name}.{v.name}</span>
-                                                </div>
-                                              ))}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </>
-                                );
+                                      )}
+                                    </div>
+                                  );
+                                });
                               })()}
                             </div>
                           ) : (
                             expanded.has(db) && (
                               <div className="tree-node" style={{ "--depth": 1 } as React.CSSProperties}>
-                                <span className="text-text-muted italic animate-pulse">Loading objects...</span>
+                                <span className="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">Loading objects...</span>
                               </div>
                             )
                           )}
@@ -617,7 +627,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           style={expanded.has("root:saved_queries") ? { height: sectionHeights.saved } : undefined}
         >
           <div
-            className="flex items-center justify-between px-3 py-2 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-raised hover:bg-surface-hover rounded-md text-text transition-colors group"
+            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
             onClick={() => toggle("root:saved_queries")}
           >
             <span className="font-bold text-[11px] uppercase tracking-wider select-none">Saved Queries</span>
@@ -650,7 +660,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           style={expanded.has("root:history") ? { height: sectionHeights.history } : undefined}
         >
           <div
-            className="flex items-center justify-between px-3 py-2 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-raised hover:bg-surface-hover rounded-md text-text transition-colors group"
+            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
             onClick={() => toggle("root:history")}
           >
             <span className="font-bold text-[11px] uppercase tracking-wider select-none">History</span>
@@ -696,7 +706,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
                           <div className="w-4 flex justify-center flex-shrink-0">
                             <i className="fa-solid fa-clock-rotate-left text-text-muted/60 text-[11px]" />
                           </div>
-                          <span className="truncate flex-1">{item.title}</span>
+                          <span className="truncate flex-1 min-w-0">{item.title}</span>
                           <span className="text-[10px] text-text-muted/40 ml-2 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pr-2">
                             {formatTimeAgo(item.executedAt)}
                           </span>

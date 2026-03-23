@@ -14,6 +14,14 @@ export function IconColumn({ className }: { className?: string }) {
   return <i className={`fa-solid fa-columns fa-fw text-[11px] ${className || ""}`} />;
 }
 
+export function IconProcedure({ className }: { className?: string }) {
+  return <i className={`fa-solid fa-gears fa-fw text-[12px] ${className || ""}`} />;
+}
+
+export function IconFunction({ className }: { className?: string }) {
+  return <i className={`fa-solid fa-square-root-variable fa-fw text-[12px] ${className || ""}`} />;
+}
+
 export function IconPlay({ className }: { className?: string }) {
   return <i className={`fa-solid fa-play fa-fw ${className || ""}`} />;
 }

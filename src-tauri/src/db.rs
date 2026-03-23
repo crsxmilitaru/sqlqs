@@ -476,17 +476,29 @@ pub async fn get_tables(
     database: &str,
 ) -> Result<Vec<DatabaseObject>, String> {
     let sql = format!(
-        "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM [{db}].INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME",
+        "SELECT s.name AS schema_name, o.name AS object_name, \
+         CASE o.type \
+           WHEN 'U'  THEN 'TABLE' \
+           WHEN 'V'  THEN 'VIEW' \
+           WHEN 'P'  THEN 'PROCEDURE' \
+           WHEN 'FN' THEN 'FUNCTION' \
+           WHEN 'IF' THEN 'FUNCTION' \
+           WHEN 'TF' THEN 'FUNCTION' \
+         END AS object_type \
+         FROM [{db}].sys.objects o \
+         JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
+         WHERE o.type IN ('U','V','P','FN','IF','TF') \
+         ORDER BY object_type, s.name, o.name",
         db = database.replace(']', "]]")
     );
     let stream = client
         .query(&sql, &[])
         .await
-        .map_err(|e| format!("Failed to list tables: {}", e))?;
+        .map_err(|e| format!("Failed to list objects: {}", e))?;
     let rows = stream
         .into_first_result()
         .await
-        .map_err(|e| format!("Failed to read tables: {}", e))?;
+        .map_err(|e| format!("Failed to read objects: {}", e))?;
 
     Ok(rows
         .iter()
@@ -497,11 +509,7 @@ pub async fn get_tables(
             Some(DatabaseObject {
                 schema_name: schema.to_string(),
                 name: name.to_string(),
-                object_type: if obj_type.contains("VIEW") {
-                    "VIEW".to_string()
-                } else {
-                    "TABLE".to_string()
-                },
+                object_type: obj_type.to_string(),
             })
         })
         .collect())

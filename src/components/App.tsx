@@ -41,7 +41,7 @@ export default function App() {
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [explorerWidth, setExplorerWidth] = useState(260);
+  const [explorerWidth, setExplorerWidth] = useState(325);
   const [theme, setTheme] = useState(loadTheme());
 
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function App() {
       const startWidth = explorerWidth;
 
       const onMove = (ev: MouseEvent) => {
-        const newWidth = Math.max(180, Math.min(500, startWidth + ev.clientX - startX));
+        const newWidth = Math.max(325, Math.min(500, startWidth + ev.clientX - startX));
         setExplorerWidth(newWidth);
       };
       const onUp = () => {
