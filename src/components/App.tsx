@@ -50,6 +50,13 @@ export default function App() {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForUpdates(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleConnect = useCallback((config: ConnectionConfig) => {
     connect(config);
     setIsConnectionDialogOpen(false);
