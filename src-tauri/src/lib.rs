@@ -75,6 +75,42 @@ fn read_sql_file(path: String) -> Result<OpenedSqlFile, String> {
 }
 
 #[tauri::command]
+fn write_sql_file(path: String, content: String) -> Result<String, String> {
+    let file_path = PathBuf::from(&path);
+
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create directory '{}': {}", parent.display(), err))?;
+    }
+
+    std::fs::write(&file_path, &content)
+        .map_err(|err| format!("Failed to write SQL file '{}': {}", path, err))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    let folder = PathBuf::from(&path);
+    if !folder.exists() {
+        std::fs::create_dir_all(&folder)
+            .map_err(|err| format!("Failed to create folder '{}': {}", path, err))?;
+    }
+    std::process::Command::new("explorer")
+        .arg(&folder)
+        .spawn()
+        .map_err(|err| format!("Failed to open folder: {}", err))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_documents_folder() -> Result<String, String> {
+    let docs_dir =
+        dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
+    Ok(docs_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn connect_to_server(
     state: State<'_, AppState>,
     config: ConnectionConfig,
@@ -274,6 +310,9 @@ pub fn run() {
             generate_sql_completion,
             get_startup_sql_file_path,
             read_sql_file,
+            write_sql_file,
+            get_documents_folder,
+            open_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

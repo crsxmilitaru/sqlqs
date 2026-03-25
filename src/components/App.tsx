@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { useConnection } from "../hooks/useConnection";
 import { useHistory } from "../hooks/useHistory";
+import { useSavedQueries } from "../hooks/useSavedQueries";
 import { useTabs } from "../hooks/useTabs";
 import { loadTheme } from "../lib/theme";
-import type { ConnectionConfig, QueryResult } from "../lib/types";
+import type { ConnectionConfig, QueryResult, QueryTab } from "../lib/types";
+import { generateTabTitle } from "../lib/sql";
 import ConnectionDialog from "./ConnectionDialog";
 import ObjectExplorer from "./ObjectExplorer";
 import QueryEditorPanel from "./QueryEditorPanel";
@@ -35,7 +37,8 @@ export default function App() {
     changeDatabase,
   } = useConnection();
 
-  const { executedQueries, addHistory, deleteHistory } = useHistory();
+  const { executedQueries, addHistory, deleteHistory, clearHistory } = useHistory();
+  const { savedQueries, saveQuery, deleteQuery, loadQueryContent } = useSavedQueries();
   const { appVersion, updateStatus, updateAvailable, checkForUpdates, installUpdate, cancelUpdate } = useAppUpdater();
 
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
@@ -77,8 +80,15 @@ export default function App() {
         const result: QueryResult = await invoke("execute_query", {
           sql: sqlToExecute,
         });
-        updateTab(tabId, { result, isExecuting: false });
-        addHistory(sqlToExecute, tab.title, currentDatabase);
+        const updates: Partial<QueryTab> = { result, isExecuting: false };
+        if (!tab.userTitle) {
+          const generatedTitle = generateTabTitle(sqlToExecute);
+          if (generatedTitle) {
+            updates.title = generatedTitle;
+          }
+        }
+        updateTab(tabId, updates);
+        addHistory(sqlToExecute, updates.title || tab.title, currentDatabase);
       } catch (err: any) {
         updateTab(tabId, { error: String(err), isExecuting: false });
       }
@@ -126,6 +136,44 @@ export default function App() {
     },
     [explorerWidth],
   );
+
+  const handleTabSave = useCallback(
+    async (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (!tab || !tab.sql.trim()) return;
+
+      await saveQuery(tab.title, tab.sql);
+    },
+    [tabs, saveQuery],
+  );
+
+  const handleLoadSavedQuery = useCallback(
+    async (filePath: string, title: string) => {
+      const content = await loadQueryContent(filePath);
+      if (content) {
+        addTab(content, title, `saved:${filePath}`, true);
+      }
+    },
+    [addTab, loadQueryContent],
+  );
+
+  const handleDeleteSavedQuery = useCallback(
+    async (id: string) => {
+      await deleteQuery(id);
+    },
+    [deleteQuery],
+  );
+
+  const handleOpenSavedQueriesFolder = useCallback(async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const documentsPath = await invoke<string>("get_documents_folder");
+      const folderPath = `${documentsPath}\\SQL Query Studio\\Saved Queries`;
+      await invoke("open_folder", { path: folderPath });
+    } catch (err) {
+      console.error("Failed to open folder:", err);
+    }
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -184,11 +232,11 @@ export default function App() {
           <>
             <div style={{ width: explorerWidth }} className="flex-shrink-0 overflow-hidden relative">
               <ObjectExplorer
-                onSelect={(sql, execute, title, database) => {
+                onSelect={(sql, execute, title, database, sourceId) => {
                   if (database && database !== currentDatabase) {
                     changeDatabase(database);
                   }
-                  const tabId = addTab(sql, title);
+                  const tabId = addTab(sql, title, sourceId);
                   if (execute) {
                     setTimeout(() => handleExecute(tabId, sql), 0);
                   }
@@ -198,6 +246,11 @@ export default function App() {
                 currentDatabase={currentDatabase}
                 executedQueries={executedQueries}
                 onDeleteHistory={deleteHistory}
+                onClearHistory={clearHistory}
+                savedQueries={savedQueries}
+                onDeleteSavedQuery={handleDeleteSavedQuery}
+                onLoadSavedQuery={handleLoadSavedQuery}
+                onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
               />
             </div>
             <div className="resizer resizer-h" onMouseDown={handleExplorerResize} />
@@ -209,12 +262,13 @@ export default function App() {
             tabs={tabs}
             activeTabId={activeTabId}
             onTabChange={setActiveTabId}
-            onTabAdd={() => addTab()}
+            onTabAdd={addTab}
             onOpenSqlFile={handleOpenSqlFile}
             onTabClose={closeTab}
             onTabCloseAll={closeAllTabs}
             onTabCloseOthers={closeOtherTabs}
             onTabUpdate={updateTab}
+            onTabSave={handleTabSave}
             onExecute={handleExecute}
             connected={connected}
             currentDatabase={currentDatabase}

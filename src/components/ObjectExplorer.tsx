@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DatabaseObject, ExecutedQuery } from "../lib/types";
+import type { SavedQuery } from "../hooks/useSavedQueries";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconView } from "./Icons";
 import Tooltip from "./Tooltip";
 
 interface Props {
-  onSelect: (sql: string, execute?: boolean, title?: string, database?: string) => void;
+  onSelect: (sql: string, execute?: boolean, title?: string, database?: string, sourceId?: string) => void;
   onDatabaseChange: (db: string) => void;
   onCollapse?: () => void;
   currentDatabase?: string;
   executedQueries?: ExecutedQuery[];
   onDeleteHistory: (sql: string) => void;
+  onClearHistory?: () => void;
+  savedQueries?: SavedQuery[];
+  onDeleteSavedQuery?: (id: string) => void;
+  onLoadSavedQuery?: (filePath: string, title: string) => void;
+  onOpenSavedQueriesFolder?: () => void;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -68,7 +74,19 @@ function loadSectionHeights(): ExplorerSectionHeights {
   }
 }
 
-export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange, currentDatabase, executedQueries = [], onDeleteHistory }: Props) {
+export default function ObjectExplorer({ 
+  onSelect, 
+  onCollapse, 
+  onDatabaseChange, 
+  currentDatabase, 
+  executedQueries = [], 
+  onDeleteHistory,
+  onClearHistory,
+  savedQueries = [],
+  onDeleteSavedQuery,
+  onLoadSavedQuery,
+  onOpenSavedQueriesFolder,
+}: Props) {
   const [databases, setDatabases] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["root:databases", "root:saved_queries", "root:history"]));
   const [tableCache, setTableCache] = useState<Record<string, DatabaseObject[]>>({});
@@ -85,7 +103,8 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
     schema: string;
     table: string;
     sql?: string;
-    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER";
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY";
+    savedQueryFilePath?: string;
   } | null>(null);
 
   const updateFilter = useCallback((folderId: string, value: string) => {
@@ -230,6 +249,33 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
       ];
     }
 
+    if (objectType === "SAVED_QUERY") {
+      const queryId = contextMenu.sql || "";
+      const filePath = contextMenu.savedQueryFilePath || "";
+      const title = table;
+      return [
+        {
+          id: "open-saved",
+          label: "Open",
+          icon: <i className="fa-solid fa-folder-open" />,
+          onClick: () => onLoadSavedQuery?.(filePath, title),
+        },
+        {
+          id: "copy-path",
+          label: "Copy Path",
+          icon: <i className="fa-solid fa-copy" />,
+          onClick: () => navigator.clipboard.writeText(filePath),
+        },
+        { id: "sep-saved-1", separator: true },
+        {
+          id: "delete-saved",
+          label: "Delete",
+          icon: <i className="fa-solid fa-trash-can" />,
+          onClick: () => onDeleteSavedQuery?.(queryId),
+        },
+      ];
+    }
+
     if (objectType === "HISTORY") {
       const sqlValue = contextMenu.sql || "";
       const dbName = database;
@@ -238,7 +284,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           id: "use-query",
           label: "Open Query",
           icon: <i className="fa-solid fa-folder-open" />,
-          onClick: () => onSelect(sqlValue, false, table, dbName),
+          onClick: () => onSelect(sqlValue, false, table, dbName, `history:${sqlValue}`),
         },
         {
           id: "copy-query",
@@ -632,17 +678,85 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           >
             <span className="font-bold text-[11px] uppercase tracking-wider select-none">Saved Queries</span>
             <div className="flex items-center gap-2">
+              {onOpenSavedQueriesFolder && (
+                <Tooltip content="Open folder" placement="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenSavedQueriesFolder();
+                    }}
+                    className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+                  >
+                    <i className="fa-regular fa-folder-open text-[10px]" />
+                  </button>
+                </Tooltip>
+              )}
               {chevron(expanded.has("root:saved_queries"))}
             </div>
           </div>
 
           <div className={`accordion-content ${expanded.has("root:saved_queries") ? "expanded flex-1" : ""}`}>
             <div className="accordion-inner h-full flex flex-col">
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
-                <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
-                  <i className="fa-solid fa-file-code text-3xl mb-3" />
-                  <p className="text-[12px]">No saved queries</p>
+              {savedQueries.length > 0 && (
+                <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "24px" }}>
+                  <input
+                    type="text"
+                    placeholder="Filter saved queries..."
+                    value={folderFilters["root:saved_queries"] || ""}
+                    onChange={(e) => updateFilter("root:saved_queries", e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="explorer-filter w-full h-full"
+                  />
                 </div>
+              )}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
+                {savedQueries.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
+                    <i className="fa-solid fa-file-code text-3xl mb-3" />
+                    <p className="text-[12px]">No saved queries</p>
+                  </div>
+                ) : (
+                  savedQueries
+                    .filter((item) =>
+                      item.title.toLowerCase().includes((folderFilters["root:saved_queries"] || "").toLowerCase())
+                    )
+                    .map((item) => (
+                      <Tooltip key={item.id} content={item.filePath} placement="right">
+                        <div
+                          className="tree-node cursor-pointer group"
+                          style={{ "--depth": 0 } as React.CSSProperties}
+                          onClick={() => onLoadSavedQuery?.(item.filePath, item.title)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenu({
+                              visible: true,
+                              x: e.clientX,
+                              y: e.clientY,
+                              database: "",
+                              schema: "",
+                              table: item.title,
+                              objectType: "SAVED_QUERY",
+                              sql: item.id,
+                              savedQueryFilePath: item.filePath,
+                            });
+                          }}
+                        >
+                          <i className="fa-solid fa-file-code flex-shrink-0 text-accent w-4 text-center text-[12px]" />
+                          <span className="truncate flex-1 min-w-0">{item.title}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteSavedQuery?.(item.id);
+                            }}
+                            className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                          >
+                            <i className="fa-solid fa-trash-can text-[10px]" />
+                          </button>
+                        </div>
+                      </Tooltip>
+                    ))
+                )}
               </div>
             </div>
           </div>
@@ -665,6 +779,19 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
           >
             <span className="font-bold text-[11px] uppercase tracking-wider select-none">History</span>
             <div className="flex items-center gap-2">
+              {onClearHistory && executedQueries.length > 0 && (
+                <Tooltip content="Clear all" placement="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClearHistory();
+                    }}
+                    className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error transition-colors cursor-pointer"
+                  >
+                    <i className="fa-solid fa-trash-can text-[10px]" />
+                  </button>
+                </Tooltip>
+              )}
               {chevron(expanded.has("root:history"))}
             </div>
           </div>
@@ -700,7 +827,7 @@ export default function ObjectExplorer({ onSelect, onCollapse, onDatabaseChange,
                         <div
                           className="tree-node cursor-pointer group flex items-center gap-2"
                           style={{ "--depth": 0 } as React.CSSProperties}
-                          onClick={() => onSelect(item.sql, false, item.title, item.database)}
+                          onClick={() => onSelect(item.sql, false, item.title, item.database, `history:${item.sql}`)}
                           onContextMenu={(e) => handleContextMenu(e, item.database, "", item.title, "HISTORY", item.sql)}
                         >
                           <div className="w-4 flex justify-center flex-shrink-0">

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { QueryTab } from "../lib/types";
+import { AiService } from "../lib/ai";
+import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Dropdown from "./Dropdown";
 import { IconCopy, IconPlay } from "./Icons";
@@ -14,7 +16,7 @@ interface Props {
   tabs: QueryTab[];
   activeTabId: string;
   onTabChange: (id: string) => void;
-  onTabAdd: () => void;
+  onTabAdd: (sql?: string, title?: string) => string;
   onOpenSqlFile?: () => void;
   onTabClose: (id: string) => void;
   onTabCloseOthers: (id: string) => void;
@@ -49,6 +51,23 @@ export default function QueryEditorPanel({
 }: Props) {
   const [editorHeight, setEditorHeight] = useState(300);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(() => {
+    return localStorage.getItem("sqlqs_ai_chat_open") === "true";
+  });
+  const [aiChatWidth, setAiChatWidth] = useState(() => {
+    const saved = localStorage.getItem("sqlqs_ai_chat_width");
+    return saved ? parseInt(saved, 10) : 320;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sqlqs_ai_chat_open", aiChatOpen.toString());
+  }, [aiChatOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("sqlqs_ai_chat_width", aiChatWidth.toString());
+  }, [aiChatWidth]);
+
+  const hasAiKey = AiService.getStatus().hasKey;
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [copied, setCopied] = useState(false);
@@ -102,7 +121,7 @@ export default function QueryEditorPanel({
 
   const handleRename = useCallback((tabId: string) => {
     if (renameValue.trim()) {
-      onTabUpdate(tabId, { title: renameValue.trim() });
+      onTabUpdate(tabId, { title: renameValue.trim(), userTitle: true });
     }
     setRenamingTabId(null);
     setRenameValue("");
@@ -150,14 +169,26 @@ export default function QueryEditorPanel({
   }, [activeTab, onTabUpdate]);
 
   const handleGeneratedRowSql = useCallback(
-    (generatedSql: string) => {
+    (generatedSql: string, mode: ApplyMode = "append") => {
       if (!activeTab) return;
-      const currentSql = activeTab.sql.trimEnd();
-      const nextSql = currentSql ? `${currentSql}\n\n${generatedSql}` : generatedSql;
-      onTabUpdate(activeTab.id, { sql: nextSql });
+      switch (mode) {
+        case "replace":
+          onTabUpdate(activeTab.id, { sql: generatedSql });
+          break;
+        case "new-tab":
+          onTabAdd(generatedSql);
+          break;
+        case "append":
+        default: {
+          const currentSql = activeTab.sql.trimEnd();
+          const nextSql = currentSql ? `${currentSql}\n\n${generatedSql}` : generatedSql;
+          onTabUpdate(activeTab.id, { sql: nextSql });
+          break;
+        }
+      }
       editorRef.current?.focus();
     },
-    [activeTab, onTabUpdate],
+    [activeTab, onTabUpdate, onTabAdd],
   );
 
   const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
@@ -280,8 +311,8 @@ export default function QueryEditorPanel({
                 key={tab.id}
                 ref={tab.id === activeTabId ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
                 className={`winui-tab flex items-center gap-2 text-[12px] cursor-default whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId
-                    ? "active text-text font-medium"
-                    : "text-text-muted"
+                  ? "active text-text font-medium"
+                  : "text-text-muted"
                   }`}
                 onClick={() => onTabChange(tab.id)}
                 onDoubleClick={() => handleStartRename(tab)}
@@ -356,24 +387,52 @@ export default function QueryEditorPanel({
               <i className="fa-solid fa-plus text-[14px]" />
             </button>
           </Tooltip>
+          {hasAiKey && (
+            <>
+              <div className="flex-1" />
+              <Tooltip content={aiChatOpen ? "Close AI Assistant" : "Open AI Assistant"} placement="bottom">
+                <button
+                  onClick={() => setAiChatOpen(!aiChatOpen)}
+                  className={`flex items-center justify-center w-8 h-8 mr-2 rounded-full transition-colors flex-shrink-0 cursor-pointer ${aiChatOpen
+                      ? "text-accent bg-accent/10"
+                      : "text-text-muted hover:text-accent hover:bg-white/10"
+                    }`}
+                >
+                  <i className="fa-solid fa-wand-sparkles text-[12px]" />
+                </button>
+              </Tooltip>
+            </>
+          )}
         </div>
       )}
 
       {activeTab ? (
-        <>
+        <div className="flex flex-col flex-1 min-h-0">
           <div
-            className={`overflow-hidden ${resultsCollapsed ? 'flex-1' : 'flex-shrink-0'}`}
+            className={`flex overflow-hidden ${resultsCollapsed ? 'flex-1' : 'flex-shrink-0'}`}
             style={resultsCollapsed ? undefined : { height: editorHeight }}
           >
-            <SqlEditor
-              ref={editorRef}
-              value={activeTab.sql}
-              onChange={(val) => onTabUpdate(activeTab.id, { sql: val })}
-              onExecute={handleExecute}
-              theme={theme}
-              currentDatabase={currentDatabase}
-              onContextMenu={handleEditorContextMenu}
-            />
+            <div className="flex-1 min-w-0">
+              <SqlEditor
+                ref={editorRef}
+                value={activeTab.sql}
+                onChange={(val) => onTabUpdate(activeTab.id, { sql: val })}
+                onExecute={handleExecute}
+                theme={theme}
+                currentDatabase={currentDatabase}
+                onContextMenu={handleEditorContextMenu}
+              />
+            </div>
+
+            {aiChatOpen && (
+              <AIChatPanel
+                currentCode={activeTab.sql}
+                currentDatabase={currentDatabase}
+                onApplyCode={handleGeneratedRowSql}
+                width={aiChatWidth}
+                onWidthChange={setAiChatWidth}
+              />
+            )}
           </div>
 
           {!resultsCollapsed && <div className="resizer resizer-v" onMouseDown={handleEditorResize} />}
@@ -443,7 +502,7 @@ export default function QueryEditorPanel({
               </>
             )}
           </div>
-        </>
+        </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
           <i className="fa-solid fa-terminal text-3xl opacity-20" />

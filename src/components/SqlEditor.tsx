@@ -29,7 +29,6 @@ import {
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
-import { AiService } from "../lib/ai";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { ColumnInfo, DatabaseObject } from "../lib/types";
 
@@ -49,15 +48,12 @@ export interface SqlEditorHandle {
   getSelectedText: () => string;
 }
 
-const DEBOUNCE_MS = 400;
-
 const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   { value, onChange, onExecute, readOnly, theme, currentDatabase, onContextMenu }: Props,
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const schemaRef = useRef<{ tables: Map<string, { name: string; schema: string; columns: string[] }> }>({ tables: new Map() });
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
   const onChangeRef = useRef(onChange);
@@ -118,84 +114,6 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     return { from, options };
   }, []);
 
-  const aiCompletionSource = useCallback(async (context: CompletionContext) => {
-    if (!AiService.isEnabled() || !AiService.getApiKey()) {
-      return null;
-    }
-
-    const { state, pos } = context;
-    const line = state.doc.lineAt(pos);
-
-    if (!context.explicit && line.text.slice(0, pos - line.from).match(/\w$/)) {
-      return null;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    if (!context.explicit) {
-      const aborted = await new Promise<boolean>((resolve) => {
-        if (controller.signal.aborted) { resolve(true); return; }
-        const timer = setTimeout(() => resolve(false), DEBOUNCE_MS);
-        controller.signal.addEventListener("abort", () => {
-          clearTimeout(timer);
-          resolve(true);
-        }, { once: true });
-      });
-      if (aborted) return null;
-    }
-
-    if (controller.signal.aborted) return null;
-
-    const before = state.doc.sliceString(Math.max(0, pos - 2000), pos);
-    const after = state.doc.sliceString(pos, Math.min(state.doc.length, pos + 1000));
-
-    try {
-      let schema = AiService.getCachedSchema();
-      if (!schema) {
-        const [currentDatabase, schemaSummary] = await invoke<[string | null, string]>("generate_sql_completion");
-        AiService.setCachedSchema(currentDatabase, schemaSummary);
-        schema = { database: currentDatabase, summary: schemaSummary };
-      }
-
-      if (controller.signal.aborted) return null;
-
-      const result = await AiService.generateCompletion(
-        { before_cursor: before, after_cursor: after },
-        schema.database || undefined,
-        schema.summary || undefined,
-        controller.signal,
-      );
-
-      if (controller.signal.aborted) return null;
-
-      if (!result?.insert_text?.trim()) {
-        return null;
-      }
-
-      const firstLine = result.insert_text.split("\n")[0];
-      const isMultiline = result.insert_text.includes("\n");
-
-      return {
-        from: pos,
-        options: [
-          {
-            label: firstLine + (isMultiline ? " ..." : ""),
-            apply: result.insert_text,
-            type: "text",
-            detail: `AI · ${result.duration_ms}ms`,
-            boost: 99,
-          },
-        ],
-      };
-    } catch (err: any) {
-      if (err.name === "AbortError") return null;
-      console.error("AI Completion error:", err);
-      return null;
-    }
-  }, []);
-
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -238,7 +156,6 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         sql({ dialect: MSSQL, upperCaseKeywords: true }),
         EditorState.languageData.of(() => [
           { autocomplete: schemaCompletionSource },
-          { autocomplete: aiCompletionSource },
         ]),
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -271,7 +188,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       view.destroy();
       viewRef.current = null;
     };
-  }, [aiCompletionSource, schemaCompletionSource, executeShortcutLabel, readOnly, theme]);
+  }, [schemaCompletionSource, executeShortcutLabel, readOnly, theme]);
 
   useEffect(() => {
     const view = viewRef.current;

@@ -26,3 +26,4 @@ chrono = { version = "0.4", features = ["serde"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 uuid = { version = "1", features = ["v4"] }
 tokio-util = { version = "0.7", features = ["compat"] }
+dirs = "5"

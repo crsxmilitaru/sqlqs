@@ -170,7 +170,7 @@ function VirtualGrid({
   return (
     <div
       ref={containerRef}
-      className="overflow-auto rounded-lg border border-border/20"
+      className="results-table-container overflow-auto rounded-lg border border-border/20"
       style={{ minHeight: 180, height: "100%" }}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
     >

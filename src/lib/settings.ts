@@ -42,6 +42,8 @@ function loadMaxHistoryItems(): number {
 export interface SavedTab {
   title: string;
   sql: string;
+  userTitle?: boolean;
+  sourceId?: string;
 }
 
 export function saveTabs(tabs: SavedTab[]) {

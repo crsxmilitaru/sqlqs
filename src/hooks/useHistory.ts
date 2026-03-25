@@ -66,8 +66,8 @@ export function useHistory() {
         return prev;
       }
       
-      const displayTitle = (title && !title.startsWith("Query ")) 
-        ? title 
+      const displayTitle = (title && title !== "Query" && !title.startsWith("Query "))
+        ? title
         : (generateTabTitle(normalizedSql) || normalizedSql.substring(0, 40) + (normalizedSql.length > 40 ? "..." : ""));
 
       const entry: ExecutedQuery = {
@@ -86,9 +86,14 @@ export function useHistory() {
     setExecutedQueries((prev) => prev.filter((q) => q.sql !== sql));
   }, []);
 
+  const clearHistory = useCallback(() => {
+    setExecutedQueries([]);
+  }, []);
+
   return {
     executedQueries,
     addHistory,
     deleteHistory,
+    clearHistory,
   };
 }

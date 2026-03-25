@@ -50,6 +50,8 @@ export interface QueryTab {
   result?: QueryResult;
   isExecuting: boolean;
   error?: string;
+  sourceId?: string;
+  userTitle?: boolean;
 }
 
 export interface ExecutedQuery {
@@ -62,18 +64,6 @@ export interface ExecutedQuery {
 export interface GeminiStatus {
   hasKey: boolean;
   lastError?: string;
-}
-
-export interface SqlCompletionRequest {
-  before_cursor: string;
-  after_cursor: string;
-}
-
-export interface SqlCompletionResult {
-  insert_text: string;
-  model_label: string;
-  device_used: string;
-  duration_ms: number;
 }
 
 export type UpdateMessageTone = "info" | "success" | "error";
