@@ -41,10 +41,10 @@ export default function UpdateDialog({ version, currentVersion, onInstall, onCan
         </div>
 
         <div className="flex justify-end gap-3 border-t border-border pt-4">
-          <button onClick={onCancel} className="app-btn px-5 py-1.5">
+          <button onClick={onCancel} className="btn btn-secondary px-5 py-1.5">
             Later
           </button>
-          <button onClick={onInstall} className="app-btn app-btn-primary px-5 py-1.5">
+          <button onClick={onInstall} className="btn btn-primary px-5 py-1.5">
             Install update
           </button>
         </div>

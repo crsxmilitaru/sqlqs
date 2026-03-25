@@ -104,6 +104,10 @@ export default function Tooltip({ content, children, delay = 500, placement = "t
         hide();
         child.props.onMouseLeave?.(e);
       },
+      onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+        hide();
+        (child.props as any).onPointerDown?.(e);
+      },
       onFocus: (e: React.FocusEvent<HTMLElement>) => {
         show();
         child.props.onFocus?.(e);

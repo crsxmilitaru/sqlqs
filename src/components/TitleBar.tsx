@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import Tooltip from "./Tooltip";
 import { getModifierKeyLabel, isMacOS } from "../lib/platform";
+import Tooltip from "./Tooltip";
 
 interface Props {
   connected: boolean;
@@ -51,13 +51,12 @@ export default function TitleBar({
   }, []);
 
   return (
-    <div className="flex items-center justify-between h-11 select-none flex-shrink-0 relative">
+    <div data-tauri-drag-region className="flex items-center justify-between h-11 select-none flex-shrink-0 relative">
       <div
-        data-tauri-drag-region
         className="absolute inset-0 flex items-center justify-center pointer-events-none gap-2"
       >
-        <img src="/favicon.png" alt="" className="w-4 h-4 opacity-60" />
-        <span className="text-text-muted font-medium text-[11px] uppercase tracking-[0.15em] opacity-40">
+        <img src="/favicon.png" alt="" className="w-4 h-4 opacity-70" />
+        <span className="text-text-muted font-medium text-[11px] uppercase tracking-[0.15em] opacity-70">
           SQL Query Studio
         </span>
       </div>
@@ -143,11 +142,11 @@ export default function TitleBar({
           </button>
         )}
         {!isMac && (
-          <>
+          <div className="flex h-full ml-4">
             <Tooltip content="Minimize" placement="bottom">
               <button
                 onClick={handleMinimize}
-                className="w-12 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all"
+                className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all"
               >
                 <i className="fa-solid fa-window-minimize text-[10px]" />
               </button>
@@ -155,7 +154,7 @@ export default function TitleBar({
             <Tooltip content="Maximize" placement="bottom">
               <button
                 onClick={handleMaximize}
-                className="w-12 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all"
+                className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all"
               >
                 <i className="fa-regular fa-square text-[10px]" />
               </button>
@@ -163,12 +162,12 @@ export default function TitleBar({
             <Tooltip content="Close" placement="bottom">
               <button
                 onClick={handleClose}
-                className="w-12 h-full flex items-center justify-center text-text-muted hover:bg-[#c42b1c] hover:text-white transition-all"
+                className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-[#c42b1c] hover:text-white transition-all"
               >
                 <i className="fa-solid fa-xmark text-[14px]" />
               </button>
             </Tooltip>
-          </>
+          </div>
         )}
       </div>
     </div>

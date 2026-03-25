@@ -74,7 +74,11 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: rgba(255, 255, 255, 0.03);
   }
 
   ::-webkit-scrollbar-thumb {
@@ -144,6 +148,7 @@
     font-family: var(--font-mono);
     font-size: 14px;
     background-color: transparent !important;
+    padding: 4px 0;
   }
 
   .cm-scroller {
@@ -160,8 +165,8 @@
 
   .cm-gutters {
     background-color: transparent !important;
-    border-right: 1px solid var(--color-border) !important;
-    color: var(--color-text-muted) !important;
+    border-right: none !important;
+    color: color-mix(in srgb, var(--color-text-muted) 40%, transparent) !important;
   }
 
   .cm-activeLine,
@@ -176,12 +181,18 @@
 
   .winui-tab-bar {
     display: flex;
+    align-items: center;
     gap: 4px;
-    padding: 6px 8px;
+    padding: 10px 6px 10px 10px;
+    scrollbar-width: none;
+  }
+
+  .winui-tab-bar::-webkit-scrollbar {
+    display: none;
   }
 
   .winui-tab {
-    padding: 5px 14px;
+    padding: 6px 14px;
     border-radius: 9999px;
     border: none;
     background: transparent;
@@ -195,6 +206,15 @@
   .winui-tab.active {
     background: var(--color-surface-active);
     color: var(--color-text);
+  }
+
+  .winui-tab span[data-text]::after {
+    display: block;
+    content: attr(data-text);
+    font-weight: 500;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
   }
 
   .resizer {
@@ -252,7 +272,8 @@
   }
 
   .results-table {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-family: var(--font-mono);
     font-size: 13px;
     width: 100%;
@@ -261,6 +282,7 @@
   .results-table th {
     position: sticky;
     top: 0;
+    z-index: 1;
     background: var(--color-surface-table);
     border-bottom: 1px solid var(--color-border);
     padding: 6px 12px;
@@ -268,7 +290,6 @@
     font-weight: 500;
     white-space: nowrap;
     color: var(--color-text-muted);
-    z-index: 1;
   }
 
   .results-table td {
@@ -278,6 +299,7 @@
     max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
+    user-select: text;
   }
 
   .results-table tr:hover td {
@@ -411,7 +433,7 @@
     color: rgba(161, 161, 170, 0.3);
   }
 
-  .app-btn {
+  .btn {
     font-family: var(--font-sans);
     display: inline-flex;
     align-items: center;
@@ -435,22 +457,22 @@
       color 0.12s ease;
   }
 
-  .app-btn:hover:not(:disabled) {
+  .btn:hover:not(:disabled) {
     background: var(--color-surface-active);
     color: var(--color-text);
   }
 
-  .app-btn:active:not(:disabled) {
+  .btn:active:not(:disabled) {
     background: var(--color-surface-hover);
   }
 
-  .app-btn:disabled {
+  .btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
   }
 
-  .app-btn i,
-  .app-btn svg {
+  .btn i,
+  .btn svg {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -461,21 +483,32 @@
     line-height: 1;
   }
 
-  .app-btn-primary {
-    background: var(--color-accent);
-    border-color: transparent;
-    color: #ffffff;
-    font-weight: 600;
+  .btn-primary {
+    background: var(--color-surface-raised);
+    border-color: var(--color-border);
+    color: var(--color-text);
+    font-weight: 500;
   }
 
-  .app-btn-primary:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-    border-color: transparent;
-    color: #ffffff;
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-surface-active);
+    border-color: var(--color-border);
+    color: var(--color-text);
   }
 
-  .app-btn-primary:active:not(:disabled) {
-    background: var(--color-accent);
+  .btn-primary:active:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  .btn-execute i,
+  .btn-execute svg {
+    color: #1a8d3e;
+  }
+
+  .btn-secondary {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border);
+    color: var(--color-text-muted);
   }
 
   .empty-state-actions {

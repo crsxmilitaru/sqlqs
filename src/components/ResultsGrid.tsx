@@ -132,6 +132,21 @@ function VirtualGrid({
 
   const rowHeight = 28;
   const buffer = 10;
+  const charWidth = 8;
+  const cellPadding = 24;
+
+  const colWidths = useMemo(() => {
+    const sampleSize = Math.min(resultSet.rows.length, 100);
+    return resultSet.columns.map((col, ci) => {
+      let maxLen = col.name.length;
+      for (let ri = 0; ri < sampleSize; ri++) {
+        const cell = resultSet.rows[ri][ci];
+        const len = cell != null ? String(cell).length : 4;
+        if (len > maxLen) maxLen = len;
+      }
+      return Math.min(maxLen * charWidth + cellPadding, 400);
+    });
+  }, [resultSet]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -155,65 +170,69 @@ function VirtualGrid({
   return (
     <div
       ref={containerRef}
-      className="overflow-auto relative rounded-lg border border-border/20"
-      style={{ minHeight: 180 }}
+      className="overflow-auto rounded-lg border border-border/20"
+      style={{ minHeight: 180, height: "100%" }}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
     >
-      <div style={{ height: totalHeight, width: "100%" }}>
-        <table className="results-table w-full relative border-separate border-spacing-0">
-          <thead>
-            <tr>
-              <th className="text-center w-12 sticky top-0 bg-surface-table z-20 border-b border-r border-border/40">
-                #
+      <table className="results-table" style={{ tableLayout: "fixed", minWidth: "100%" }}>
+        <colgroup>
+          <col style={{ width: 48 }} />
+          {colWidths.map((w, i) => (
+            <col key={i} style={{ width: w }} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            <th className="text-center bg-surface-table border-b border-r border-border/40">
+              #
+            </th>
+            {resultSet.columns.map((col, i) => (
+              <th
+                key={i}
+                title={col.type_name}
+                className="bg-surface-table border-b border-r border-border/40"
+              >
+                {col.name}
               </th>
-              {resultSet.columns.map((col, i) => (
-                <th
-                  key={i}
-                  title={col.type_name}
-                  className="sticky top-0 bg-surface-table z-10 border-b border-r border-border/40"
-                >
-                  {col.name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ height: startIndex * rowHeight }}>
-              <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
-            </tr>
-            {visibleRows.map((row, i) => {
-              const actualIndex = startIndex + i;
-              return (
-                <tr
-                  key={actualIndex}
-                  style={{ height: rowHeight }}
-                  onContextMenu={(e) => onContextMenu(e, actualIndex)}
-                >
-                  <td className="text-center text-text-muted/60 bg-surface-table/30 border-r border-border/10">
-                    {actualIndex + 1}
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr style={{ height: startIndex * rowHeight }}>
+            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
+          </tr>
+          {visibleRows.map((row, i) => {
+            const actualIndex = startIndex + i;
+            return (
+              <tr
+                key={actualIndex}
+                style={{ height: rowHeight }}
+                onContextMenu={(e) => onContextMenu(e, actualIndex)}
+              >
+                <td className="text-center text-text-muted/60 bg-surface-table/30 border-r border-border/10">
+                  {actualIndex + 1}
+                </td>
+                {row.map((cell, ci) => (
+                  <td
+                    key={ci}
+                    title={cell != null ? String(cell) : "NULL"}
+                    className="border-r border-border/5"
+                  >
+                    {cell != null ? (
+                      String(cell)
+                    ) : (
+                      <span className="text-text-muted/40 italic">NULL</span>
+                    )}
                   </td>
-                  {row.map((cell, ci) => (
-                    <td
-                      key={ci}
-                      title={cell != null ? String(cell) : "NULL"}
-                      className="border-r border-border/5"
-                    >
-                      {cell != null ? (
-                        String(cell)
-                      ) : (
-                        <span className="text-text-muted/40 italic">NULL</span>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-            <tr style={{ height: Math.max(0, (resultSet.rows.length - endIndex) * rowHeight) }}>
-              <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                ))}
+              </tr>
+            );
+          })}
+          <tr style={{ height: Math.max(0, (resultSet.rows.length - endIndex) * rowHeight) }}>
+            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -251,7 +270,7 @@ export default function ResultsGrid({
   if (error) {
     return (
       <div className="p-4 h-full overflow-auto bg-surface">
-        <div className="text-error text-[13px] font-mono whitespace-pre-wrap leading-relaxed">
+        <div className="text-error text-[13px] font-mono whitespace-pre-wrap leading-relaxed select-text">
           {error}
         </div>
       </div>
@@ -292,7 +311,6 @@ export default function ResultsGrid({
       id: "delete-row",
       label: "Delete Row",
       icon: <i className="fa-solid fa-trash-can" />,
-      danger: true,
       disabled: !canGenerateRowSql,
       onClick: () => {
         if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)

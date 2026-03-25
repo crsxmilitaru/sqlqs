@@ -271,14 +271,14 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="app-btn px-6 py-1.5"
+              className="btn btn-secondary px-6 py-1.5"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={connecting}
-              className="app-btn app-btn-primary px-6 py-1.5"
+              className="btn btn-primary px-6 py-1.5"
             >
               {connecting ? "Connecting..." : "Connect"}
             </button>

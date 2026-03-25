@@ -65,19 +65,26 @@ export default function QueryEditorPanel({
   } | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<SqlEditorHandle | null>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const newQueryShortcut = `${getModifierKeyLabel()}+N`;
 
   const copyToClipboard = async () => {
-    const result = activeTab?.result;
-    if (!result || result.result_sets.length === 0) return;
+    let text = "";
 
-    const firstSet = result.result_sets[0];
-    const header = firstSet.columns.map((col) => col.name).join("\t");
-    const rows = firstSet.rows.map((row) =>
-      row.map((cell) => (cell != null ? String(cell) : "NULL")).join("\t"),
-    );
-    const text = [header, ...rows].join("\n");
+    if (activeTab?.error) {
+      text = activeTab.error;
+    } else {
+      const result = activeTab?.result;
+      if (!result || result.result_sets.length === 0) return;
+
+      const firstSet = result.result_sets[0];
+      const header = firstSet.columns.map((col) => col.name).join("\t");
+      const rows = firstSet.rows.map((row) =>
+        row.map((cell) => (cell != null ? String(cell) : "NULL")).join("\t"),
+      );
+      text = [header, ...rows].join("\n");
+    }
 
     try {
       await navigator.clipboard.writeText(text);
@@ -258,11 +265,21 @@ export default function QueryEditorPanel({
     <div className="flex flex-col h-full">
       {tabs.length > 0 && (
         <div className="flex items-center flex-shrink-0">
-          <div className="flex flex-1 overflow-x-auto winui-tab-bar min-w-0">
+          <div
+            ref={tabBarRef}
+            onWheel={(e) => {
+              if (tabBarRef.current) {
+                e.preventDefault();
+                tabBarRef.current.scrollLeft += e.deltaY;
+              }
+            }}
+            className="flex overflow-x-auto winui-tab-bar min-w-0"
+          >
             {tabs.map((tab) => (
               <div
                 key={tab.id}
-                className={`winui-tab flex items-center gap-2 text-xs cursor-default whitespace-nowrap select-none ${tab.id === activeTabId
+                ref={tab.id === activeTabId ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
+                className={`winui-tab flex items-center gap-2 text-[12px] cursor-default whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId
                     ? "active text-text font-medium"
                     : "text-text-muted"
                   }`}
@@ -285,11 +302,11 @@ export default function QueryEditorPanel({
                       onChange={(e) => setRenameValue(e.target.value)}
                       onBlur={() => handleRename(tab.id)}
                       onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                      className="bg-transparent border-none outline-none text-xs w-full min-w-0"
+                      className="bg-transparent border-none outline-none text-[12px] w-full min-w-0"
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="truncate block">{tab.title}</span>
+                    <span className="truncate block" data-text={tab.title}>{tab.title}</span>
                   )}
                 </div>
 
@@ -322,40 +339,23 @@ export default function QueryEditorPanel({
                 </div>
               </div>
             ))}
-            <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
-              <button
-                onClick={onTabAdd}
-                className="flex items-center justify-center w-8 h-8 ml-1 text-text-muted hover:text-text hover:bg-white/10 rounded-full transition-colors flex-shrink-0 cursor-pointer"
-              >
-                <i className="fa-solid fa-plus text-[14px]" />
-              </button>
-            </Tooltip>
           </div>
-          {activeTab && (
-            <div className="flex items-center gap-2 px-3 flex-shrink-0">
-              {databases.length > 0 && onDatabaseChange && (
-                <div className="flex items-center gap-2">
-                  <Dropdown
-                    value={currentDatabase || ""}
-                    options={databases.map((db) => ({ value: db, label: db }))}
-                    onChange={onDatabaseChange}
-                    placeholder="Select database"
-                    className="w-40"
-                    filterable
-                  />
-                </div>
-              )}
-              <div className="w-px h-4 bg-white/[0.08] mx-0.5" />
-              <button
-                onClick={() => void handleExecute(editorRef.current?.getSelectedText())}
-                disabled={!connected || !activeTab.sql.trim() || activeTab.isExecuting}
-                className="app-btn app-btn-primary"
-              >
-                <IconPlay className="w-3.5 h-3.5" />
-                <span>Execute</span>
-              </button>
-            </div>
-          )}
+          <div className="w-px h-4 bg-white/[0.08] flex-shrink-0" />
+          <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
+            <button
+              onClick={() => {
+                onTabAdd();
+                requestAnimationFrame(() => {
+                  if (tabBarRef.current) {
+                    tabBarRef.current.scrollLeft = tabBarRef.current.scrollWidth;
+                  }
+                });
+              }}
+              className="flex items-center justify-center w-8 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-white/10 rounded-full transition-colors flex-shrink-0 cursor-pointer"
+            >
+              <i className="fa-solid fa-plus text-[14px]" />
+            </button>
+          </Tooltip>
         </div>
       )}
 
@@ -379,52 +379,68 @@ export default function QueryEditorPanel({
           {!resultsCollapsed && <div className="resizer resizer-v" onMouseDown={handleEditorResize} />}
 
           <div className={`flex flex-col overflow-hidden ${resultsCollapsed ? 'flex-none' : 'flex-1'}`}>
-            <div className="flex items-center justify-between px-3 py-2 border-t border-border flex-shrink-0">
+            <div className="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted font-medium">Results</span>
-                {activeTab.result && activeTab.result.result_sets.length > 0 && (
-                  <span className="text-xs text-text-muted">
-                    ({activeTab.result.result_sets[0].rows.length} row
-                    {activeTab.result.result_sets[0].rows.length !== 1 ? "s" : ""})
-                  </span>
-                )}
+                <span className="text-[12px] text-text-muted font-medium">Results</span>
               </div>
-              <div className="flex items-center gap-1">
-                {activeTab.result && activeTab.result.result_sets.length > 0 && (
-                  <Tooltip
-                    content={copied ? "Copied!" : "Copy results to clipboard"}
-                    placement="left"
-                  >
+              <div className="flex items-center gap-2">
+                {databases.length > 0 && onDatabaseChange && (
+                  <Dropdown
+                    value={currentDatabase || ""}
+                    options={databases.map((db) => ({ value: db, label: db }))}
+                    onChange={onDatabaseChange}
+                    placeholder="Select database"
+                    className="w-64"
+                    filterable
+                    openUpwards
+                  />
+                )}
+                <button
+                  onClick={() => void handleExecute(editorRef.current?.getSelectedText())}
+                  disabled={!connected || !activeTab.sql.trim() || activeTab.isExecuting}
+                  className="btn btn-primary btn-execute"
+                >
+                  <IconPlay className="w-3.5 h-3.5" />
+                  <span>Execute</span>
+                </button>
+                <div className="w-px h-4 bg-white/[0.08]" />
+                <button
+                  onClick={() => setResultsCollapsed(!resultsCollapsed)}
+                  className="btn btn-secondary"
+                >
+                  <i className={`fa-solid fa-chevron-${resultsCollapsed ? 'up' : 'down'}`} />
+                  <span>{resultsCollapsed ? 'Expand' : 'Collapse'}</span>
+                </button>
+              </div>
+            </div>
+            {!resultsCollapsed && (
+              <>
+                <div className="flex-1 min-h-0">
+                  <ResultsGrid
+                    result={activeTab.result}
+                    error={activeTab.error}
+                    isExecuting={activeTab.isExecuting}
+                    sourceSql={activeTab.sql}
+                    onGenerateSql={handleGeneratedRowSql}
+                  />
+                </div>
+                {(activeTab.error || (activeTab.result && activeTab.result.result_sets.length > 0)) && (
+                  <div className="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
+                    <span className="text-[11px] text-text-muted">
+                      {activeTab.error
+                        ? "Error"
+                        : `${activeTab.result!.result_sets[0].rows.length} row${activeTab.result!.result_sets[0].rows.length !== 1 ? "s" : ""}`}
+                    </span>
                     <button
                       onClick={copyToClipboard}
-                      className="px-2 py-1.5 flex items-center gap-1.5 rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors text-xs"
+                      className="btn btn-primary"
                     >
                       <IconCopy className={copied ? "text-success" : ""} />
                       {copied ? "Copied!" : "Copy"}
                     </button>
-                  </Tooltip>
+                  </div>
                 )}
-                <Tooltip content={resultsCollapsed ? "Expand results" : "Collapse results"} placement="left">
-                  <button
-                    onClick={() => setResultsCollapsed(!resultsCollapsed)}
-                    className="px-2 py-1.5 flex items-center gap-1.5 rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors text-xs"
-                  >
-                    <i className={`fa-solid fa-chevron-${resultsCollapsed ? 'up' : 'down'}`} />
-                    <span>{resultsCollapsed ? 'Expand' : 'Collapse'}</span>
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
-            {!resultsCollapsed && (
-              <div className="flex-1 overflow-auto">
-                <ResultsGrid
-                  result={activeTab.result}
-                  error={activeTab.error}
-                  isExecuting={activeTab.isExecuting}
-                  sourceSql={activeTab.sql}
-                  onGenerateSql={handleGeneratedRowSql}
-                />
-              </div>
+              </>
             )}
           </div>
         </>
@@ -436,7 +452,7 @@ export default function QueryEditorPanel({
             {onOpenSqlFile && (
               <button
                 onClick={onOpenSqlFile}
-                className="app-btn app-btn-primary empty-state-btn"
+                className="btn btn-primary empty-state-btn"
               >
                 <i className="fa-regular fa-folder" />
                 <span className="empty-state-btn-label">Open file</span>
@@ -444,7 +460,7 @@ export default function QueryEditorPanel({
             )}
             <button
               onClick={onTabAdd}
-              className="app-btn empty-state-btn"
+              className="btn btn-secondary empty-state-btn"
             >
               <i className="fa-solid fa-plus" />
               <span className="empty-state-btn-label">New file</span>

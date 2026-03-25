@@ -274,7 +274,7 @@ export default function SettingsDialog({
                           </div>
                           <button
                             onClick={handleSaveAiSettings}
-                            className="app-btn app-btn-primary px-4"
+                            className="btn btn-primary px-4"
                           >
                             Save
                           </button>
@@ -331,7 +331,7 @@ export default function SettingsDialog({
                     <button
                       onClick={() => void onCheckForUpdates()}
                       disabled={checkingForUpdates}
-                      className="app-btn app-btn-primary w-full py-2"
+                      className="btn btn-primary w-full py-2"
                     >
                       {checkingForUpdates ? "Checking for updates..." : "Check for Updates"}
                     </button>
