@@ -1,8 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { AiService, type ChatMessage } from "../lib/ai";
+import { getToolLabel, type ToolExecutionContext } from "../lib/ai-tools";
 import Tooltip from "./Tooltip";
+import ToolsPopup from "./ToolsPopup";
 
 const CHAT_STORAGE_KEY = "sqlqs_chat_history";
 
@@ -21,11 +22,32 @@ function saveMessages(msgs: ChatMessage[]) {
 
 export type ApplyMode = "append" | "replace" | "new-tab";
 
-function CollapsibleCode({ children }: { children: React.ReactNode }) {
+function CodeBlock({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const handleCopy = async () => {
+    const text = preRef.current?.textContent || "";
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
-    <div className="my-1.5">
-      <pre className={`bg-black/30 rounded p-2 text-[10px] text-left ${open ? "overflow-x-auto" : "max-h-[3.2em] overflow-hidden"}`}>
+    <div className="my-1.5 group/code relative">
+      <div className="absolute top-1.5 right-1.5 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
+        <button
+          onClick={handleCopy}
+          className="w-6 h-6 flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+        >
+          <i className={`fa-solid ${copied ? "fa-check text-success" : "fa-copy"} text-[10px]`} />
+        </button>
+      </div>
+      <pre
+        ref={preRef}
+        className={`bg-black/30 rounded p-2 text-[10px] text-left select-text ${open ? "overflow-x-auto" : "max-h-[3.2em] overflow-hidden"}`}
+      >
         {children}
       </pre>
       <button
@@ -35,6 +57,23 @@ function CollapsibleCode({ children }: { children: React.ReactNode }) {
         <i className={`fa-solid ${open ? "fa-chevron-up" : "fa-chevron-down"} text-[7px]`} />
         <span>{open ? "Show less" : "Show more"}</span>
       </button>
+    </div>
+  );
+}
+
+function ToolsUsedBadge({ toolsUsed }: { toolsUsed: string[] }) {
+  if (toolsUsed.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+      <i className="fa-solid fa-wrench text-[8px] text-text-muted" />
+      {toolsUsed.map((name) => (
+        <span
+          key={name}
+          className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[9px] font-medium"
+        >
+          {getToolLabel(name)}
+        </span>
+      ))}
     </div>
   );
 }
@@ -59,12 +98,18 @@ export default function AIChatPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applyMenuFor, setApplyMenuFor] = useState<number | null>(null);
+  const [showTools, setShowTools] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView();
   }, []);
 
   useEffect(() => {
@@ -93,6 +138,10 @@ export default function AIChatPanel({
     return () => document.removeEventListener("click", close);
   }, [applyMenuFor]);
 
+  const countSqlBlocks = (text: string): number => {
+    return (text.match(/```sql\n[\s\S]*?\n```/g) || []).length;
+  };
+
   const extractSqlCode = (text: string): string | null => {
     const sqlMatch = text.match(/```sql\n([\s\S]*?)\n```/);
     return sqlMatch ? sqlMatch[1].trim() : null;
@@ -114,31 +163,29 @@ export default function AIChatPanel({
     abortRef.current = controller;
 
     try {
-      let schemaSummary: string | undefined;
-      try {
-        const [, schema] = await invoke<[string | null, string]>("generate_sql_completion");
-        schemaSummary = schema;
-      } catch {
-        // Schema not available
-      }
-
-      const response = await AiService.chat(
-        newMessages,
+      const context: ToolExecutionContext = {
         currentCode,
         currentDatabase,
-        schemaSummary,
+      };
+
+      const { text, toolsUsed } = await AiService.chat(
+        newMessages,
+        context,
         controller.signal,
       );
 
       if (controller.signal.aborted) return;
 
-      const assistantMessage: ChatMessage = { role: "assistant", content: response };
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: text,
+        toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
+      };
       const updated = [...newMessages, assistantMessage];
       setMessages(updated);
       saveMessages(updated);
     } catch (err: any) {
       if (err.name === "AbortError") return;
-      console.error("Chat error:", err);
       setError(err.message || "Failed to get response");
     } finally {
       setIsLoading(false);
@@ -194,7 +241,7 @@ export default function AIChatPanel({
       />
       <div className="flex flex-col flex-1 min-w-0 bg-surface-panel border border-border rounded-lg overflow-hidden shadow-lg">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-header/50">
-          <span className="text-[12px] font-semibold text-text-muted uppercase tracking-wide">Assistant</span>
+          <span className="text-[12px] font-semibold text-text-muted uppercase tracking-wide">Chat</span>
           {messages.length > 0 && (
             <Tooltip content="Clear Chat">
               <button
@@ -226,15 +273,16 @@ export default function AIChatPanel({
               >
                 {msg.role === "assistant" ? (
                   <div className="text-[12px] leading-relaxed chat-markdown [&>*:first-child]:mt-0">
+                    {msg.toolsUsed && <ToolsUsedBadge toolsUsed={msg.toolsUsed} />}
                     <Markdown
                       components={{
-                        pre: ({ children }) => <CollapsibleCode>{children}</CollapsibleCode>,
+                        pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
                         code: ({ children, className }) => {
                           const isBlock = className?.includes("language-");
                           return isBlock ? (
-                            <code className="text-text">{children}</code>
+                            <code className="text-text select-text">{children}</code>
                           ) : (
-                            <code className="bg-black/20 rounded px-1 py-0.5 text-amber-400/80 text-[12px]">{children}</code>
+                            <code className="bg-black/20 rounded px-1 py-0.5 text-amber-400/80 text-[12px] select-text">{children}</code>
                           );
                         },
                         p: ({ children }) => <p className="my-1 text-text/70">{children}</p>,
@@ -255,7 +303,7 @@ export default function AIChatPanel({
                     >
                       {msg.content}
                     </Markdown>
-                    {extractSqlCode(msg.content) && (
+                    {countSqlBlocks(msg.content) === 1 && (
                       <div className="relative mt-2">
                         <div className="flex items-center gap-1">
                           <button
@@ -326,22 +374,48 @@ export default function AIChatPanel({
         </div>
 
         <div className="border-t border-border p-3 bg-surface-header/30">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about your SQL..."
-              disabled={isLoading}
-              rows={1}
-              className="flex-1 min-w-0 bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-[12px] leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 shadow-sm overflow-hidden"
-              style={{ height: "38px", maxHeight: "150px" }}
-            />
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask about your SQL..."
+                disabled={isLoading}
+                rows={1}
+                className="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-[12px] leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 shadow-sm overflow-hidden"
+                style={{ height: "38px", maxHeight: "150px" }}
+              />
+              <div className="flex items-center justify-between">
+                <div className="relative">
+                  <Tooltip content="Configure tools">
+                    <button
+                      ref={toolsButtonRef}
+                      onClick={() => setShowTools(!showTools)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] transition-colors cursor-pointer ${
+                        showTools
+                          ? "text-accent bg-accent/10"
+                          : "text-text-muted hover:text-text hover:bg-surface-hover"
+                      }`}
+                    >
+                      <i className="fa-solid fa-wrench text-[9px]" />
+                      <span>Tools</span>
+                    </button>
+                  </Tooltip>
+                  {showTools && (
+                    <ToolsPopup
+                      anchorRef={toolsButtonRef}
+                      onClose={() => setShowTools(false)}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
             <button
               onClick={handleSendMessage}
               disabled={!input.trim() || isLoading}
-              className="mb-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover shadow-lg shadow-accent/20 transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
+              className="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover shadow-lg shadow-accent/20 transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
             >
               <i className="fa-solid fa-paper-plane text-[10px]" />
             </button>

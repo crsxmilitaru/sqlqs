@@ -384,23 +384,25 @@ export default function QueryEditorPanel({
                   }
                 });
               }}
-              className="flex items-center justify-center w-8 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-white/10 rounded-full transition-colors flex-shrink-0 cursor-pointer"
+              className="flex items-center gap-2 px-3 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-white/10 rounded-lg transition-colors flex-shrink-0 cursor-pointer text-[12px] font-medium"
             >
               <i className="fa-solid fa-plus text-[14px]" />
+              <span>New</span>
             </button>
           </Tooltip>
           {hasAiKey && (
             <>
               <div className="flex-1" />
-              <Tooltip content={aiChatOpen ? "Close AI Assistant" : "Open AI Assistant"} placement="bottom">
+              <Tooltip content={aiChatOpen ? "Close Chat" : "Open Chat"} placement="bottom">
                 <button
                   onClick={() => setAiChatOpen(!aiChatOpen)}
-                  className={`flex items-center justify-center w-8 h-8 mr-2 rounded-full transition-colors flex-shrink-0 cursor-pointer ${aiChatOpen
-                      ? "text-accent bg-accent/10"
-                      : "text-text-muted hover:text-accent hover:bg-white/10"
+                  className={`flex items-center gap-2 px-3 h-8 mx-2.5 rounded-lg transition-colors flex-shrink-0 cursor-pointer text-[12px] font-medium ${aiChatOpen
+                      ? "text-text bg-white/20"
+                      : "text-text-muted hover:text-text hover:bg-white/10"
                     }`}
                 >
-                  <i className="fa-solid fa-wand-sparkles text-[12px]" />
+                  <i className="fa-solid fa-wand-sparkles text-[14px]" />
+                  <span>Chat</span>
                 </button>
               </Tooltip>
             </>
@@ -522,7 +524,7 @@ export default function QueryEditorPanel({
                   </button>
                 )}
                 <button
-                  onClick={onTabAdd}
+                  onClick={() => onTabAdd()}
                   className="btn btn-secondary empty-state-btn"
                 >
                   <i className="fa-solid fa-plus" />

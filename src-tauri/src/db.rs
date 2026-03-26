@@ -564,3 +564,155 @@ pub async fn get_columns(
         })
         .collect())
 }
+
+pub async fn get_indexes(
+    client: &mut SqlClient,
+    database: &str,
+    schema: &str,
+    table: &str,
+) -> Result<String, String> {
+    let sql = format!(
+        "SELECT i.name AS index_name, \
+         i.type_desc AS index_type, \
+         i.is_unique, \
+         i.is_primary_key, \
+         STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) AS columns \
+         FROM [{db}].sys.indexes i \
+         JOIN [{db}].sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
+         JOIN [{db}].sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id \
+         JOIN [{db}].sys.objects o ON i.object_id = o.object_id \
+         JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
+         WHERE s.name = '{sch}' AND o.name = '{tbl}' AND i.name IS NOT NULL \
+         GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key \
+         ORDER BY i.is_primary_key DESC, i.name",
+        db = database.replace(']', "]]"),
+        sch = schema.replace('\'', "''"),
+        tbl = table.replace('\'', "''")
+    );
+    let stream = client
+        .query(&sql, &[])
+        .await
+        .map_err(|e| format!("Failed to get indexes: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read indexes: {}", e))?;
+
+    let mut lines: Vec<String> = Vec::new();
+    for row in &rows {
+        let name = row.try_get::<&str, _>(0).ok().flatten().unwrap_or("");
+        let idx_type = row.try_get::<&str, _>(1).ok().flatten().unwrap_or("");
+        let is_unique = row.try_get::<bool, _>(2).ok().flatten().unwrap_or(false);
+        let is_pk = row.try_get::<bool, _>(3).ok().flatten().unwrap_or(false);
+        let columns = row.try_get::<&str, _>(4).ok().flatten().unwrap_or("");
+
+        let mut flags = Vec::new();
+        if is_pk {
+            flags.push("PRIMARY KEY");
+        }
+        if is_unique && !is_pk {
+            flags.push("UNIQUE");
+        }
+        let flag_str = if flags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", flags.join(", "))
+        };
+
+        lines.push(format!("{}{} ({}) — {}", name, flag_str, columns, idx_type));
+    }
+
+    if lines.is_empty() {
+        Ok("No indexes found.".to_string())
+    } else {
+        Ok(lines.join("\n"))
+    }
+}
+
+pub async fn get_foreign_keys(
+    client: &mut SqlClient,
+    database: &str,
+    schema: &str,
+    table: &str,
+) -> Result<String, String> {
+    let sql = format!(
+        "SELECT fk.name AS fk_name, \
+         STRING_AGG(pc.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS parent_columns, \
+         rs.name AS ref_schema, rt.name AS ref_table, \
+         STRING_AGG(rc.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS ref_columns \
+         FROM [{db}].sys.foreign_keys fk \
+         JOIN [{db}].sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id \
+         JOIN [{db}].sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id \
+         JOIN [{db}].sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id \
+         JOIN [{db}].sys.objects pt ON fk.parent_object_id = pt.object_id \
+         JOIN [{db}].sys.schemas ps ON pt.schema_id = ps.schema_id \
+         JOIN [{db}].sys.objects rt ON fk.referenced_object_id = rt.object_id \
+         JOIN [{db}].sys.schemas rs ON rt.schema_id = rs.schema_id \
+         WHERE ps.name = '{sch}' AND pt.name = '{tbl}' \
+         GROUP BY fk.name, rs.name, rt.name \
+         ORDER BY fk.name",
+        db = database.replace(']', "]]"),
+        sch = schema.replace('\'', "''"),
+        tbl = table.replace('\'', "''")
+    );
+    let stream = client
+        .query(&sql, &[])
+        .await
+        .map_err(|e| format!("Failed to get foreign keys: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read foreign keys: {}", e))?;
+
+    let mut lines: Vec<String> = Vec::new();
+    for row in &rows {
+        let name = row.try_get::<&str, _>(0).ok().flatten().unwrap_or("");
+        let parent_cols = row.try_get::<&str, _>(1).ok().flatten().unwrap_or("");
+        let ref_schema = row.try_get::<&str, _>(2).ok().flatten().unwrap_or("");
+        let ref_table = row.try_get::<&str, _>(3).ok().flatten().unwrap_or("");
+        let ref_cols = row.try_get::<&str, _>(4).ok().flatten().unwrap_or("");
+        lines.push(format!(
+            "{}: ({}) → [{}].[{}]({})",
+            name, parent_cols, ref_schema, ref_table, ref_cols
+        ));
+    }
+
+    if lines.is_empty() {
+        Ok("No foreign keys found.".to_string())
+    } else {
+        Ok(lines.join("\n"))
+    }
+}
+
+pub async fn get_object_definition(
+    client: &mut SqlClient,
+    database: &str,
+    schema: &str,
+    name: &str,
+) -> Result<String, String> {
+    let sql = format!(
+        "SELECT OBJECT_DEFINITION(OBJECT_ID('[{db}].[{sch}].[{nm}]'))",
+        db = database.replace(']', "]]"),
+        sch = schema.replace(']', "]]"),
+        nm = name.replace(']', "]]")
+    );
+    let stream = client
+        .query(&sql, &[])
+        .await
+        .map_err(|e| format!("Failed to get definition: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read definition: {}", e))?;
+
+    let definition = rows
+        .first()
+        .and_then(|r| r.try_get::<&str, _>(0).ok().flatten().map(String::from))
+        .unwrap_or_default();
+
+    if definition.is_empty() {
+        Ok("Definition not available (object may not exist or may be encrypted).".to_string())
+    } else {
+        Ok(definition)
+    }
+}

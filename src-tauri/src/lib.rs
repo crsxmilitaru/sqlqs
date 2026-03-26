@@ -355,6 +355,48 @@ async fn generate_sql_completion(
     }
 }
 
+#[tauri::command]
+async fn get_indexes(
+    state: State<'_, AppState>,
+    database: String,
+    schema: String,
+    table: String,
+) -> Result<String, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_indexes(client, &database, &schema, &table).await
+}
+
+#[tauri::command]
+async fn get_foreign_keys(
+    state: State<'_, AppState>,
+    database: String,
+    schema: String,
+    table: String,
+) -> Result<String, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_foreign_keys(client, &database, &schema, &table).await
+}
+
+#[tauri::command]
+async fn get_object_definition(
+    state: State<'_, AppState>,
+    database: String,
+    schema: String,
+    name: String,
+) -> Result<String, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_object_definition(client, &database, &schema, &name).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| {
@@ -382,6 +424,9 @@ pub fn run() {
             get_databases,
             get_tables,
             get_columns,
+            get_indexes,
+            get_foreign_keys,
+            get_object_definition,
             load_connections,
             load_saved_password,
             try_auto_connect,
