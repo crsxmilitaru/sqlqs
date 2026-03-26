@@ -19,7 +19,16 @@ pub struct AppSettings {
     pub keep_logged_in: bool,
 }
 
-const KEYRING_SERVICE: &str = "sqlqs";
+const LEGACY_KEYRING_SERVICE: &str = "sqlqs";
+#[cfg(target_os = "macos")]
+const KEYRING_SERVICE: &str = "SQL Query Studio";
+#[cfg(not(target_os = "macos"))]
+const KEYRING_SERVICE: &str = LEGACY_KEYRING_SERVICE;
+
+#[cfg(target_os = "macos")]
+const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE, LEGACY_KEYRING_SERVICE];
+#[cfg(not(target_os = "macos"))]
+const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE];
 
 fn settings_path() -> PathBuf {
     let dir = dirs_next()
@@ -79,6 +88,8 @@ pub fn store_password(connection_name: &str, password: &str) -> Result<(), Strin
 }
 
 pub fn load_password(connection_name: &str) -> Option<String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, connection_name).ok()?;
-    entry.get_password().ok()
+    KEYRING_SERVICES.iter().find_map(|service| {
+        let entry = keyring::Entry::new(service, connection_name).ok()?;
+        entry.get_password().ok()
+    })
 }

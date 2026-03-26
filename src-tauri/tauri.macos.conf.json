@@ -1,0 +1,30 @@
+{
+  "mainBinaryName": "SQL Query Studio",
+  "app": {
+    "windows": [
+      {
+        "title": "SQL Query Studio",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "decorations": false,
+        "visible": false,
+        "backgroundColor": "#0f172a",
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "active",
+          "radius": 14
+        }
+      }
+    ]
+  },
+  "bundle": {
+    "macOS": {
+      "bundleName": "SQL Query Studio"
+    }
+  }
+}

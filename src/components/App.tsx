@@ -4,6 +4,8 @@ import { useConnection } from "../hooks/useConnection";
 import { useHistory } from "../hooks/useHistory";
 import { useSavedQueries } from "../hooks/useSavedQueries";
 import { useTabs } from "../hooks/useTabs";
+import { getSavedQueriesDir } from "../lib/path";
+import { getPlatformClass } from "../lib/platform";
 import { loadTheme } from "../lib/theme";
 import type { ConnectionConfig, QueryResult, QueryTab } from "../lib/types";
 import { generateTabTitle } from "../lib/sql";
@@ -74,11 +76,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      checkForUpdates(false);
-    }, 1000);
-    return () => clearTimeout(timer);
+    const platformClass = getPlatformClass();
+    document.documentElement.dataset.platform = platformClass;
+
+    return () => {
+      delete document.documentElement.dataset.platform;
+    };
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void checkForUpdates(false);
+    }, 5000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [checkForUpdates]);
 
   const handleConnect = useCallback((config: ConnectionConfig) => {
     connect(config);
@@ -137,6 +151,24 @@ export default function App() {
     input.click();
   }, [addTab]);
 
+  const handleOpenSqlFilePath = useCallback(
+    async (path: string) => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const file = await invoke<{
+          path: string;
+          file_name: string;
+          content: string;
+        }>("read_sql_file", { path });
+
+        addTab(file.content, file.file_name, `file:${file.path}`, true);
+      } catch (error) {
+        console.error("Failed to open SQL file from path:", error);
+      }
+    },
+    [addTab],
+  );
+
   const handleExplorerResize = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -188,12 +220,42 @@ export default function App() {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const documentsPath = await invoke<string>("get_documents_folder");
-      const folderPath = `${documentsPath}\\SQL Query Studio\\Saved Queries`;
+      const folderPath = getSavedQueriesDir(documentsPath);
       await invoke("open_folder", { path: folderPath });
     } catch (err) {
       console.error("Failed to open folder:", err);
     }
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const [{ invoke }, { listen }] = await Promise.all([
+          import("@tauri-apps/api/core"),
+          import("@tauri-apps/api/event"),
+        ]);
+
+        const startupPath = await invoke<string | null>("get_startup_sql_file_path");
+        if (isMounted && startupPath) {
+          await handleOpenSqlFilePath(startupPath);
+        }
+
+        unlisten = await listen<string>("sql-file-opened", async (event) => {
+          await handleOpenSqlFilePath(event.payload);
+        });
+      } catch (error) {
+        console.error("Failed to register SQL file handlers:", error);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, [handleOpenSqlFilePath]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -210,7 +272,7 @@ export default function App() {
   const isAnyDialogOpen = isConnectionDialogOpen || isSettingsDialogOpen || !!updateAvailable;
 
   return (
-    <div className="flex h-screen w-screen relative flex-col overflow-hidden acrylic-panel bg-surface-panel/90 font-sans text-text selection:bg-accent/30 selection:text-white">
+    <div className="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-white">
       <TitleBar
         connected={connected}
         serverName={serverName}
@@ -236,10 +298,10 @@ export default function App() {
         onToggleAiChat={handleToggleAiChat}
       />
 
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="app-workspace flex flex-1 overflow-hidden relative">
         {connected && isSidebarOpen && (
           <>
-            <div style={{ width: explorerWidth }} className="flex-shrink-0 overflow-hidden relative">
+            <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative">
               <ObjectExplorer
                 onSelect={(sql, execute, title, database, sourceId) => {
                   if (database && database !== currentDatabase) {
@@ -265,7 +327,7 @@ export default function App() {
           </>
         )}
 
-        <main className={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen && connected ? 'rounded-tl-2xl' : 'rounded-none'} border-l border-t border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-all duration-300`}>
+        <main className={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen && connected ? 'rounded-tl-2xl border-t border-l-0' : 'rounded-none border-l border-t'} border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-all duration-300`}>
           <QueryEditorPanel
             tabs={tabs}
             activeTabId={activeTabId}

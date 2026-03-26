@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { getSavedQueriesDir, joinPath } from "../lib/path";
 
 export interface SavedQuery {
   id: string;
@@ -66,11 +67,11 @@ export function useSavedQueries() {
       const { invoke } = await import("@tauri-apps/api/core");
 
       const documentsPath = await invoke<string>("get_documents_folder");
-      const savedQueriesDir = `${documentsPath}\\SQL Query Studio\\Saved Queries`;
+      const savedQueriesDir = getSavedQueriesDir(documentsPath);
 
       const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
       const fileName = `${sanitizedTitle}.sql`;
-      const filePath = `${savedQueriesDir}\\${fileName}`;
+      const filePath = joinPath(savedQueriesDir, fileName);
 
       await invoke<string>("write_sql_file", { path: filePath, content: sql });
 

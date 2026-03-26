@@ -131,24 +131,48 @@
 
 @layer components {
 
-  .acrylic-panel {
+  .app-material-shell {
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border-right: none;
   }
 
-  .acrylic-panel::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(180deg,
-        rgba(255, 255, 255, 0.04) 0%,
-        rgba(255, 255, 255, 0.01) 100%);
-    pointer-events: none;
-    z-index: -1;
+  .app-material-shell::before {
+    content: none;
+  }
+
+  .app-shell {
+    background: var(--app-chrome-bg);
+  }
+
+  .app-workspace {
+    background: transparent;
+  }
+
+  .app-titlebar,
+  .app-sidebar-surface {
+    background: transparent;
+  }
+
+  :root[data-platform="windows"] .app-shell {
+    background: transparent;
+  }
+
+  :root[data-platform="windows"] {
+    --app-chrome-bg: rgba(24, 24, 24, 0.86);
+  }
+
+  :root[data-platform="macos"] {
+    --app-chrome-bg: color-mix(in srgb, var(--color-surface-panel) 60%, transparent);
+  }
+
+  :root[data-platform="macos"] .app-material-shell {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  :root:not([data-platform="windows"]):not([data-platform="macos"]) {
+    --app-chrome-bg: color-mix(in srgb, var(--color-surface-panel) 68%, transparent);
   }
 
   .cm-editor {

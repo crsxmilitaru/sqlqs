@@ -209,7 +209,7 @@ export default function TitleBar({
     <>
       <div
         data-tauri-drag-region
-        className="flex items-center h-11 select-none flex-shrink-0 relative"
+        className="app-titlebar flex items-center h-11 select-none flex-shrink-0 relative"
         onMouseDown={handleTitleBarMouseDown}
       >
         <div 

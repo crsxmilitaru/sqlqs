@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -16,6 +16,13 @@ interface UpdaterErrorDetails {
   tone: UpdateMessageTone;
 }
 
+export type UpdateCheckResult =
+  | "update-available"
+  | "up-to-date"
+  | "configuration-error"
+  | "error"
+  | "skipped";
+
 const MISSING_UPDATER_CONFIG_MESSAGE =
   "Updater is not configured yet. Set plugins.updater.endpoints and plugins.updater.pubkey in src-tauri/tauri.conf.json.";
 const INVALID_UPDATER_SIGNATURE_MESSAGE =
@@ -30,6 +37,7 @@ export function useAppUpdater() {
     tone: "info",
   });
   const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
+  const isCheckingRef = useRef(false);
 
   useEffect(() => {
     async function loadVersion() {
@@ -81,11 +89,12 @@ export function useAppUpdater() {
     };
   }, []);
 
-  const checkForUpdates = useCallback(async (manual: boolean) => {
-    if (updateStatus.checking) {
-      return;
+  const checkForUpdates = useCallback(async (manual: boolean): Promise<UpdateCheckResult> => {
+    if (isCheckingRef.current) {
+      return "skipped";
     }
 
+    isCheckingRef.current = true;
     setUpdateStatus({
       checking: true,
       message: manual ? "Checking for updates..." : null,
@@ -100,7 +109,7 @@ export function useAppUpdater() {
           message: manual ? "You are running the latest version." : null,
           tone: "success",
         });
-        return;
+        return "up-to-date";
       }
 
       setUpdateAvailable(update);
@@ -109,6 +118,7 @@ export function useAppUpdater() {
         message: `Update ${update.version} is available.`,
         tone: "info",
       });
+      return "update-available";
     } catch (error) {
       const { message, configurationIssue, tone } = formatUpdaterError(error);
       const shouldHideMessage = !manual && configurationIssue;
@@ -117,8 +127,11 @@ export function useAppUpdater() {
         message: shouldHideMessage ? null : message,
         tone: shouldHideMessage ? "info" : tone,
       });
+      return configurationIssue ? "configuration-error" : "error";
+    } finally {
+      isCheckingRef.current = false;
     }
-  }, [formatUpdaterError, updateStatus.checking]);
+  }, [formatUpdaterError]);
 
   const installUpdate = useCallback(async (update: Update) => {
     setUpdateAvailable(null);

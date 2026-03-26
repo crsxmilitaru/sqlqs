@@ -12,6 +12,11 @@ jobs:
   release:
     name: Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      HAS_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_P8 != '' }}
+      HAS_APPLE_NOTARIZATION: ${{ (secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_P8 != '') || (secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '') }}
+      HAS_APPLE_RELEASE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && ((secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_P8 != '') || (secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,12 +40,54 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare App Store Connect API key
+        if: matrix.os == 'macos-latest' && env.HAS_APPLE_API_KEY == 'true'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          cat > "$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8" <<'EOF'
+          ${{ secrets.APPLE_API_KEY_P8 }}
+          EOF
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8" >> "$GITHUB_ENV"
+
+      - name: Warn when macOS signing secrets are missing
+        if: matrix.os == 'macos-latest' && env.HAS_APPLE_CERTIFICATE != 'true'
+        run: echo "::warning::APPLE_CERTIFICATE/APPLE_CERTIFICATE_PASSWORD are not configured. The macOS release will be ad-hoc signed only; users will need to right-click the app and choose Open the first time."
+
+      - name: Warn when macOS notarization secrets are missing
+        if: matrix.os == 'macos-latest' && env.HAS_APPLE_NOTARIZATION != 'true'
+        run: echo "::warning::No Apple notarization credentials were provided. The macOS release will fall back to ad-hoc signing so users can still install it via the one-time Open flow."
+
       - name: Build and upload release assets
+        if: matrix.os != 'macos-latest' || env.HAS_APPLE_RELEASE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "SQL Query Studio ${{ github.ref_name }}"
+          releaseBody: ""
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Build and upload ad-hoc signed macOS release assets
+        if: matrix.os == 'macos-latest' && env.HAS_APPLE_RELEASE_SIGNING != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "SQL Query Studio ${{ github.ref_name }}"

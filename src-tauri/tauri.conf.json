@@ -23,11 +23,9 @@
         "transparent": true,
         "windowEffects": {
           "effects": [
-            "sidebar",
-            "acrylic"
+            "mica"
           ],
-          "state": "active",
-          "color": "#0000004C"
+          "state": "active"
         }
       }
     ],

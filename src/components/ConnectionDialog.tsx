@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMacOS } from "../lib/platform";
 import type { AppSettings, ConnectionConfig, SavedConnection } from "../lib/types";
 import Dropdown from "./Dropdown";
 import Input from "./Input";
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function ConnectionDialog({ onConnect, onClose }: Props) {
+  const supportsWindowsAuth = !isMacOS();
   const [server, setServer] = useState("localhost");
   const [database, setDatabase] = useState("");
   const [username, setUsername] = useState("sa");
@@ -29,6 +31,12 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
     loadSavedConnections();
     requestAnimationFrame(() => setVisible(true));
   }, []);
+
+  useEffect(() => {
+    if (!supportsWindowsAuth) {
+      setUseWindowsAuth(false);
+    }
+  }, [supportsWindowsAuth]);
 
   async function loadSavedConnections() {
     try {
@@ -53,7 +61,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
     setServer(cfg.server);
     setDatabase(cfg.database || "");
     setUsername(cfg.username || "sa");
-    setUseWindowsAuth(cfg.use_windows_auth);
+    setUseWindowsAuth(supportsWindowsAuth && cfg.use_windows_auth);
     setEncrypt(cfg.encrypt);
     setTrustCert(cfg.trust_server_certificate);
     setSaveName(saved.name);
@@ -165,14 +173,16 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             />
           </div>
 
-          <label className="flex items-center gap-2.5 text-sm text-text cursor-pointer mt-0.5 select-none">
-            <input
-              type="checkbox"
-              checked={useWindowsAuth}
-              onChange={(e) => setUseWindowsAuth(e.target.checked)}
-            />
-            <span>Windows Authentication</span>
-          </label>
+          {supportsWindowsAuth && (
+            <label className="flex items-center gap-2.5 text-sm text-text cursor-pointer mt-0.5 select-none">
+              <input
+                type="checkbox"
+                checked={useWindowsAuth}
+                onChange={(e) => setUseWindowsAuth(e.target.checked)}
+              />
+              <span>Windows Authentication</span>
+            </label>
+          )}
 
           {!useWindowsAuth && (
             <div className="flex gap-4 mt-0.5">

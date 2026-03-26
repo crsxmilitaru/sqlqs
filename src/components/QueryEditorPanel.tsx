@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AiService } from "../lib/ai";
+import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
@@ -7,7 +8,6 @@ import Dropdown from "./Dropdown";
 import { IconCopy, IconPlay } from "./Icons";
 import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
-import Tooltip from "./Tooltip";
 
 import { format } from "sql-formatter";
 
@@ -44,6 +44,7 @@ export default function QueryEditorPanel({
   aiChatOpen,
   onAiChatOpenChange,
 }: Props) {
+  const modifierKeyLabel = getModifierKeyLabel();
   const [editorHeight, setEditorHeight] = useState(300);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
   const [aiChatWidth, setAiChatWidth] = useState(() => {
@@ -163,7 +164,7 @@ export default function QueryEditorPanel({
         id: "format",
         label: "Format",
         icon: <i className="fa-solid fa-align-left" />,
-        shortcut: "Ctrl+Shift+F",
+        shortcut: `${modifierKeyLabel}+Shift+F`,
         onClick: handleFormatSql,
         disabled: !activeTab?.sql.trim(),
       },
@@ -193,7 +194,7 @@ export default function QueryEditorPanel({
     <div className="flex flex-col h-full">
       {activeTab ? (
         <div className="flex flex-col flex-1 min-h-0">
-          <div className="flex items-center gap-2 p-2.5 flex-shrink-0">
+          <div className="flex items-center gap-2 p-3.5 flex-shrink-0">
             {databases.length > 0 && onDatabaseChange && (
               <Dropdown
                 value={currentDatabase || ""}
@@ -281,7 +282,7 @@ export default function QueryEditorPanel({
                   />
                 </div>
                 {(activeTab.error || (activeTab.result && activeTab.result.result_sets.length > 0)) && (
-                  <div className="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
+                  <div className="flex items-center justify-between px-3.5 py-1 border-t border-border flex-shrink-0">
                     <span className="text-[11px] text-text-muted">
                       {activeTab.error
                         ? "Error"

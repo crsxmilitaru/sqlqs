@@ -5,9 +5,14 @@ use db::{ColumnInfo, ConnectionConfig, DatabaseObject, QueryResult, SqlClient};
 use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use tauri::Manager;
 use tauri::State;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
 
 struct AppState {
     client: Arc<Mutex<Option<SqlClient>>>,
@@ -96,8 +101,29 @@ fn open_folder(path: String) -> Result<(), String> {
         std::fs::create_dir_all(&folder)
             .map_err(|err| format!("Failed to create folder '{}': {}", path, err))?;
     }
-    std::process::Command::new("explorer")
-        .arg(&folder)
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(&folder);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg(&folder);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(&folder);
+        command
+    };
+
+    command
         .spawn()
         .map_err(|err| format!("Failed to open folder: {}", err))?;
     Ok(())
@@ -422,7 +448,7 @@ pub fn run() {
         }
     }));
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -453,6 +479,31 @@ pub fn run() {
             get_documents_folder,
             open_folder,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Opened { urls } = event {
+            for url in urls {
+                let Ok(path) = url.to_file_path() else {
+                    continue;
+                };
+
+                let is_sql = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
+                    .unwrap_or(false);
+
+                if is_sql {
+                    let _ =
+                        app_handle.emit(SQL_FILE_OPENED_EVENT, path.to_string_lossy().to_string());
+                }
+            }
+        }
+    });
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    app.run(|_, _| {});
 }

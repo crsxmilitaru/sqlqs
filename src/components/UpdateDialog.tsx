@@ -21,8 +21,10 @@ export default function UpdateDialog({ version, currentVersion, onInstall, onCan
 
   return (
     <div
-      className="absolute top-11 inset-x-0 bottom-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed top-11 inset-x-0 bottom-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onMouseDown={onCancel}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className="w-[460px] max-w-[94vw] rounded-2xl border border-white/[0.08] bg-surface-raised/95 p-6 shadow-2xl"
