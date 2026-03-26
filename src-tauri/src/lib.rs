@@ -6,7 +6,7 @@ use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-use tauri::Manager;
+use tauri::Emitter;
 use tauri::State;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
