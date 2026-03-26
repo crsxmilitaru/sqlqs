@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { QueryTab } from "../lib/types";
 import { AiService } from "../lib/ai";
+import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Dropdown from "./Dropdown";
@@ -10,19 +10,13 @@ import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "./Tooltip";
 
 import { format } from "sql-formatter";
-import { getModifierKeyLabel } from "../lib/platform";
 
 interface Props {
   tabs: QueryTab[];
   activeTabId: string;
-  onTabChange: (id: string) => void;
   onTabAdd: (sql?: string, title?: string) => string;
   onOpenSqlFile?: () => void;
-  onTabClose: (id: string) => void;
-  onTabCloseOthers: (id: string) => void;
-  onTabCloseAll: () => void;
   onTabUpdate: (id: string, updates: Partial<QueryTab>) => void;
-  onTabSave?: (id: string) => void;
   onExecute: (id: string, customSql?: string) => void;
   onConnect?: () => void;
   connected: boolean;
@@ -30,19 +24,16 @@ interface Props {
   databases?: string[];
   onDatabaseChange?: (db: string) => void;
   theme: { id: string };
+  aiChatOpen: boolean;
+  onAiChatOpenChange: (open: boolean) => void;
 }
 
 export default function QueryEditorPanel({
   tabs,
   activeTabId,
-  onTabChange,
   onTabAdd,
   onOpenSqlFile,
-  onTabClose,
-  onTabCloseOthers,
-  onTabCloseAll,
   onTabUpdate,
-  onTabSave,
   onExecute,
   onConnect,
   connected,
@@ -50,55 +41,37 @@ export default function QueryEditorPanel({
   databases = [],
   onDatabaseChange,
   theme,
+  aiChatOpen,
+  onAiChatOpenChange,
 }: Props) {
   const [editorHeight, setEditorHeight] = useState(300);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
-  const [aiChatOpen, setAiChatOpen] = useState(() => {
-    return localStorage.getItem("sqlqs_ai_chat_open") === "true";
-  });
   const [aiChatWidth, setAiChatWidth] = useState(() => {
     const saved = localStorage.getItem("sqlqs_ai_chat_width");
     return saved ? parseInt(saved, 10) : 320;
   });
-
-  useEffect(() => {
-    localStorage.setItem("sqlqs_ai_chat_open", aiChatOpen.toString());
-  }, [aiChatOpen]);
+  const hasAiKey = AiService.getStatus().hasKey;
 
   useEffect(() => {
     localStorage.setItem("sqlqs_ai_chat_width", aiChatWidth.toString());
   }, [aiChatWidth]);
 
-  const hasAiKey = AiService.getStatus().hasKey;
-  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
   const [copied, setCopied] = useState(false);
-  const [tabContextMenu, setTabContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    tabId: string;
-  } | null>(null);
   const [editorContextMenu, setEditorContextMenu] = useState<{
     visible: boolean;
     x: number;
     y: number;
   } | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<SqlEditorHandle | null>(null);
-  const tabBarRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const newQueryShortcut = `${getModifierKeyLabel()}+N`;
 
   const copyToClipboard = async () => {
     let text = "";
-
     if (activeTab?.error) {
       text = activeTab.error;
     } else {
       const result = activeTab?.result;
       if (!result || result.result_sets.length === 0) return;
-
       const firstSet = result.result_sets[0];
       const header = firstSet.columns.map((col) => col.name).join("\t");
       const rows = firstSet.rows.map((row) =>
@@ -106,7 +79,6 @@ export default function QueryEditorPanel({
       );
       text = [header, ...rows].join("\n");
     }
-
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -115,35 +87,6 @@ export default function QueryEditorPanel({
       console.error("Failed to copy:", err);
     }
   };
-
-  const handleStartRename = useCallback((tab: QueryTab) => {
-    setRenamingTabId(tab.id);
-    setRenameValue(tab.title);
-  }, []);
-
-  const handleRename = useCallback((tabId: string) => {
-    if (renameValue.trim()) {
-      onTabUpdate(tabId, { title: renameValue.trim(), userTitle: true });
-    }
-    setRenamingTabId(null);
-    setRenameValue("");
-  }, [renameValue, onTabUpdate]);
-
-  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent, tabId: string) => {
-    if (e.key === "Enter") {
-      handleRename(tabId);
-    } else if (e.key === "Escape") {
-      setRenamingTabId(null);
-      setRenameValue("");
-    }
-  }, [handleRename]);
-
-  useEffect(() => {
-    if (renamingTabId && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [renamingTabId]);
 
   useEffect(() => {
     if (activeTab && !activeTab.result && !activeTab.error && !activeTab.isExecuting) {
@@ -195,16 +138,6 @@ export default function QueryEditorPanel({
     [activeTab, onTabUpdate, onTabAdd],
   );
 
-  const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
-    e.preventDefault();
-    setTabContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-      tabId,
-    });
-  }, []);
-
   const handleEditorContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setEditorContextMenu({
@@ -214,46 +147,9 @@ export default function QueryEditorPanel({
     });
   }, []);
 
-  const getTabContextMenuItems = (tabId: string): ContextMenuItem[] => {
-    const items: ContextMenuItem[] = [
-      {
-        id: "close",
-        label: "Close",
-        icon: <i className="fa-solid fa-xmark" />,
-        onClick: () => onTabClose(tabId),
-      },
-      {
-        id: "close-others",
-        label: "Close Others",
-        icon: <i className="fa-solid fa-rectangle-xmark" />,
-        onClick: () => onTabCloseOthers(tabId),
-      },
-      {
-        id: "close-all",
-        label: "Close All",
-        icon: <i className="fa-solid fa-trash" />,
-        onClick: () => onTabCloseAll(),
-      },
-    ];
-
-    if (onTabSave) {
-      items.push(
-        { id: "sep-tab-1", separator: true },
-        {
-          id: "save-as",
-          label: "Save As...",
-          icon: <i className="fa-solid fa-floppy-disk" />,
-          onClick: () => onTabSave(tabId),
-        },
-      );
-    }
-
-    return items;
-  };
-
   const getEditorContextMenuItems = (): ContextMenuItem[] => {
     const selectedText = editorRef.current?.getSelectedText();
-    const items: ContextMenuItem[] = [
+    return [
       {
         id: "execute",
         label: selectedText ? "Execute Selection" : "Execute",
@@ -272,8 +168,6 @@ export default function QueryEditorPanel({
         disabled: !activeTab?.sql.trim(),
       },
     ];
-
-    return items;
   };
 
   const handleEditorResize = useCallback(
@@ -281,7 +175,6 @@ export default function QueryEditorPanel({
       e.preventDefault();
       const startY = e.clientY;
       const startHeight = editorHeight;
-
       const onMove = (ev: MouseEvent) => {
         const newHeight = Math.max(100, Math.min(800, startHeight + ev.clientY - startY));
         setEditorHeight(newHeight);
@@ -298,122 +191,41 @@ export default function QueryEditorPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {tabs.length > 0 && (
-        <div className="flex items-center flex-shrink-0">
-          <div
-            ref={tabBarRef}
-            onWheel={(e) => {
-              if (tabBarRef.current) {
-                e.preventDefault();
-                tabBarRef.current.scrollLeft += e.deltaY;
-              }
-            }}
-            className="flex overflow-x-auto winui-tab-bar min-w-0"
-          >
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                ref={tab.id === activeTabId ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
-                className={`winui-tab flex items-center gap-2 text-[12px] cursor-default whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId
-                  ? "active text-text font-medium"
-                  : "text-text-muted"
-                  }`}
-                onClick={() => onTabChange(tab.id)}
-                onDoubleClick={() => handleStartRename(tab)}
-                onAuxClick={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault();
-                    onTabClose(tab.id);
-                  }
-                }}
-                onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-              >
-                <div className="flex-1 min-w-0 mr-3">
-                  {renamingTabId === tab.id ? (
-                    <input
-                      ref={renameInputRef}
-                      type="text"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onBlur={() => handleRename(tab.id)}
-                      onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                      className="bg-transparent border-none outline-none text-[12px] w-full min-w-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : (
-                    <span className="truncate block" data-text={tab.title}>{tab.title}</span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {tab.isExecuting && (
-                    <span className="animate-pulse text-warning text-[10px]">&#9679;</span>
-                  )}
-                  {onTabSave && (
-                    <Tooltip content="Save query">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onTabSave(tab.id);
-                        }}
-                        className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text cursor-pointer transition-colors"
-                      >
-                        <i className="fa-solid fa-floppy-disk text-[10px]" />
-                      </button>
-                    </Tooltip>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTabClose(tab.id);
-                    }}
-                    className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text cursor-pointer transition-colors"
-                  >
-                    <i className="fa-solid fa-xmark text-[10px]" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="w-px h-4 bg-white/[0.08] flex-shrink-0" />
-          <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
-            <button
-              onClick={() => {
-                onTabAdd();
-                requestAnimationFrame(() => {
-                  if (tabBarRef.current) {
-                    tabBarRef.current.scrollLeft = tabBarRef.current.scrollWidth;
-                  }
-                });
-              }}
-              className="flex items-center gap-2 px-3 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-white/10 rounded-lg transition-colors flex-shrink-0 cursor-pointer text-[12px] font-medium"
-            >
-              <i className="fa-solid fa-plus text-[14px]" />
-              <span>New</span>
-            </button>
-          </Tooltip>
-          {hasAiKey && (
-            <>
-              <div className="flex-1" />
-              <Tooltip content={aiChatOpen ? "Close Chat" : "Open Chat"} placement="bottom">
-                <button
-                  onClick={() => setAiChatOpen(!aiChatOpen)}
-                  className={`flex items-center gap-2 px-3 h-8 mx-2.5 rounded-lg transition-colors flex-shrink-0 cursor-pointer text-[12px] font-medium ${aiChatOpen
-                      ? "text-text bg-white/20"
-                      : "text-text-muted hover:text-text hover:bg-white/10"
-                    }`}
-                >
-                  <i className="fa-solid fa-wand-sparkles text-[14px]" />
-                  <span>Chat</span>
-                </button>
-              </Tooltip>
-            </>
-          )}
-        </div>
-      )}
-
       {activeTab ? (
         <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex items-center gap-2 p-2.5 flex-shrink-0">
+            {databases.length > 0 && onDatabaseChange && (
+              <Dropdown
+                value={currentDatabase || ""}
+                options={databases.map((db) => ({ value: db, label: db }))}
+                onChange={onDatabaseChange}
+                placeholder="Select database"
+                className="w-64"
+                filterable
+              />
+            )}
+            <button
+              onClick={() => void handleExecute(editorRef.current?.getSelectedText())}
+              disabled={!connected || !activeTab.sql.trim() || activeTab.isExecuting}
+              className="btn btn-primary btn-execute"
+            >
+              <IconPlay className="w-3.5 h-3.5" />
+              <span>Execute</span>
+            </button>
+
+            <div className="flex-1" />
+
+            {hasAiKey && (
+              <button
+                onClick={() => onAiChatOpenChange(!aiChatOpen)}
+                className={`btn ${aiChatOpen ? "btn-primary" : "btn-secondary"}`}
+              >
+                <i className="fa-solid fa-wand-sparkles" />
+                <span>Chat</span>
+              </button>
+            )}
+          </div>
+
           <div
             className={`flex overflow-hidden ${resultsCollapsed ? 'flex-1' : 'flex-shrink-0'}`}
             style={resultsCollapsed ? undefined : { height: editorHeight }}
@@ -429,7 +241,6 @@ export default function QueryEditorPanel({
                 onContextMenu={handleEditorContextMenu}
               />
             </div>
-
             {aiChatOpen && (
               <AIChatPanel
                 currentCode={activeTab.sql}
@@ -449,26 +260,6 @@ export default function QueryEditorPanel({
                 <span className="text-[12px] text-text-muted font-medium">Results</span>
               </div>
               <div className="flex items-center gap-2">
-                {databases.length > 0 && onDatabaseChange && (
-                  <Dropdown
-                    value={currentDatabase || ""}
-                    options={databases.map((db) => ({ value: db, label: db }))}
-                    onChange={onDatabaseChange}
-                    placeholder="Select database"
-                    className="w-64"
-                    filterable
-                    openUpwards
-                  />
-                )}
-                <button
-                  onClick={() => void handleExecute(editorRef.current?.getSelectedText())}
-                  disabled={!connected || !activeTab.sql.trim() || activeTab.isExecuting}
-                  className="btn btn-primary btn-execute"
-                >
-                  <IconPlay className="w-3.5 h-3.5" />
-                  <span>Execute</span>
-                </button>
-                <div className="w-px h-4 bg-white/[0.08]" />
                 <button
                   onClick={() => setResultsCollapsed(!resultsCollapsed)}
                   className="btn btn-secondary"
@@ -496,10 +287,7 @@ export default function QueryEditorPanel({
                         ? "Error"
                         : `${activeTab.result!.result_sets[0].rows.length} row${activeTab.result!.result_sets[0].rows.length !== 1 ? "s" : ""}`}
                     </span>
-                    <button
-                      onClick={copyToClipboard}
-                      className="btn btn-primary"
-                    >
+                    <button onClick={copyToClipboard} className="btn btn-primary">
                       <IconCopy className={copied ? "text-success" : ""} />
                       {copied ? "Copied!" : "Copy"}
                     </button>
@@ -517,18 +305,12 @@ export default function QueryEditorPanel({
               <p className="text-sm">No open queries</p>
               <div className="empty-state-actions mt-1">
                 {onOpenSqlFile && (
-                  <button
-                    onClick={onOpenSqlFile}
-                    className="btn btn-primary empty-state-btn"
-                  >
+                  <button onClick={onOpenSqlFile} className="btn btn-primary empty-state-btn">
                     <i className="fa-regular fa-folder" />
                     <span className="empty-state-btn-label">Open file</span>
                   </button>
                 )}
-                <button
-                  onClick={() => onTabAdd()}
-                  className="btn btn-secondary empty-state-btn"
-                >
+                <button onClick={() => onTabAdd()} className="btn btn-secondary empty-state-btn">
                   <i className="fa-solid fa-plus" />
                   <span className="empty-state-btn-label">New file</span>
                 </button>
@@ -540,10 +322,7 @@ export default function QueryEditorPanel({
               <p className="text-sm">Not connected to a server</p>
               <p className="text-xs opacity-60">Connect to a SQL Server to start running queries</p>
               {onConnect && (
-                <button
-                  onClick={onConnect}
-                  className="btn btn-primary empty-state-btn mt-1"
-                >
+                <button onClick={onConnect} className="btn btn-primary empty-state-btn mt-1">
                   <i className="fa-solid fa-plug" />
                   <span className="empty-state-btn-label">Connect Server</span>
                 </button>
@@ -551,14 +330,6 @@ export default function QueryEditorPanel({
             </>
           )}
         </div>
-      )}
-      {tabContextMenu?.visible && (
-        <ContextMenu
-          items={getTabContextMenuItems(tabContextMenu.tabId)}
-          x={tabContextMenu.x}
-          y={tabContextMenu.y}
-          onClose={() => setTabContextMenu(null)}
-        />
       )}
       {editorContextMenu?.visible && (
         <ContextMenu

@@ -191,7 +191,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 10px 6px 10px 10px;
+    padding: 6px 6px 6px 6px;
     scrollbar-width: none;
   }
 
@@ -200,8 +200,8 @@
   }
 
   .winui-tab {
-    padding: 6px 14px;
-    border-radius: 9999px;
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
     border: none;
     background: transparent;
     transition: all 0.15s ease-in-out;
@@ -212,7 +212,7 @@
   }
 
   .winui-tab.active {
-    background: var(--color-surface-active);
+    background: var(--color-surface-header);
     color: var(--color-text);
   }
 
@@ -270,12 +270,82 @@
     cursor: row-resize;
   }
 
+  .mac-window-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mac-window-control {
+    width: 12px;
+    height: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.24);
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.3),
+      0 0.5px 1px rgba(0, 0, 0, 0.2);
+    transition:
+      transform 0.14s ease,
+      filter 0.14s ease,
+      box-shadow 0.14s ease;
+  }
+
+  .mac-window-control i {
+    font-size: 6px;
+    line-height: 1;
+    color: rgba(61, 36, 24, 0.85);
+    opacity: 0;
+    transform: scale(0.8);
+    transition:
+      opacity 0.14s ease,
+      transform 0.14s ease;
+    pointer-events: none;
+  }
+
+  .mac-window-controls:hover .mac-window-control i,
+  .mac-window-control:focus-visible i {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .mac-window-control:hover {
+    filter: brightness(0.96);
+  }
+
+  .mac-window-control:active {
+    transform: scale(0.94);
+    filter: brightness(0.9);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.18);
+  }
+
+  .mac-window-control:focus-visible {
+    outline: 2px solid color-mix(in srgb, white 55%, transparent);
+    outline-offset: 2px;
+  }
+
+  .mac-window-control-close {
+    background: #ff5f57;
+  }
+
+  .mac-window-control-minimize {
+    background: #febc2e;
+  }
+
+  .mac-window-control-zoom {
+    background: #28c840;
+  }
+
   [data-tauri-drag-region] {
     -webkit-app-region: drag;
   }
 
   [data-tauri-drag-region] button,
-  [data-tauri-drag-region] select {
+  [data-tauri-drag-region] select,
+  [data-tauri-drag-region] input,
+  .no-drag {
     -webkit-app-region: no-drag;
   }
 

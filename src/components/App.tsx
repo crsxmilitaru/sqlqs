@@ -45,6 +45,17 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [explorerWidth, setExplorerWidth] = useState(325);
   const [theme, setTheme] = useState(loadTheme());
+  const [aiChatOpen, setAiChatOpen] = useState(() => {
+    return localStorage.getItem("sqlqs_ai_chat_open") === "true";
+  });
+
+  const handleToggleAiChat = useCallback(() => {
+    setAiChatOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem("sqlqs_ai_chat_open", String(next));
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -210,7 +221,19 @@ export default function App() {
         settingsDisabled={isSettingsDialogOpen}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         sidebarVisible={isSidebarOpen}
+        sidebarWidth={explorerWidth}
         dialogOpen={isAnyDialogOpen}
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onTabChange={setActiveTabId}
+        onTabAdd={addTab}
+        onTabClose={closeTab}
+        onTabCloseOthers={closeOtherTabs}
+        onTabCloseAll={closeAllTabs}
+        onTabUpdate={updateTab}
+        onTabSave={handleTabSave}
+        aiChatOpen={aiChatOpen}
+        onToggleAiChat={handleToggleAiChat}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -246,14 +269,9 @@ export default function App() {
           <QueryEditorPanel
             tabs={tabs}
             activeTabId={activeTabId}
-            onTabChange={setActiveTabId}
             onTabAdd={addTab}
             onOpenSqlFile={handleOpenSqlFile}
-            onTabClose={closeTab}
-            onTabCloseAll={closeAllTabs}
-            onTabCloseOthers={closeOtherTabs}
             onTabUpdate={updateTab}
-            onTabSave={handleTabSave}
             onExecute={handleExecute}
             onConnect={() => setIsConnectionDialogOpen(true)}
             connected={connected}
@@ -261,6 +279,8 @@ export default function App() {
             databases={databases}
             onDatabaseChange={changeDatabase}
             theme={theme}
+            aiChatOpen={aiChatOpen}
+            onAiChatOpenChange={setAiChatOpen}
           />
         </main>
       </div>
