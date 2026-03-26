@@ -47,6 +47,16 @@ export default function App() {
   const [theme, setTheme] = useState(loadTheme());
 
   useEffect(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+          getCurrentWindow().show();
+        });
+      });
+    });
+  }, []);
+
+  useEffect(() => {
     const handleStorage = () => setTheme(loadTheme());
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
