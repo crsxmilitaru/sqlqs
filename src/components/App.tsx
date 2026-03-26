@@ -256,6 +256,7 @@ export default function App() {
             onTabUpdate={updateTab}
             onTabSave={handleTabSave}
             onExecute={handleExecute}
+            onConnect={() => setIsConnectionDialogOpen(true)}
             connected={connected}
             currentDatabase={currentDatabase}
             databases={databases}

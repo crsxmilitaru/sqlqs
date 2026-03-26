@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface Props {
   content: string;
@@ -122,16 +123,18 @@ export default function Tooltip({ content, children, delay = 500, placement = "t
   return (
     <>
       {cloned}
-      {visible && (
-        <div
-          ref={tooltipRef}
-          className="tooltip"
-          style={{ top: pos.top, left: pos.left }}
-          role="tooltip"
-        >
-          {content}
-        </div>
-      )}
+      {visible &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            className="tooltip"
+            style={{ top: pos.top, left: pos.left }}
+            role="tooltip"
+          >
+            {content}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

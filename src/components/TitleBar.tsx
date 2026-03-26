@@ -91,8 +91,8 @@ export default function TitleBar({
           <Tooltip content={sidebarVisible ? "Hide Sidebar" : "Show Sidebar"} placement="bottom">
             <button
               onClick={onToggleSidebar}
-              disabled={dialogOpen}
-              className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${sidebarVisible ? "text-text-muted hover:text-text" : "text-accent"}`}
+              disabled={dialogOpen || !connected}
+              className={`w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default ${sidebarVisible ? "text-text-muted enabled:hover:text-text" : "text-accent"}`}
             >
               <i className="fa-solid fa-table-columns text-[13px]" />
             </button>
@@ -101,8 +101,8 @@ export default function TitleBar({
         <Tooltip content="Settings" placement="bottom">
           <button
             onClick={onShowSettings}
-            disabled={settingsDisabled || dialogOpen}
-            className="text-text-muted hover:text-text w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={settingsDisabled || dialogOpen || !connected}
+            className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
           >
             <i className="fa-solid fa-gear text-[13px]" />
           </button>
@@ -110,8 +110,8 @@ export default function TitleBar({
         <Tooltip content={`Open File (${openFileShortcut})`} placement="bottom">
           <button
             onClick={onOpenSqlFile}
-            disabled={dialogOpen}
-            className="text-text-muted hover:text-text w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={dialogOpen || !connected}
+            className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
           >
             <i className="fa-solid fa-folder-open text-[13px]" />
           </button>
@@ -124,7 +124,7 @@ export default function TitleBar({
             <button
               onClick={onDisconnect}
               disabled={dialogOpen}
-              className="flex items-center gap-2 px-2.5 h-8 rounded-md hover:bg-surface-hover text-text-muted hover:text-text transition-all group cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text transition-all group enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-success drop-shadow-[0_0_2px_color-mix(in_srgb,var(--color-success)_40%,transparent)]" />
               <span className="text-[11px] font-medium tracking-wide">
@@ -136,7 +136,7 @@ export default function TitleBar({
           <button
             onClick={onConnect}
             disabled={dialogOpen}
-            className="flex items-center px-2.5 h-8 rounded-md hover:bg-surface-hover text-accent hover:text-accent-hover text-[11px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-[11px] font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
           >
             Connect Server
           </button>

@@ -24,6 +24,7 @@ interface Props {
   onTabUpdate: (id: string, updates: Partial<QueryTab>) => void;
   onTabSave?: (id: string) => void;
   onExecute: (id: string, customSql?: string) => void;
+  onConnect?: () => void;
   connected: boolean;
   currentDatabase?: string;
   databases?: string[];
@@ -43,6 +44,7 @@ export default function QueryEditorPanel({
   onTabUpdate,
   onTabSave,
   onExecute,
+  onConnect,
   connected,
   currentDatabase,
   databases = [],
@@ -505,26 +507,45 @@ export default function QueryEditorPanel({
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
-          <i className="fa-solid fa-terminal text-3xl opacity-20" />
-          <p className="text-sm">No open queries</p>
-          <div className="empty-state-actions mt-1">
-            {onOpenSqlFile && (
-              <button
-                onClick={onOpenSqlFile}
-                className="btn btn-primary empty-state-btn"
-              >
-                <i className="fa-regular fa-folder" />
-                <span className="empty-state-btn-label">Open file</span>
-              </button>
-            )}
-            <button
-              onClick={onTabAdd}
-              className="btn btn-secondary empty-state-btn"
-            >
-              <i className="fa-solid fa-plus" />
-              <span className="empty-state-btn-label">New file</span>
-            </button>
-          </div>
+          {connected ? (
+            <>
+              <i className="fa-solid fa-terminal text-3xl opacity-20" />
+              <p className="text-sm">No open queries</p>
+              <div className="empty-state-actions mt-1">
+                {onOpenSqlFile && (
+                  <button
+                    onClick={onOpenSqlFile}
+                    className="btn btn-primary empty-state-btn"
+                  >
+                    <i className="fa-regular fa-folder" />
+                    <span className="empty-state-btn-label">Open file</span>
+                  </button>
+                )}
+                <button
+                  onClick={onTabAdd}
+                  className="btn btn-secondary empty-state-btn"
+                >
+                  <i className="fa-solid fa-plus" />
+                  <span className="empty-state-btn-label">New file</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <i className="fa-solid fa-plug-circle-xmark text-3xl opacity-20" />
+              <p className="text-sm">Not connected to a server</p>
+              <p className="text-xs opacity-60">Connect to a SQL Server to start running queries</p>
+              {onConnect && (
+                <button
+                  onClick={onConnect}
+                  className="btn btn-primary empty-state-btn mt-1"
+                >
+                  <i className="fa-solid fa-plug" />
+                  <span className="empty-state-btn-label">Connect Server</span>
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
       {tabContextMenu?.visible && (

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppSettings, ConnectionConfig, SavedConnection } from "../lib/types";
+import Dropdown from "./Dropdown";
+import Input from "./Input";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -21,9 +23,11 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
   const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     loadSavedConnections();
+    requestAnimationFrame(() => setVisible(true));
   }, []);
 
   async function loadSavedConnections() {
@@ -111,14 +115,14 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
   }
 
   return (
-    <div className="absolute top-11 inset-x-0 bottom-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
-      <div className="bg-surface-raised/90 backdrop-blur-xl border border-white/[0.08] shadow-2xl w-[480px] max-h-[90vh] overflow-auto rounded-2xl">
+    <div className={`absolute top-11 inset-x-0 bottom-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50 transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}>
+      <div className={`bg-surface-raised/90 backdrop-blur-xl border border-white/[0.08] shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-transparent">
           <h2 className="text-sm font-semibold text-text">Connect to Server</h2>
           <Tooltip content="Close" placement="bottom">
             <button
               onClick={onClose}
-              className="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors"
+              className="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
             >
               &times;
             </button>
@@ -129,32 +133,24 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           {savedConnections.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-text-muted select-none">Saved Connections</label>
-              <select
-                className="winui-input px-3 py-1.5 text-sm text-text bg-surface"
-                onChange={(e) => {
-                  const conn = savedConnections.find((c) => c.name === e.target.value);
+              <Dropdown
+                value={saveName}
+                options={savedConnections.map((c) => ({ value: c.name, label: c.name }))}
+                onChange={(val) => {
+                  const conn = savedConnections.find((c) => c.name === val);
                   if (conn) loadConnection(conn);
                 }}
-                value={saveName}
-              >
-                <option value="">-- Select --</option>
-                {savedConnections.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="-- Select --"
+              />
             </div>
           )}
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-muted select-none">Server</label>
-            <input
-              type="text"
+            <Input
               value={server}
               onChange={(e) => setServer(e.target.value)}
               placeholder="hostname or hostname\instance"
-              className="winui-input px-3 py-1.5 text-sm text-text"
               required
               autoFocus
             />
@@ -162,12 +158,10 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-muted select-none">Database (optional)</label>
-            <input
-              type="text"
+            <Input
               value={database}
               onChange={(e) => setDatabase(e.target.value)}
               placeholder="master"
-              className="winui-input px-3 py-1.5 text-sm text-text"
             />
           </div>
 
@@ -184,20 +178,17 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             <div className="flex gap-4 mt-0.5">
               <div className="flex-1 flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-muted select-none">Username</label>
-                <input
-                  type="text"
+                <Input
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="winui-input px-3 py-1.5 text-sm text-text"
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-muted select-none">Password</label>
-                <input
+                <Input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="winui-input px-3 py-1.5 text-sm text-text"
                 />
               </div>
             </div>
@@ -226,12 +217,10 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             <div className="flex gap-4 items-start">
               <div className="flex-1 flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-muted select-none">Save as (optional)</label>
-                <input
-                  type="text"
+                <Input
                   value={saveName}
                   onChange={(e) => setSaveName(e.target.value)}
                   placeholder="My Server"
-                  className="winui-input px-3 py-1.5 text-sm text-text"
                 />
               </div>
               <div className="flex flex-col gap-2 mt-[22px]">
