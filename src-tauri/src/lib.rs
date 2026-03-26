@@ -118,8 +118,14 @@ async fn connect_to_server(
     remember_password: bool,
     keep_logged_in: bool,
 ) -> Result<String, String> {
-    let client = db::connect(&config).await?;
     let mut settings = settings::load_settings();
+
+    let cached_port = save_connection
+        .as_ref()
+        .and_then(|name| settings.connections.iter().find(|c| &c.name == name))
+        .and_then(|c| c.cached_port);
+
+    let (client, resolved_port) = db::connect(&config, cached_port).await?;
     let mut settings_changed = false;
 
     if let Some(name) = &save_connection {
@@ -134,10 +140,12 @@ async fn connect_to_server(
 
         if let Some(existing) = settings.connections.iter_mut().find(|c| &c.name == name) {
             existing.config = save_config;
+            existing.cached_port = resolved_port;
         } else {
             settings.connections.push(SavedConnection {
                 name: name.clone(),
                 config: save_config,
+                cached_port: resolved_port,
             });
         }
         settings.last_connection = Some(name.clone());
@@ -248,6 +256,76 @@ async fn load_saved_password(connection_name: String) -> Result<Option<String>, 
     Ok(settings::load_password(&connection_name))
 }
 
+#[derive(serde::Serialize)]
+struct AutoConnectResult {
+    connected: bool,
+    server: Option<String>,
+    database: Option<String>,
+    databases: Vec<String>,
+}
+
+#[tauri::command]
+async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResult, String> {
+    let not_connected = AutoConnectResult {
+        connected: false,
+        server: None,
+        database: None,
+        databases: vec![],
+    };
+
+    let mut settings = settings::load_settings();
+
+    if !settings.keep_logged_in {
+        return Ok(not_connected);
+    }
+
+    let last_name = match &settings.last_connection {
+        Some(n) => n.clone(),
+        None => return Ok(not_connected),
+    };
+
+    let saved = match settings.connections.iter().find(|c| c.name == last_name) {
+        Some(c) => c.clone(),
+        None => return Ok(not_connected),
+    };
+
+    let password = settings::load_password(&last_name);
+    let config = ConnectionConfig {
+        password,
+        ..saved.config
+    };
+
+    let (mut client, resolved_port) = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        db::connect(&config, saved.cached_port),
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        _ => return Ok(not_connected),
+    };
+
+    // Cache resolved port for faster reconnects
+    if resolved_port != saved.cached_port {
+        if let Some(conn) = settings.connections.iter_mut().find(|c| c.name == last_name) {
+            conn.cached_port = resolved_port;
+            settings::save_settings(&settings).ok();
+        }
+    }
+
+    let databases = db::get_databases(&mut client).await.unwrap_or_default();
+
+    let mut lock = state.client.lock().await;
+    *lock = Some(client);
+
+    Ok(AutoConnectResult {
+        connected: true,
+        server: Some(config.server),
+        database: config.database,
+        databases,
+    })
+}
+
 #[tauri::command]
 async fn change_database(state: State<'_, AppState>, database: String) -> Result<(), String> {
     let mut lock = state.client.lock().await;
@@ -306,6 +384,7 @@ pub fn run() {
             get_columns,
             load_connections,
             load_saved_password,
+            try_auto_connect,
             change_database,
             generate_sql_completion,
             get_startup_sql_file_path,

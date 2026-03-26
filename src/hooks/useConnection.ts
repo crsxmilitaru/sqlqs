@@ -1,14 +1,20 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, ConnectionConfig } from "../lib/types";
+import type { ConnectionConfig } from "../lib/types";
 import { AiService } from "../lib/ai";
+
+interface AutoConnectResult {
+  connected: boolean;
+  server: string | null;
+  database: string | null;
+  databases: string[];
+}
 
 export function useConnection() {
   const [connected, setConnected] = useState(false);
   const [serverName, setServerName] = useState("");
   const [currentDatabase, setCurrentDatabase] = useState<string | undefined>();
   const [databases, setDatabases] = useState<string[]>([]);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const loadDatabases = useCallback(async () => {
     try {
@@ -46,52 +52,28 @@ export function useConnection() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     async function tryAutoConnect() {
       try {
-        const settings: AppSettings = await invoke("load_connections");
-
-        if (
-          settings.keep_logged_in &&
-          settings.last_connection &&
-          settings.connections.length > 0
-        ) {
-          const lastConn = settings.connections.find(
-            (c) => c.name === settings.last_connection,
-          );
-          if (lastConn) {
-            const password: string | null = await invoke("load_saved_password", {
-              connectionName: lastConn.name,
-            });
-
-            const config: ConnectionConfig = {
-              ...lastConn.config,
-              password: password || undefined,
-            };
-
-            await invoke("connect_to_server", {
-              config,
-              saveConnection: lastConn.name,
-              rememberPassword: !!password,
-              keepLoggedIn: true,
-            });
-
-            connect(config);
-          }
+        const result = await invoke<AutoConnectResult>("try_auto_connect");
+        if (cancelled) return;
+        if (result.connected) {
+          setConnected(true);
+          setServerName(result.server || "");
+          setCurrentDatabase(result.database || undefined);
+          setDatabases(result.databases);
         }
-      } catch {
-      } finally {
-        setIsAuthLoading(false);
-      }
+      } catch {}
     }
     tryAutoConnect();
-  }, [connect]);
+    return () => { cancelled = true; };
+  }, []);
 
   return {
     connected,
     serverName,
     currentDatabase,
     databases,
-    isAuthLoading,
     connect,
     disconnect,
     changeDatabase,

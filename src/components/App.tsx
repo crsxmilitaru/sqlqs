@@ -31,7 +31,6 @@ export default function App() {
     serverName,
     currentDatabase,
     databases,
-    isAuthLoading,
     connect,
     disconnect,
     changeDatabase,
@@ -188,29 +187,6 @@ export default function App() {
   }, [handleOpenSqlFile]);
 
   const isAnyDialogOpen = isConnectionDialogOpen || isSettingsDialogOpen || !!updateAvailable;
-
-  if (isAuthLoading) {
-    return (
-      <div className="flex h-screen w-screen bg-surface-raised flex-col overflow-hidden text-text selection:bg-accent/30 selection:text-white">
-        <TitleBar
-          connected={false}
-          serverName=""
-          onConnect={() => setIsConnectionDialogOpen(true)}
-          onDisconnect={disconnect}
-          onOpenSqlFile={handleOpenSqlFile}
-          onShowSettings={() => setIsSettingsDialogOpen(true)}
-          settingsDisabled
-          dialogOpen={isAnyDialogOpen}
-        />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-10 w-10 rounded-full border-2 border-white/15 border-t-accent animate-spin" />
-            <p className="text-sm text-text-muted">Restoring session...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen w-screen relative flex-col overflow-hidden acrylic-panel bg-surface-panel/90 font-sans text-text selection:bg-accent/30 selection:text-white">

@@ -118,7 +118,10 @@ fn parse_server(server: &str) -> (String, Option<String>, Option<u16>) {
     (host, instance, explicit_port)
 }
 
-pub async fn connect(config: &ConnectionConfig) -> Result<SqlClient, String> {
+pub async fn connect(
+    config: &ConnectionConfig,
+    cached_port: Option<u16>,
+) -> Result<(SqlClient, Option<u16>), String> {
     let (host, instance, parsed_port) = parse_server(&config.server);
 
     let mut tib_config = Config::new();
@@ -163,7 +166,47 @@ pub async fn connect(config: &ConnectionConfig) -> Result<SqlClient, String> {
 
     tib_config.application_name("SQLQueryStudio");
 
-    let tcp_result = if instance.is_some() {
+    // On Windows localhost, try named pipe first (faster, skips TCP/IP stack)
+    #[cfg(windows)]
+    {
+        let is_local =
+            host.eq_ignore_ascii_case("localhost") || host == "." || host == "127.0.0.1";
+        if is_local {
+            let pipe_name = match &instance {
+                Some(inst) => format!(r"\\.\pipe\MSSQL${}\sql\query", inst),
+                None => r"\\.\pipe\sql\query".to_string(),
+            };
+            if let Ok(pipe) =
+                tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name)
+            {
+                let stream = TransportStream::NamedPipe(pipe);
+                return Client::connect(tib_config, stream.compat_write())
+                    .await
+                    .map(|c| (c, None))
+                    .map_err(|e| format!("SQL Server connection failed: {}", e));
+            }
+        }
+    }
+
+    // For named instances with cached port, skip SQL Browser and connect directly
+    if instance.is_some() {
+        if let Some(cached) = cached_port {
+            if let Ok(tcp) = TcpStream::connect(format!("{}:{}", host, cached)).await {
+                tcp.set_nodelay(true).ok();
+                let stream = TransportStream::Tcp(tcp);
+                let mut direct_config = tib_config.clone();
+                direct_config.port(cached);
+                if let Ok(client) =
+                    Client::connect(direct_config, stream.compat_write()).await
+                {
+                    return Ok((client, Some(cached)));
+                }
+            }
+        }
+    }
+
+    // TCP connection (remote servers, or localhost fallback if named pipe unavailable)
+    let tcp = if instance.is_some() {
         TcpStream::connect_named(&tib_config)
             .await
             .map_err(|e| e.to_string())
@@ -171,51 +214,18 @@ pub async fn connect(config: &ConnectionConfig) -> Result<SqlClient, String> {
         TcpStream::connect(tib_config.get_addr())
             .await
             .map_err(|e| e.to_string())
-    };
+    }
+    .map_err(|e| format!("TCP connection to '{}:{}' failed: {}", host, port, e))?;
 
-    let stream = match tcp_result {
-        Ok(tcp) => {
-            tcp.set_nodelay(true).ok();
-            TransportStream::Tcp(tcp)
-        }
-        Err(tcp_err) => {
-            #[cfg(windows)]
-            {
-                if host.eq_ignore_ascii_case("localhost") || host == "." || host == "127.0.0.1" {
-                    let pipe_name = match &instance {
-                        Some(inst) => format!(r"\\.\pipe\MSSQL${}\sql\query", inst),
-                        None => r"\\.\pipe\sql\query".to_string(),
-                    };
-
-                    match tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name) {
-                        Ok(pipe) => TransportStream::NamedPipe(pipe),
-                        Err(pipe_err) => {
-                            return Err(format!(
-                                "TCP failed ({}) and Named Pipe fallback failed ({})",
-                                tcp_err, pipe_err
-                            ))
-                        }
-                    }
-                } else {
-                    return Err(format!(
-                        "TCP connection to '{}:{}' failed: {}",
-                        host, port, tcp_err
-                    ));
-                }
-            }
-            #[cfg(not(windows))]
-            return Err(format!(
-                "TCP connection to '{}:{}' failed: {}",
-                host, port, tcp_err
-            ));
-        }
-    };
+    let resolved_port = tcp.peer_addr().ok().map(|a| a.port());
+    tcp.set_nodelay(true).ok();
+    let stream = TransportStream::Tcp(tcp);
 
     let client = Client::connect(tib_config, stream.compat_write())
         .await
         .map_err(|e| format!("SQL Server connection failed: {}", e))?;
 
-    Ok(client)
+    Ok((client, resolved_port))
 }
 
 pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryResult, String> {

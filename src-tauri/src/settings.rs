@@ -8,6 +8,8 @@ use crate::db::ConnectionConfig;
 pub struct SavedConnection {
     pub name: String,
     pub config: ConnectionConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
