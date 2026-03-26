@@ -148,6 +148,8 @@ export default function QueryEditorPanel({
   useEffect(() => {
     if (activeTab && !activeTab.result && !activeTab.error && !activeTab.isExecuting) {
       setResultsCollapsed(true);
+    } else if (activeTab && (activeTab.result || activeTab.error)) {
+      setResultsCollapsed(false);
     }
   }, [activeTab?.result, activeTab?.error, activeTab?.isExecuting]);
 

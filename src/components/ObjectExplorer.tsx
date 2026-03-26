@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { DatabaseObject, ExecutedQuery } from "../lib/types";
+import { invoke } from "@tauri-apps/api/core";
+import type { ColumnInfo, DatabaseObject, ExecutedQuery } from "../lib/types";
 import type { SavedQuery } from "../hooks/useSavedQueries";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconView } from "./Icons";
@@ -8,7 +9,6 @@ import Tooltip from "./Tooltip";
 interface Props {
   onSelect: (sql: string, execute?: boolean, title?: string, database?: string, sourceId?: string) => void;
   onDatabaseChange: (db: string) => void;
-  onCollapse?: () => void;
   currentDatabase?: string;
   executedQueries?: ExecutedQuery[];
   onDeleteHistory: (sql: string) => void;
@@ -49,11 +49,61 @@ function clampSectionHeight(value: number): number {
   return Math.max(MIN_SECTION_HEIGHT, Math.min(MAX_SECTION_HEIGHT, Math.round(value)));
 }
 
-function loadSectionHeights(): ExplorerSectionHeights {
-  if (typeof window === "undefined") {
-    return DEFAULT_SECTION_HEIGHTS;
-  }
+const ICON_WRAP = "w-4 flex justify-center flex-shrink-0";
 
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <span className={`w-4 h-4 flex items-center justify-center flex-shrink-0 text-text-muted transition-transform ml-auto ${expanded ? "rotate-90" : ""}`}>
+      <IconChevronRight className="w-2.5 h-2.5" />
+    </span>
+  );
+}
+
+interface ObjectGroup {
+  key: string;
+  label: string;
+  type: string;
+  iconName: string;
+  objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION";
+  items: DatabaseObject[];
+}
+
+const GROUP_DEFS: Omit<ObjectGroup, "items">[] = [
+  { key: "tables", label: "Tables", type: "TABLE", iconName: "table", objectType: "TABLE" },
+  { key: "views", label: "Views", type: "VIEW", iconName: "view", objectType: "VIEW" },
+  { key: "procedures", label: "Stored Procedures", type: "PROCEDURE", iconName: "procedure", objectType: "PROCEDURE" },
+  { key: "functions", label: "Functions", type: "FUNCTION", iconName: "function", objectType: "FUNCTION" },
+];
+
+function groupDatabaseObjects(objects: DatabaseObject[]): ObjectGroup[] {
+  const groups: ObjectGroup[] = GROUP_DEFS.map(d => ({ ...d, items: [] }));
+  for (const obj of objects) {
+    const group = groups.find(g => g.type === obj.object_type);
+    if (group) group.items.push(obj);
+  }
+  return groups.filter(g => g.items.length > 0);
+}
+
+function ObjectIcon({ type }: { type: string }) {
+  switch (type) {
+    case "database":
+      return <div className={ICON_WRAP}><IconDatabase className="text-accent w-3.5 h-3.5" /></div>;
+    case "table":
+      return <div className={ICON_WRAP}><IconTable className="text-success w-3.5 h-3.5" /></div>;
+    case "view":
+      return <div className={ICON_WRAP}><IconView className="text-green-400 w-3.5 h-3.5" /></div>;
+    case "procedure":
+      return <div className={ICON_WRAP}><IconProcedure className="text-purple-400 w-3.5 h-3.5" /></div>;
+    case "function":
+      return <div className={ICON_WRAP}><IconFunction className="text-orange-400 w-3.5 h-3.5" /></div>;
+    case "column":
+      return <div className={ICON_WRAP}><IconColumn className="text-text-muted w-3.5 h-3.5" /></div>;
+    default:
+      return null;
+  }
+}
+
+function loadSectionHeights(): ExplorerSectionHeights {
   try {
     const raw = localStorage.getItem(EXPLORER_SECTION_HEIGHTS_KEY);
     if (!raw) {
@@ -74,10 +124,9 @@ function loadSectionHeights(): ExplorerSectionHeights {
   }
 }
 
-export default function ObjectExplorer({ 
-  onSelect, 
-  onCollapse, 
-  onDatabaseChange, 
+export default function ObjectExplorer({
+  onSelect,
+  onDatabaseChange,
   currentDatabase, 
   executedQueries = [], 
   onDeleteHistory,
@@ -103,7 +152,7 @@ export default function ObjectExplorer({
     schema: string;
     table: string;
     sql?: string;
-    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY";
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER";
     savedQueryFilePath?: string;
   } | null>(null);
 
@@ -116,10 +165,6 @@ export default function ObjectExplorer({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
     try {
       localStorage.setItem(EXPLORER_SECTION_HEIGHTS_KEY, JSON.stringify(sectionHeights));
     } catch { }
@@ -159,7 +204,7 @@ export default function ObjectExplorer({
 
   async function loadDatabases() {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
+
       const dbs: string[] = await invoke("get_databases");
       setDatabases(dbs);
     } catch (err) {
@@ -167,11 +212,11 @@ export default function ObjectExplorer({
     }
   }
 
-  async function loadTables(database: string) {
-    if (tableCache[database]) return;
+  async function loadTables(database: string, force?: boolean) {
+    if (!force && tableCache[database]) return;
     setLoading((prev) => new Set(prev).add(database));
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
+
       const tables: DatabaseObject[] = await invoke("get_tables", { database });
       setTableCache((prev) => ({ ...prev, [database]: tables }));
     } catch (err) {
@@ -216,8 +261,9 @@ export default function ObjectExplorer({
     db: string = "",
     schema: string = "",
     table: string = "",
-    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER",
-    sql?: string
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER",
+    sql?: string,
+    savedQueryFilePath?: string,
   ) {
     e.preventDefault();
     e.stopPropagation();
@@ -230,6 +276,7 @@ export default function ObjectExplorer({
       table,
       objectType,
       sql,
+      savedQueryFilePath,
     });
   }
 
@@ -245,6 +292,24 @@ export default function ObjectExplorer({
           label: "Refresh List",
           icon: <i className="fa-solid fa-rotate" />,
           onClick: () => loadDatabases(),
+        },
+      ];
+    }
+
+    if (objectType === "FOLDER") {
+      return [
+        {
+          id: "refresh-folder",
+          label: "Refresh",
+          icon: <i className="fa-solid fa-rotate" />,
+          onClick: () => {
+            setTableCache((prev) => {
+              const next = { ...prev };
+              delete next[database];
+              return next;
+            });
+            loadTables(database, true);
+          },
         },
       ];
     }
@@ -330,14 +395,8 @@ export default function ObjectExplorer({
               delete next[database];
               return next;
             });
-            loadTables(database);
+            loadTables(database, true);
           },
-        },
-        {
-          id: "copy-name",
-          label: "Copy Name",
-          icon: <i className="fa-solid fa-copy" />,
-          onClick: () => navigator.clipboard.writeText(database),
         },
       ];
     }
@@ -410,20 +469,12 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-arrow-down-wide-short" />,
             onClick: () => onSelect(`SELECT * FROM (\n  SELECT TOP 100 * FROM ${fullName} ORDER BY 1 DESC\n) t ORDER BY 1 ASC`, true),
           },
-          { id: "sep-sel-1", separator: true },
           {
             id: "select-all",
             label: "Select All Rows",
             icon: <i className="fa-solid fa-table" />,
             onClick: () => onSelect(`SELECT * FROM ${fullName}`, true),
           },
-          {
-            id: "select-top-n",
-            label: "Select Top N...",
-            icon: <i className="fa-solid fa-list-ol" />,
-            onClick: () => onSelect(`SELECT TOP 10 * FROM ${fullName}`, true),
-          },
-          { id: "sep-sel-2", separator: true },
           {
             id: "select-count",
             label: "Count Rows",
@@ -439,40 +490,123 @@ export default function ObjectExplorer({
         children: [
           {
             id: "script-create",
-            label: "CREATE",
+            label: "Create Table",
             icon: <i className="fa-solid fa-plus" />,
-            onClick: () => onSelect(`CREATE ${objectType === "VIEW" ? "VIEW" : "TABLE"} ${fullName} (\n  [id] INT PRIMARY KEY IDENTITY(1,1),\n  [Name] NVARCHAR(255) NOT NULL\n)`),
+            onClick: async () => {
+              if (objectType === "VIEW") {
+                try {
+            
+                  const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
+                  const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
+                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n${colList}\nFROM [${schema}].[<source_table>]\nGO`);
+                } catch {
+                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
+                }
+              } else {
+                try {
+            
+                  const script: string = await invoke("generate_create_script", { database, schema, table });
+                  onSelect(script);
+                } catch {
+                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE TABLE [${schema}].[${table}](\n\t[Id] [int] IDENTITY(1,1) NOT NULL\n) ON [PRIMARY]\nGO`);
+                }
+              }
+            },
           },
           {
             id: "script-alter",
-            label: "ALTER",
+            label: "Alter Table",
             icon: <i className="fa-solid fa-pen" />,
-            onClick: () => onSelect(`ALTER ${objectType === "VIEW" ? "VIEW" : "TABLE"} ${fullName}\nADD [NewColumn] NVARCHAR(MAX)`),
+            onClick: async () => {
+              if (objectType === "VIEW") {
+                try {
+            
+                  const def: string = await invoke("get_object_definition", { database, schema, name: table });
+                  const altered = def.replace(/\bCREATE\s+(VIEW)\b/i, "ALTER $1");
+                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
+                } catch {
+                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nALTER VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
+                }
+              } else {
+                onSelect(`ALTER TABLE ${fullName}\nADD [NewColumn] NVARCHAR(255) NULL\nGO`);
+              }
+            },
           },
-          { id: "sep-script-1", separator: true },
+          {
+            id: "script-drop",
+            label: "Drop Object",
+            icon: <i className="fa-solid fa-trash" />,
+            onClick: () => {
+              const kind = objectType === "VIEW" ? "VIEW" : "TABLE";
+              onSelect(
+                `IF OBJECT_ID('${fullName}', '${objectType === "VIEW" ? "V" : "U"}') IS NOT NULL\n` +
+                `\tDROP ${kind} ${fullName}\nGO`
+              );
+            },
+          },
           {
             id: "script-select",
-            label: "SELECT",
-            icon: <i className="fa-solid fa-file-code" />,
-            onClick: () => onSelect(`SELECT\n  *\nFROM ${fullName}`),
+            label: "Select Rows",
+            icon: <i className="fa-solid fa-magnifying-glass" />,
+            onClick: async () => {
+              try {
+          
+                const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
+                const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
+                onSelect(`SELECT\n${colList}\nFROM ${fullName}`);
+              } catch {
+                onSelect(`SELECT\n\t*\nFROM ${fullName}`);
+              }
+            },
           },
           {
             id: "script-insert",
-            label: "INSERT",
-            icon: <i className="fa-solid fa-file-code" />,
-            onClick: () => onSelect(`INSERT INTO ${fullName}\n  (column1, column2)\nVALUES\n  (value1, value2)`),
+            label: "Insert Values",
+            icon: <i className="fa-solid fa-circle-plus" />,
+            onClick: async () => {
+              try {
+          
+                const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
+                const filtered = cols.filter((c) => !c.is_identity);
+                const colNames = filtered.map((c) => `\t[${c.name}]`).join(",\n");
+                const values = filtered.map((c) => `\t<${c.name}, ${c.type_name},>`).join(",\n");
+                onSelect(`INSERT INTO ${fullName}\n(\n${colNames}\n)\nVALUES\n(\n${values}\n)`);
+              } catch {
+                onSelect(`INSERT INTO ${fullName}\n(\n\t[column1],\n\t[column2]\n)\nVALUES\n(\n\t<column1, type,>,\n\t<column2, type,>\n)`);
+              }
+            },
           },
           {
             id: "script-update",
-            label: "UPDATE",
-            icon: <i className="fa-solid fa-file-code" />,
-            onClick: () => onSelect(`UPDATE ${fullName}\nSET column1 = value1\nWHERE condition`),
+            label: "Update Rows",
+            icon: <i className="fa-solid fa-pen-to-square" />,
+            onClick: async () => {
+              try {
+          
+                const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
+                const filtered = cols.filter((c) => !c.is_identity);
+                const setClauses = filtered.map((c) => `\t[${c.name}] = <${c.name}, ${c.type_name},>`).join(",\n");
+                onSelect(`UPDATE ${fullName}\nSET\n${setClauses}\nWHERE\n\t<search_condition,,>`);
+              } catch {
+                onSelect(`UPDATE ${fullName}\nSET\n\t[column1] = <column1, type,>\nWHERE\n\t<search_condition,,>`);
+              }
+            },
           },
           {
             id: "script-delete",
-            label: "DELETE",
-            icon: <i className="fa-solid fa-file-code" />,
-            onClick: () => onSelect(`DELETE FROM ${fullName}\nWHERE condition`),
+            label: "Delete Rows",
+            icon: <i className="fa-solid fa-xmark" />,
+            onClick: async () => {
+              try {
+          
+                const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
+                const first = cols[0];
+                const hint = first ? `[${first.name}] = <${first.name}, ${first.type_name},>` : `<search_condition,,>`;
+                onSelect(`DELETE FROM ${fullName}\nWHERE\n\t${hint}`);
+              } catch {
+                onSelect(`DELETE FROM ${fullName}\nWHERE\n\t<search_condition,,>`);
+              }
+            },
           },
         ],
       },
@@ -483,47 +617,8 @@ export default function ObjectExplorer({
         icon: <i className="fa-solid fa-copy" />,
         onClick: () => navigator.clipboard.writeText(fullName),
       },
-      { id: "sep3", separator: true },
-      {
-        id: "refresh",
-        label: "Refresh",
-        icon: <i className="fa-solid fa-rotate" />,
-        onClick: () => {
-          setTableCache((prev) => {
-            const next = { ...prev };
-            delete next[database];
-            return next;
-          });
-          loadTables(database);
-        },
-      },
     ];
   }
-
-  const chevron = (isExpanded: boolean) => (
-    <span className={`w-4 h-4 flex items-center justify-center flex-shrink-0 text-text-muted transition-transform ml-auto ${isExpanded ? "rotate-90" : ""}`}>
-      <IconChevronRight className="w-2.5 h-2.5" />
-    </span>
-  );
-
-  const icon = (type: string) => {
-    switch (type) {
-      case "database":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconDatabase className="text-accent w-3.5 h-3.5" /></div>;
-      case "table":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconTable className="text-success w-3.5 h-3.5" /></div>;
-      case "view":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconView className="text-green-400 w-3.5 h-3.5" /></div>;
-      case "procedure":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconProcedure className="text-purple-400 w-3.5 h-3.5" /></div>;
-      case "function":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconFunction className="text-orange-400 w-3.5 h-3.5" /></div>;
-      case "column":
-        return <div className="w-4 flex justify-center flex-shrink-0"><IconColumn className="text-text-muted w-3.5 h-3.5" /></div>;
-      default:
-        return null;
-    }
-  };
 
   return (
     <div className="flex flex-col h-full bg-transparent">
@@ -536,7 +631,7 @@ export default function ObjectExplorer({
           >
             <span className="font-bold text-[11px] uppercase tracking-wider select-none">Databases</span>
             <div className="flex items-center gap-2">
-              {chevron(expanded.has("root:databases"))}
+              <Chevron expanded={expanded.has("root:databases")} />
             </div>
           </div>
 
@@ -561,89 +656,79 @@ export default function ObjectExplorer({
                   .map((db) => (
                     <div key={db} style={{ display: "flex", flexDirection: "column" }}>
                       <div
-                        className="tree-node cursor-pointer"
+                        className={`tree-node cursor-pointer ${contextMenu?.visible && contextMenu.database === db && contextMenu.objectType === "DATABASE" ? "bg-white/10" : ""}`}
                         style={{ "--depth": 0 } as React.CSSProperties}
                         onClick={() => handleDbClick(db)}
                         onDoubleClick={() => onDatabaseChange(db)}
                         onContextMenu={(e) => handleContextMenu(e, db, "", "", "DATABASE")}
                       >
-                        {icon("database")}
+                        <ObjectIcon type="database" />
                         <span className={`truncate flex-1 min-w-0 ${db === currentDatabase ? "font-bold" : ""}`}>
                           {db}
                         </span>
                         {loading.has(db) && <span className="text-text-muted ml-1 animate-pulse">...</span>}
-                        {chevron(expanded.has(db))}
+                        <Chevron expanded={expanded.has(db)} />
                       </div>
 
                       <div className={`accordion-content ${expanded.has(db) ? "expanded" : ""}`}>
                         <div className="accordion-inner slide-down-item">
                           {tableCache[db] ? (
                             <div>
-                              {(() => {
-                                const cache = tableCache[db];
-                                const groups: { key: string; label: string; type: string; iconName: string; objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION"; items: DatabaseObject[] }[] = [
-                                  { key: "tables", label: "Tables", type: "TABLE", iconName: "table", objectType: "TABLE", items: [] },
-                                  { key: "views", label: "Views", type: "VIEW", iconName: "view", objectType: "VIEW", items: [] },
-                                  { key: "procedures", label: "Stored Procedures", type: "PROCEDURE", iconName: "procedure", objectType: "PROCEDURE", items: [] },
-                                  { key: "functions", label: "Functions", type: "FUNCTION", iconName: "function", objectType: "FUNCTION", items: [] },
-                                ];
-                                for (const obj of cache) {
-                                  const group = groups.find(g => g.type === obj.object_type);
-                                  if (group) group.items.push(obj);
-                                }
+                              {groupDatabaseObjects(tableCache[db]).map(group => {
+                                const folderId = `${db}:${group.key}`;
+                                const isOpen = expanded.has(folderId);
+                                const filter = (folderFilters[folderId] || "").toLowerCase();
+                                const filtered = filter
+                                  ? group.items.filter(o => o.schema_name.toLowerCase().includes(filter) || o.name.toLowerCase().includes(filter))
+                                  : group.items;
+                                const canDblClick = group.objectType === "TABLE" || group.objectType === "VIEW";
 
-                                return groups.filter(g => g.items.length > 0).map(group => {
-                                  const folderId = `${db}:${group.key}`;
-                                  const isOpen = expanded.has(folderId);
-                                  const filter = (folderFilters[folderId] || "").toLowerCase();
-                                  const filtered = filter
-                                    ? group.items.filter(o => o.schema_name.toLowerCase().includes(filter) || o.name.toLowerCase().includes(filter))
-                                    : group.items;
-                                  const canDblClick = group.objectType === "TABLE" || group.objectType === "VIEW";
-
-                                  return (
-                                    <div key={group.key}>
-                                      <div
-                                        className="tree-node cursor-pointer group relative"
-                                        style={{ "--depth": 1 } as React.CSSProperties}
-                                        onClick={() => toggle(folderId)}
-                                      >
-                                        <i className={`fa-solid ${isOpen ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
-                                        <span className="truncate flex-1 min-w-0">{group.label} ({group.items.length})</span>
-                                        {chevron(isOpen)}
-                                      </div>
-                                      {isOpen && (
-                                        <div className="accordion-content expanded">
-                                          <div className="accordion-inner">
-                                            <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
-                                              <input
-                                                type="text"
-                                                placeholder={`Filter ${group.label.toLowerCase()}...`}
-                                                value={folderFilters[folderId] || ""}
-                                                onChange={(e) => updateFilter(folderId, e.target.value)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="explorer-filter w-full h-full"
-                                              />
-                                            </div>
-                                            {filtered.map((o) => (
+                                return (
+                                  <div key={group.key}>
+                                    <div
+                                      className={`tree-node cursor-pointer group relative ${contextMenu?.visible && contextMenu.database === db && contextMenu.table === group.key && contextMenu.objectType === "FOLDER" ? "bg-white/10" : ""}`}
+                                      style={{ "--depth": 1 } as React.CSSProperties}
+                                      onClick={() => toggle(folderId)}
+                                      onContextMenu={(e) => handleContextMenu(e, db, "", group.key, "FOLDER")}
+                                    >
+                                      <i className={`fa-solid ${isOpen ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
+                                      <span className="truncate flex-1 min-w-0">{group.label} ({group.items.length})</span>
+                                      <Chevron expanded={isOpen} />
+                                    </div>
+                                    {isOpen && (
+                                      <div className="accordion-content expanded">
+                                        <div className="accordion-inner">
+                                          <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
+                                            <input
+                                              type="text"
+                                              placeholder={`Filter ${group.label.toLowerCase()}...`}
+                                              value={folderFilters[folderId] || ""}
+                                              onChange={(e) => updateFilter(folderId, e.target.value)}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="explorer-filter w-full h-full"
+                                            />
+                                          </div>
+                                          {filtered.map((o) => {
+                                            const isCtx = contextMenu?.visible && contextMenu.database === db && contextMenu.schema === o.schema_name && contextMenu.table === o.name;
+                                            return (
                                               <div
                                                 key={`${db}.${o.schema_name}.${o.name}`}
-                                                className="tree-node cursor-pointer"
+                                                className={`tree-node cursor-pointer ${isCtx ? "bg-white/10" : ""}`}
                                                 style={{ "--depth": 2 } as React.CSSProperties}
                                                 onDoubleClick={canDblClick ? () => handleTableDoubleClick(db, o.schema_name, o.name) : undefined}
                                                 onContextMenu={(e) => handleContextMenu(e, db, o.schema_name, o.name, group.objectType)}
                                               >
-                                                {icon(group.iconName)}
+                                                <ObjectIcon type={group.iconName} />
                                                 <span className="truncate flex-1 min-w-0">{o.schema_name}.{o.name}</span>
                                               </div>
-                                            ))}
-                                          </div>
+                                            );
+                                          })}
                                         </div>
-                                      )}
-                                    </div>
-                                  );
-                                });
-                              })()}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : (
                             expanded.has(db) && (
@@ -691,7 +776,7 @@ export default function ObjectExplorer({
                   </button>
                 </Tooltip>
               )}
-              {chevron(expanded.has("root:saved_queries"))}
+              <Chevron expanded={expanded.has("root:saved_queries")} />
             </div>
           </div>
 
@@ -726,21 +811,7 @@ export default function ObjectExplorer({
                           className="tree-node cursor-pointer group"
                           style={{ "--depth": 0 } as React.CSSProperties}
                           onClick={() => onLoadSavedQuery?.(item.filePath, item.title)}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setContextMenu({
-                              visible: true,
-                              x: e.clientX,
-                              y: e.clientY,
-                              database: "",
-                              schema: "",
-                              table: item.title,
-                              objectType: "SAVED_QUERY",
-                              sql: item.id,
-                              savedQueryFilePath: item.filePath,
-                            });
-                          }}
+                          onContextMenu={(e) => handleContextMenu(e, "", "", item.title, "SAVED_QUERY", item.id, item.filePath)}
                         >
                           <i className="fa-solid fa-file-code flex-shrink-0 text-accent w-4 text-center text-[12px]" />
                           <span className="truncate flex-1 min-w-0">{item.title}</span>
@@ -792,7 +863,7 @@ export default function ObjectExplorer({
                   </button>
                 </Tooltip>
               )}
-              {chevron(expanded.has("root:history"))}
+              <Chevron expanded={expanded.has("root:history")} />
             </div>
           </div>
 

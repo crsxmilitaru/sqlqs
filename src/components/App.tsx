@@ -227,7 +227,6 @@ export default function App() {
                     setTimeout(() => handleExecute(tabId, sql), 0);
                   }
                 }}
-                onCollapse={() => setIsSidebarOpen(false)}
                 onDatabaseChange={changeDatabase}
                 currentDatabase={currentDatabase}
                 executedQueries={executedQueries}

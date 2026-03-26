@@ -24,6 +24,7 @@ export interface ResultSet {
 export interface ColumnInfo {
   name: string;
   type_name: string;
+  is_identity: boolean;
 }
 
 export interface DatabaseObject {

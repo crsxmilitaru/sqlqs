@@ -438,7 +438,7 @@
   }
 
   .explorer-filter::placeholder {
-    color: rgba(161, 161, 170, 0.3);
+    color: rgba(161, 161, 170, 0.75);
   }
 
   .btn {

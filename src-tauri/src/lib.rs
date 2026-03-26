@@ -384,6 +384,20 @@ async fn get_foreign_keys(
 }
 
 #[tauri::command]
+async fn generate_create_script(
+    state: State<'_, AppState>,
+    database: String,
+    schema: String,
+    table: String,
+) -> Result<String, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::generate_create_script(client, &database, &schema, &table).await
+}
+
+#[tauri::command]
 async fn get_object_definition(
     state: State<'_, AppState>,
     database: String,
@@ -427,6 +441,7 @@ pub fn run() {
             get_indexes,
             get_foreign_keys,
             get_object_definition,
+            generate_create_script,
             load_connections,
             load_saved_password,
             try_auto_connect,

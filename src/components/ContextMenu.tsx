@@ -97,16 +97,15 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
         return (
           <div key={item.id} className="relative">
             <button
-              className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${
-                item.disabled
-                  ? "text-text-muted/50 cursor-default"
-                  : item.danger
-                    ? "text-error hover:bg-error/10"
-                    : "text-text hover:bg-white/10"
-              }`}
+              className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${item.disabled
+                ? "text-text-muted/50 cursor-default"
+                : item.danger
+                  ? "text-error hover:bg-error/10"
+                  : "text-text hover:bg-white/10"
+                }`}
               onClick={() => handleItemClick(item)}
               onMouseEnter={() => {
-                if (item.children) setActiveSubmenu(item.id);
+                setActiveSubmenu(item.children ? item.id : null);
               }}
             >
               {item.icon && (
@@ -126,17 +125,16 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
             </button>
 
             {item.children && activeSubmenu === item.id && (
-              <div className="absolute left-full top-0 ml-1 min-w-[200px] p-1.5 bg-surface-raised/95 backdrop-blur-xl border border-border/50 rounded-lg shadow-2xl shadow-black/60 animate-in fade-in-0 zoom-in-95 duration-150">
+              <div className="absolute left-full -top-1.5 -ml-1.5 min-w-[200px] p-1.5 bg-surface-raised/95 backdrop-blur-xl border border-border/50 rounded-lg shadow-2xl shadow-black/60 animate-in fade-in-0 zoom-in-95 duration-150">
                 {item.children.map((child) => (
                   <button
                     key={child.id}
-                    className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${
-                      child.disabled
-                        ? "text-text-muted/50 cursor-default"
-                        : child.danger
-                          ? "text-error hover:bg-error/10"
-                          : "text-text hover:bg-white/10"
-                    }`}
+                    className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${child.disabled
+                      ? "text-text-muted/50 cursor-default"
+                      : child.danger
+                        ? "text-error hover:bg-error/10"
+                        : "text-text hover:bg-white/10"
+                      }`}
                     onClick={() => {
                       if (!child.disabled) {
                         child.onClick?.();
