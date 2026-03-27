@@ -297,9 +297,10 @@ export default function TitleBar({
             <button
               onClick={onConnect}
               disabled={dialogOpen}
-              className="flex items-center px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-[11px] font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+              className="flex items-center gap-1.5 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-[11px] font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
-              Connect
+              <i className="fa-solid fa-plug" />
+              Connect Server
             </button>
           )}
         </div>

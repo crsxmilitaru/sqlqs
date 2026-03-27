@@ -30,7 +30,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost http://tauri.localhost; font-src 'self' data:",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost http://tauri.localhost https://generativelanguage.googleapis.com; font-src 'self' data:",
       "dangerousDisableAssetCspModification": [
         "style-src"
       ]

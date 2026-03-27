@@ -192,7 +192,7 @@ export default function QueryEditorPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {activeTab ? (
+      {activeTab && connected ? (
         <div className="flex flex-col flex-1 min-h-0">
           <div className="flex items-center gap-2 p-3.5 flex-shrink-0">
             {databases.length > 0 && onDatabaseChange && (
