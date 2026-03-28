@@ -305,7 +305,7 @@ export default function TitleBar({
           )}
         </div>
 
-        {tabs.length > 0 && (
+        {connected && tabs.length > 0 && (
           <div className="flex items-center min-w-0 flex-shrink overflow-hidden no-drag">
             <div
               ref={tabBarRef}

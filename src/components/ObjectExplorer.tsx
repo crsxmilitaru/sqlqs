@@ -38,6 +38,8 @@ interface ExplorerSectionHeights {
 }
 
 const EXPLORER_SECTION_HEIGHTS_KEY = "sqlqs_explorer_section_heights_v1";
+const EXPLORER_COLLAPSED_KEY = "sqlqs_explorer_collapsed_v1";
+const ROOT_SECTIONS = ["root:databases", "root:saved_queries", "root:history"] as const;
 const MIN_SECTION_HEIGHT = 96;
 const MAX_SECTION_HEIGHT = 360;
 const DEFAULT_SECTION_HEIGHTS: ExplorerSectionHeights = {
@@ -47,6 +49,26 @@ const DEFAULT_SECTION_HEIGHTS: ExplorerSectionHeights = {
 
 function clampSectionHeight(value: number): number {
   return Math.max(MIN_SECTION_HEIGHT, Math.min(MAX_SECTION_HEIGHT, Math.round(value)));
+}
+
+function loadCollapsedSections(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPLORER_COLLAPSED_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch { }
+  return new Set();
+}
+
+function initExpandedSections(): Set<string> {
+  const collapsed = loadCollapsedSections();
+  const expanded = new Set<string>();
+  for (const s of ROOT_SECTIONS) {
+    if (!collapsed.has(s)) expanded.add(s);
+  }
+  return expanded;
 }
 
 const ICON_WRAP = "w-4 flex justify-center flex-shrink-0";
@@ -137,7 +159,7 @@ export default function ObjectExplorer({
   onOpenSavedQueriesFolder,
 }: Props) {
   const [databases, setDatabases] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["root:databases", "root:saved_queries", "root:history"]));
+  const [expanded, setExpanded] = useState<Set<string>>(() => initExpandedSections());
   const [tableCache, setTableCache] = useState<Record<string, DatabaseObject[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [folderFilters, setFolderFilters] = useState<Record<string, string>>({});
@@ -238,6 +260,12 @@ export default function ObjectExplorer({
           next.delete(nodeId);
         } else {
           next.add(nodeId);
+        }
+        if ((ROOT_SECTIONS as readonly string[]).includes(nodeId)) {
+          try {
+            const collapsed = ROOT_SECTIONS.filter((s) => !next.has(s));
+            localStorage.setItem(EXPLORER_COLLAPSED_KEY, JSON.stringify(collapsed));
+          } catch { }
         }
         return next;
       });

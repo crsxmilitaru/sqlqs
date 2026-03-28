@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 interface Props {
   version: string;
@@ -8,6 +8,12 @@ interface Props {
 }
 
 export default function UpdateDialog({ version, currentVersion, onInstall, onCancel }: Props) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    requestAnimationFrame(() => setVisible(true));
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -21,13 +27,13 @@ export default function UpdateDialog({ version, currentVersion, onInstall, onCan
 
   return (
     <div
-      className="fixed top-11 inset-x-0 bottom-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className={`absolute top-11 inset-x-0 bottom-0 z-[120] flex items-center justify-center bg-black/50 transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
       onMouseDown={onCancel}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="w-[460px] max-w-[94vw] rounded-2xl border border-white/[0.08] bg-surface-raised/95 p-6 shadow-2xl"
+        className={`w-[460px] max-w-[94vw] rounded-2xl border border-white/[0.08] bg-surface-raised p-6 shadow-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="mb-6 flex items-start gap-4">
