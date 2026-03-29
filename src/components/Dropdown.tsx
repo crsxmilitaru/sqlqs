@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 interface DropdownOption {
@@ -46,10 +46,10 @@ export default function Dropdown({
   const filteredOptions =
     filterable && filter
       ? options.filter(
-          (opt) =>
-            opt.label.toLowerCase().includes(filter.toLowerCase()) ||
-            opt.value.toLowerCase().includes(filter.toLowerCase())
-        )
+        (opt) =>
+          opt.label.toLowerCase().includes(filter.toLowerCase()) ||
+          opt.value.toLowerCase().includes(filter.toLowerCase())
+      )
       : options;
 
   const close = useCallback(() => {
@@ -198,15 +198,14 @@ export default function Dropdown({
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <i
-          className={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${
-            isOpen
+          className={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${isOpen
               ? openUpwards
                 ? ""
                 : "rotate-180"
               : openUpwards
                 ? "rotate-180"
                 : ""
-          }`}
+            }`}
         />
       </button>
 

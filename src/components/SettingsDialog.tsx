@@ -232,7 +232,7 @@ export default function SettingsDialog({
                           type="text"
                           value={modelId}
                           onChange={(e) => setModelId(e.target.value)}
-                          placeholder="e.g. gemini-2.0-flash"
+                          placeholder="e.g. gemini-3.1-flash-lite-preview"
                         />
                       </div>
                       <div>

@@ -468,13 +468,19 @@ export default function ObjectExplorer({
           id: "exec",
           label: "Execute",
           icon: <i className="fa-solid fa-play" />,
-          onClick: () => onSelect(`EXEC ${fullName}`, false),
+          onClick: () => onSelect(`EXEC ${fullName}`, true),
         },
         {
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
           onClick: () => onSelect(`-- Script procedure definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+        },
+        {
+          id: "get-last-modified",
+          label: "Get Last Modified",
+          icon: <i className="fa-solid fa-clock-rotate-left" />,
+          onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
         },
         { id: "sep-proc-1", separator: true },
         {
@@ -492,13 +498,19 @@ export default function ObjectExplorer({
           id: "script-select",
           label: "Script SELECT",
           icon: <i className="fa-solid fa-file-code" />,
-          onClick: () => onSelect(`SELECT ${fullName}()`, false),
+          onClick: () => onSelect(`SELECT ${fullName}()`, true),
         },
         {
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
           onClick: () => onSelect(`-- Script function definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+        },
+        {
+          id: "get-last-modified",
+          label: "Get Last Modified",
+          icon: <i className="fa-solid fa-clock-rotate-left" />,
+          onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
         },
         { id: "sep-fn-1", separator: true },
         {
@@ -608,9 +620,9 @@ export default function ObjectExplorer({
               try {
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
-                onSelect(`SELECT\n${colList}\nFROM ${fullName}`);
+                onSelect(`SELECT\n${colList}\nFROM ${fullName}`, true);
               } catch {
-                onSelect(`SELECT\n\t*\nFROM ${fullName}`);
+                onSelect(`SELECT\n\t*\nFROM ${fullName}`, true);
               }
             },
           },
@@ -661,6 +673,12 @@ export default function ObjectExplorer({
             },
           },
         ],
+      },
+      {
+        id: "get-last-modified",
+        label: "Get Last Modified",
+        icon: <i className="fa-solid fa-clock-rotate-left" />,
+        onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
       },
       { id: "sep2", separator: true },
       {

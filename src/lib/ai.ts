@@ -9,7 +9,7 @@ import type { GeminiStatus } from "./types";
 
 const GEMINI_API_KEY_STORAGE_KEY = "sqlqs_gemini_api_key";
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
-const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
 const MAX_TOOL_TURNS = 8;
 
 export interface ChatMessage {

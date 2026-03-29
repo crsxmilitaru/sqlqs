@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { useConnection } from "../hooks/useConnection";
 import { useHistory } from "../hooks/useHistory";
@@ -59,6 +59,11 @@ export default function App() {
     });
   }, []);
 
+  const tabsRef = useRef(tabs);
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
+
   useEffect(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -101,7 +106,7 @@ export default function App() {
 
   const handleExecute = useCallback(
     async (tabId: string, selectedSql?: string) => {
-      const tab = tabs.find((t) => t.id === tabId);
+      const tab = tabsRef.current.find((t) => t.id === tabId);
       if (!tab) return;
 
       const sqlToExecute = (selectedSql || tab.sql).trim();

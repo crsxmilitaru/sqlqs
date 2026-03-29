@@ -213,7 +213,7 @@ export default function TitleBar({
         onMouseDown={handleTitleBarMouseDown}
       >
         <div
-          className="flex items-center h-full z-10 px-3 gap-1.5"
+          className="flex items-center h-full z-10 px-3 gap-1.5 flex-shrink-0"
           style={{ width: sidebarVisible && connected ? sidebarWidth + 1 : 'auto' }}
         >
           {isMac && (
@@ -387,7 +387,7 @@ export default function TitleBar({
 
         <div className="flex-1" />
 
-        <div className="flex h-full z-10">
+        <div className="flex h-full z-10 flex-shrink-0">
           {hasAiKey && connected && (
             <div className="flex items-center px-1">
               <Tooltip content="AI Chat" placement="bottom">
