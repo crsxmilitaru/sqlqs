@@ -1,6 +1,6 @@
 {
   "name": "sqlqs",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "SQL Query Studio - A lightweight SQL editor",
   "private": true,
   "type": "module",

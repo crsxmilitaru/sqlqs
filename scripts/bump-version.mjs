@@ -55,7 +55,7 @@ console.log("  Updated src-tauri/Cargo.lock");
 // Git commit, tag, push
 console.log("\nCommitting and tagging...");
 execSync(
-  "git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
+  "git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml",
   { stdio: "inherit" },
 );
 execSync(`git commit -m "v${version}"`, { stdio: "inherit" });
