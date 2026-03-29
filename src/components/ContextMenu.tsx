@@ -97,11 +97,11 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
         return (
           <div key={item.id} className="relative">
             <button
-              className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${item.disabled
+              className={`flex items-center gap-3 px-3 py-1.5 text-left text-ui transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${item.disabled
                 ? "text-text-muted/50 cursor-default"
                 : item.danger
-                  ? "text-error hover:bg-error/10"
-                  : "text-text hover:bg-white/10"
+                  ? "text-error hover:bg-error/10 cursor-pointer"
+                  : "text-text hover:bg-overlay-sm cursor-pointer"
                 }`}
               onClick={() => handleItemClick(item)}
               onMouseEnter={() => {
@@ -115,12 +115,12 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
               )}
               <span className="flex-1">{item.label}</span>
               {item.shortcut && (
-                <span className="text-text-muted text-[10px] ml-4">
+                <span className="text-text-muted text-3xs ml-4">
                   {item.shortcut}
                 </span>
               )}
               {item.children && (
-                <i className="fa-solid fa-chevron-right text-[8px] text-white/50" />
+                <i className="fa-solid fa-chevron-right text-icon-xs text-white/50" />
               )}
             </button>
 
@@ -129,11 +129,11 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
                 {item.children.map((child) => (
                   <button
                     key={child.id}
-                    className={`flex items-center gap-3 px-3 py-1.5 text-left text-[13px] transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${child.disabled
+                    className={`flex items-center gap-3 px-3 py-1.5 text-left text-ui transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${child.disabled
                       ? "text-text-muted/50 cursor-default"
                       : child.danger
-                        ? "text-error hover:bg-error/10"
-                        : "text-text hover:bg-white/10"
+                        ? "text-error hover:bg-error/10 cursor-pointer"
+                        : "text-text hover:bg-overlay-sm cursor-pointer"
                       }`}
                     onClick={() => {
                       if (!child.disabled) {
@@ -149,7 +149,7 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
                     )}
                     <span className="flex-1">{child.label}</span>
                     {child.shortcut && (
-                      <span className="text-text-muted text-[10px] ml-4">
+                      <span className="text-text-muted text-3xs ml-4">
                         {child.shortcut}
                       </span>
                     )}

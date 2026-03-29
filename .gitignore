@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+package-lock.json
+src-tauri/Cargo.lock
 
 # Build outputs
 dist/

@@ -343,6 +343,7 @@ export default function App() {
             theme={theme}
             aiChatOpen={aiChatOpen}
             onAiChatOpenChange={setAiChatOpen}
+            onSave={handleTabSave}
           />
         </main>
       </div>

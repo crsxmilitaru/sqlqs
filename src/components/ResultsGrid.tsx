@@ -258,7 +258,7 @@ export default function ResultsGrid({
 
   if (isExecuting) {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-sm bg-surface">
+      <div className="flex items-center justify-center h-full text-text-muted text-m bg-surface">
         <div className="flex flex-col items-center gap-3">
           <div className="h-5 w-5 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />
           <span className="animate-pulse">Executing query...</span>
@@ -270,7 +270,7 @@ export default function ResultsGrid({
   if (error) {
     return (
       <div className="p-4 h-full overflow-auto bg-surface">
-        <div className="text-error text-[13px] font-mono whitespace-pre-wrap leading-relaxed select-text">
+        <div className="text-error text-m font-mono whitespace-pre-wrap leading-relaxed select-text">
           {error}
         </div>
       </div>
@@ -279,7 +279,7 @@ export default function ResultsGrid({
 
   if (!result) {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-sm bg-surface">
+      <div className="flex items-center justify-center h-full text-text-muted text-m bg-surface">
         Press F5 or {executeShortcutLabel} to execute
       </div>
     );
@@ -340,16 +340,16 @@ export default function ResultsGrid({
           />
         ))
       ) : (
-        <div className="p-4 text-text-muted text-[13px] font-sans">
+        <div className="p-4 text-text-muted text-m font-sans">
           <p className="text-success font-semibold flex items-center gap-2 mb-2">
             <i className="fa-solid fa-check-circle" />
             Query executed successfully.
           </p>
           <div className="space-y-1.5 opacity-80">
             <p>{result.rows_affected} row(s) affected.</p>
-            <p className="text-xs">Execution time: {result.elapsed_ms}ms</p>
+            <p className="text-s">Execution time: {result.elapsed_ms}ms</p>
             {result.messages.map((msg, i) => (
-                <p key={i} className="text-xs bg-surface-hover p-2 rounded-md border border-border/10">
+                <p key={i} className="text-s bg-surface-hover p-2 rounded-md border border-border/10">
                   {msg}
                 </p>
             ))}

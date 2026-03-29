@@ -1,0 +1,155 @@
+/* ─── CodeMirror autocomplete tooltip ─── */
+
+.cm-tooltip.cm-tooltip-autocomplete {
+  background-color: var(--color-surface-raised) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-xl) !important;
+  backdrop-filter: blur(20px) !important;
+  padding: var(--spacing-xs) !important;
+  min-width: 250px !important;
+  overflow: hidden !important;
+  transform-origin: top !important;
+  animation: cm-slide-up var(--duration-normal) var(--ease-out) !important;
+}
+
+@keyframes cm-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: 380px !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--color-scrollbar) transparent !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
+  width: 6px !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar) !important;
+  border-radius: 99px !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  padding: 6px 12px !important;
+  border-radius: var(--radius-sm) !important;
+  margin: 1px 2px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--spacing-m) !important;
+  color: var(--color-text-muted) !important;
+  font-size: var(--text-m) !important;
+  transition: all var(--duration-fast) ease !important;
+  cursor: pointer !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li:hover {
+  background-color: var(--color-surface-hover) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background-color: var(--color-accent) !important;
+  color: white !important;
+}
+
+.cm-completionIcon {
+  width: 20px !important;
+  height: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 4px !important;
+  font-size: var(--text-s) !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.cm-completionIcon::after {
+  display: none !important;
+}
+
+.cm-completionIcon svg {
+  display: none !important;
+}
+
+.cm-completionIcon-property {
+  background-color: color-mix(in srgb, var(--color-cm-property), transparent 85%) !important;
+  color: var(--color-cm-property) !important;
+}
+
+.cm-completionIcon-property::before {
+  content: "P";
+}
+
+.cm-completionIcon-keyword {
+  background-color: color-mix(in srgb, var(--color-cm-keyword), transparent 85%) !important;
+  color: var(--color-cm-keyword) !important;
+}
+
+.cm-completionIcon-keyword::before {
+  content: "K";
+}
+
+.cm-completionIcon-type {
+  background-color: color-mix(in srgb, var(--color-cm-type), transparent 85%) !important;
+  color: var(--color-cm-type) !important;
+}
+
+.cm-completionIcon-type::before {
+  content: "T";
+}
+
+.cm-completionIcon-text {
+  background-color: color-mix(in srgb, var(--color-cm-ai), transparent 85%) !important;
+  color: var(--color-cm-ai) !important;
+}
+
+.cm-completionIcon-text::before {
+  content: "AI";
+  font-size: var(--text-icon-xs) !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionIcon {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+}
+
+.cm-completionLabel {
+  flex: 1 !important;
+  color: inherit !important;
+  font-weight: 500 !important;
+  font-size: var(--text-m) !important;
+}
+
+.cm-completionMatchedText {
+  text-decoration: none !important;
+  color: var(--color-accent) !important;
+  font-weight: 700 !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: white !important;
+  text-shadow: var(--shadow-sm) !important;
+}
+
+.cm-completionDetail {
+  margin-left: 8px !important;
+  font-size: var(--text-s) !important;
+  opacity: 0.5 !important;
+  font-family: var(--font-mono) !important;
+  color: inherit !important;
+}

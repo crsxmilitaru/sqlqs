@@ -39,22 +39,22 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
       <div className="absolute top-1.5 right-1.5 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
         <button
           onClick={handleCopy}
-          className="w-6 h-6 flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+          className="w-6 h-6 flex items-center justify-center rounded bg-overlay-sm hover:bg-overlay-lg text-text-muted hover:text-text transition-colors cursor-pointer"
         >
-          <i className={`fa-solid ${copied ? "fa-check text-success" : "fa-copy"} text-[10px]`} />
+          <i className={`fa-solid ${copied ? "fa-check text-success" : "fa-copy"} text-s`} />
         </button>
       </div>
       <pre
         ref={preRef}
-        className={`bg-black/30 rounded p-2 text-[10px] text-left select-text ${open ? "overflow-x-auto" : "max-h-[3.2em] overflow-hidden"}`}
+        className={`bg-black/30 rounded p-2 text-s text-left select-text ${open ? "overflow-x-auto" : "max-h-[3.2em] overflow-hidden"}`}
       >
         {children}
       </pre>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-center gap-1.5 text-[10px] text-text-muted hover:text-text mt-0.5 w-full cursor-pointer"
+        className="flex items-center justify-center gap-1.5 text-s text-text-muted hover:text-text mt-0.5 w-full cursor-pointer"
       >
-        <i className={`fa-solid ${open ? "fa-chevron-up" : "fa-chevron-down"} text-[7px]`} />
+        <i className={`fa-solid ${open ? "fa-chevron-up" : "fa-chevron-down"} text-icon-xxs`} />
         <span>{open ? "Show less" : "Show more"}</span>
       </button>
     </div>
@@ -64,13 +64,13 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 function ToolsUsedBadge({ toolsUsed }: { toolsUsed: string[] }) {
   if (toolsUsed.length === 0) return null;
   return (
-    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-      <i className="fa-solid fa-wrench text-[8px] text-text-muted" />
+    <div className="flex items-center gap-1.5 flex-wrap mb-1.5 focus:outline-none">
       {toolsUsed.map((name) => (
         <span
           key={name}
-          className="px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[9px] font-medium"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-accent text-accent-text text-s font-semibold"
         >
+          <i className="fa-solid fa-wrench text-icon opacity-80" />
           {getToolLabel(name)}
         </span>
       ))}
@@ -241,7 +241,7 @@ export default function AIChatPanel({
       />
       <div className="flex flex-col flex-1 min-w-0 bg-surface-panel border border-border rounded-lg overflow-hidden shadow-lg">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-header/50">
-          <span className="text-[12px] font-semibold text-text-muted uppercase tracking-wide">Chat</span>
+          <span className="text-s font-semibold text-text-muted uppercase tracking-wide">Chat</span>
           {messages.length > 0 && (
             <Tooltip content="Clear Chat">
               <button
@@ -249,7 +249,7 @@ export default function AIChatPanel({
                 disabled={isLoading}
                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-error/10 text-text-muted hover:text-error transition-colors disabled:opacity-30 cursor-pointer"
               >
-                <i className="fa-solid fa-trash text-[11px]" />
+                <i className="fa-solid fa-trash text-s" />
               </button>
             </Tooltip>
           )}
@@ -257,7 +257,7 @@ export default function AIChatPanel({
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {messages.length === 0 && (
-            <div className="text-center text-text-muted text-[12px] py-6 px-2">
+            <div className="text-center text-text-muted text-s py-6 px-2">
               <i className="fa-solid fa-lightbulb text-base mb-2 opacity-40" />
               <p>Ask questions or request SQL modifications</p>
             </div>
@@ -266,13 +266,13 @@ export default function AIChatPanel({
           {messages.map((msg, idx) => (
             <div key={idx}>
               <div
-                className={`w-full rounded-md px-2.5 py-1.5 ${msg.role === "user"
+                className={`w-full rounded-md px-2.5 py-1.5 select-text ${msg.role === "user"
                   ? "bg-accent/20 text-text"
                   : "bg-surface-hover text-text"
                   }`}
               >
                 {msg.role === "assistant" ? (
-                  <div className="text-[12px] leading-relaxed chat-markdown [&>*:first-child]:mt-0">
+                  <div className="text-s leading-relaxed chat-markdown [&>*:first-child]:mt-0">
                     {msg.toolsUsed && <ToolsUsedBadge toolsUsed={msg.toolsUsed} />}
                     <Markdown
                       components={{
@@ -282,16 +282,16 @@ export default function AIChatPanel({
                           return isBlock ? (
                             <code className="text-text select-text">{children}</code>
                           ) : (
-                            <code className="bg-black/20 rounded px-1 py-0.5 text-amber-400/80 text-[12px] select-text">{children}</code>
+                            <code className="bg-black/20 rounded px-1 py-0.5 text-amber-400/80 text-s select-text">{children}</code>
                           );
                         },
                         p: ({ children }) => <p className="my-1 text-text/70">{children}</p>,
                         ul: ({ children }) => <ul className="list-disc pl-4 my-1 space-y-0.5 text-text/70">{children}</ul>,
                         ol: ({ children }) => <ol className="list-decimal pl-4 my-1 space-y-0.5 text-text/70">{children}</ol>,
                         li: ({ children }) => <li>{children}</li>,
-                        h1: ({ children }) => <h1 className="font-bold text-sm mt-2 mb-1 text-text">{children}</h1>,
-                        h2: ({ children }) => <h2 className="font-bold text-[12px] mt-2 mb-1 text-text">{children}</h2>,
-                        h3: ({ children }) => <h3 className="font-semibold text-[12px] mt-1.5 mb-0.5 text-text">{children}</h3>,
+                        h1: ({ children }) => <h1 className="font-bold text-s mt-2 mb-1 text-text">{children}</h1>,
+                        h2: ({ children }) => <h2 className="font-bold text-s mt-2 mb-1 text-text">{children}</h2>,
+                        h3: ({ children }) => <h3 className="font-semibold text-s mt-1.5 mb-0.5 text-text">{children}</h3>,
                         strong: ({ children }) => <strong className="font-semibold text-text">{children}</strong>,
                         hr: () => <hr className="border-border my-2" />,
                         a: ({ children, href }) => (
@@ -308,34 +308,34 @@ export default function AIChatPanel({
                         <div className="flex items-center gap-1">
                           <button
                             onClick={(e) => { e.stopPropagation(); setApplyMenuFor(applyMenuFor === idx ? null : idx); }}
-                            className="btn btn-primary text-[11px] !h-auto !py-2 !flex !items-center !gap-1.5"
+                            className="btn btn-primary text-s !h-auto !py-2 !flex !items-center !gap-1.5"
                           >
-                            <i className="fa-solid fa-code !text-[10px] !w-auto !h-auto !flex-none" />
+                            <i className="fa-solid fa-code !text-s !w-auto !h-auto !flex-none" />
                             <span className="pb-[2px]">Apply to editor</span>
-                            <i className="fa-solid fa-chevron-down !text-[8px] !w-auto !h-auto !flex-none ml-1 opacity-60" />
+                            <i className="fa-solid fa-chevron-down !text-icon-xs !w-auto !h-auto !flex-none ml-1 opacity-60" />
                           </button>
                         </div>
                         {applyMenuFor === idx && (
-                          <div className="absolute left-0 bottom-full mb-1 bg-surface-panel border border-border rounded-md shadow-lg z-50 min-w-[160px] py-1">
+                          <div className="popup-menu absolute left-0 bottom-full mb-1">
                             <button
                               onClick={() => handleApplyCode(msg.content, "append")}
-                              className="w-full px-3 py-1.5 text-[11px] text-text-muted hover:text-text hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                              className="popup-menu-item"
                             >
-                              <i className="fa-solid fa-plus text-[9px] w-3 text-center" />
+                              <i className="fa-solid fa-plus text-icon w-3 text-center" />
                               Append to editor
                             </button>
                             <button
                               onClick={() => handleApplyCode(msg.content, "replace")}
-                              className="w-full px-3 py-1.5 text-[11px] text-text-muted hover:text-text hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                              className="popup-menu-item"
                             >
-                              <i className="fa-solid fa-arrow-right-arrow-left text-[9px] w-3 text-center" />
+                              <i className="fa-solid fa-arrow-right-arrow-left text-icon w-3 text-center" />
                               Replace content
                             </button>
                             <button
                               onClick={() => handleApplyCode(msg.content, "new-tab")}
-                              className="w-full px-3 py-1.5 text-[11px] text-text-muted hover:text-text hover:bg-surface-hover flex items-center gap-2 cursor-pointer"
+                              className="popup-menu-item"
                             >
-                              <i className="fa-solid fa-file-circle-plus text-[9px] w-3 text-center" />
+                              <i className="fa-solid fa-file-circle-plus text-icon w-3 text-center" />
                               Open in new tab
                             </button>
                           </div>
@@ -344,7 +344,7 @@ export default function AIChatPanel({
                     )}
                   </div>
                 ) : (
-                  <div className="text-[12px] whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
+                  <div className="text-s whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
                 )}
               </div>
             </div>
@@ -353,8 +353,8 @@ export default function AIChatPanel({
           {isLoading && (
             <div className="flex justify-start">
               <div className="bg-surface-hover rounded-md px-2.5 py-1.5">
-                <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
-                  <i className="fa-solid fa-spinner fa-spin text-[11px]" />
+                <div className="flex items-center gap-1.5 text-s text-text-muted">
+                  <i className="fa-solid fa-spinner fa-spin text-s" />
                   <span>Thinking...</span>
                 </div>
               </div>
@@ -363,8 +363,8 @@ export default function AIChatPanel({
 
           {error && (
             <div className="flex justify-center">
-              <div className="bg-error/10 border border-error/20 text-error rounded-md px-2.5 py-1.5 text-[12px] flex items-center gap-1.5">
-                <i className="fa-solid fa-circle-exclamation text-[11px]" />
+              <div className="bg-error/10 border border-error/20 text-error rounded-md px-2.5 py-1.5 text-s flex items-center gap-1.5 select-text">
+                <i className="fa-solid fa-circle-exclamation text-s" />
                 <span>{error}</span>
               </div>
             </div>
@@ -384,7 +384,7 @@ export default function AIChatPanel({
                 placeholder="Ask about your SQL..."
                 disabled={isLoading}
                 rows={1}
-                className="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-[12px] leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 shadow-sm overflow-hidden"
+                className="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 shadow-sm overflow-hidden"
                 style={{ height: "38px", maxHeight: "150px" }}
               />
               <div className="flex items-center justify-between">
@@ -393,13 +393,13 @@ export default function AIChatPanel({
                     <button
                       ref={toolsButtonRef}
                       onClick={() => setShowTools(!showTools)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] transition-colors cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer ${
                         showTools
                           ? "text-accent bg-accent/10"
                           : "text-text-muted hover:text-text hover:bg-surface-hover"
                       }`}
                     >
-                      <i className="fa-solid fa-wrench text-[9px]" />
+                      <i className="fa-solid fa-wrench text-icon" />
                       <span>Tools</span>
                     </button>
                   </Tooltip>
@@ -417,7 +417,7 @@ export default function AIChatPanel({
               disabled={!input.trim() || isLoading}
               className="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover shadow-lg shadow-accent/20 transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
             >
-              <i className="fa-solid fa-paper-plane text-[10px]" />
+              <i className="fa-solid fa-paper-plane text-s" />
             </button>
           </div>
         </div>

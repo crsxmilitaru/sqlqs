@@ -7,7 +7,7 @@ import {
   startCompletion,
   type CompletionContext,
 } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, moveLineDown, moveLineUp } from "@codemirror/commands";
 import { MSSQL, sql } from "@codemirror/lang-sql";
 import {
   bracketMatching,
@@ -131,12 +131,19 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       { key: "F5", run: runExecute },
       { key: "Mod-Enter", run: runExecute },
     ]);
+    const lineMovementKeymap = keymap.of([
+      { key: "Alt-ArrowUp", run: moveLineUp },
+      { key: "Alt-ArrowDown", run: moveLineDown },
+    ]);
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         onChangeRef.current(update.state.doc.toString());
       }
     });
+    const placeholderText = readOnly && !currentDatabase
+      ? "Select a database to enable the SQL editor."
+      : `-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`;
 
     const state = EditorState.create({
       doc: value,
@@ -161,6 +168,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         ...(theme.id === "light" || theme.id === "soft-light" ? [] : [oneDark]),
         executeKeymap,
+        lineMovementKeymap,
         keymap.of([
           { key: "Tab", run: acceptCompletion },
           ...defaultKeymap,
@@ -171,9 +179,9 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           ...searchKeymap,
         ]),
         updateListener,
-        placeholderExt(`-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`),
+        placeholderExt(placeholderText),
         EditorView.lineWrapping,
-        ...(readOnly ? [EditorState.readOnly.of(true)] : []),
+        ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
       ],
     });
 
@@ -188,7 +196,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       view.destroy();
       viewRef.current = null;
     };
-  }, [schemaCompletionSource, executeShortcutLabel, readOnly, theme]);
+  }, [currentDatabase, schemaCompletionSource, executeShortcutLabel, readOnly, theme]);
 
   useEffect(() => {
     const view = viewRef.current;

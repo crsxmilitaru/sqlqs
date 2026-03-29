@@ -9,11 +9,11 @@ const Input = forwardRef<HTMLInputElement, Props>(
         ref={ref}
         disabled={disabled}
         className={`
-          flex items-center px-2.5 h-[30px] text-[12px] rounded-md w-full
-          bg-surface-raised border border-border transition-all
+          flex items-center px-2.5 h-[32px] text-m rounded-md w-full
+          bg-white/[0.08] border border-white/10 transition-all
           text-text placeholder-text-muted
-          focus:border-accent focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--color-accent)_30%,transparent)] focus:outline-none
-          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:border-white/15"}
+          focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
+          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-white/[0.12] hover:border-white/20"}
           ${className}
         `}
         {...rest}

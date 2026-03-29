@@ -437,6 +437,38 @@ async fn get_object_definition(
     db::get_object_definition(client, &database, &schema, &name).await
 }
 
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    use tauri::Manager;
+    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    let native_window = window.get_webview_window("main")
+        .ok_or("Window not found")?;
+    let hwnd = native_window.hwnd().map_err(|e| e.to_string())?;
+    let value = BOOL::from(dark);
+
+    unsafe {
+        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        DwmSetWindowAttribute(
+            HWND(hwnd.0 as *mut _),
+            windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(20),
+            &value as *const BOOL as *const std::ffi::c_void,
+            std::mem::size_of::<BOOL>() as u32,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| {
@@ -478,6 +510,7 @@ pub fn run() {
             write_sql_file,
             get_documents_folder,
             open_folder,
+            set_mica_theme,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

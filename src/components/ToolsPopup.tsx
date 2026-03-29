@@ -43,10 +43,10 @@ export default function ToolsPopup({ anchorRef, onClose }: Props) {
   return (
     <div ref={popupRef} className="absolute bottom-full mb-1.5 left-0 w-[260px] bg-surface-panel border border-border rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">AI Tools</span>
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">AI Tools</span>
         <button
           onClick={toggleAll}
-          className="text-[10px] text-accent hover:text-accent-hover transition-colors cursor-pointer"
+          className="text-3xs text-accent hover:text-accent-hover transition-colors cursor-pointer"
         >
           {allEnabled ? "Disable all" : "Enable all"}
         </button>
@@ -64,15 +64,15 @@ export default function ToolsPopup({ anchorRef, onClose }: Props) {
                   : "opacity-50 hover:opacity-70 hover:bg-surface-hover"
               }`}
             >
-              <i className={`${tool.icon} text-[11px] w-4 text-center ${isOn ? "text-accent" : "text-text-muted"}`} />
+              <i className={`${tool.icon} text-2xs w-4 text-center ${isOn ? "text-accent" : "text-text-muted"}`} />
               <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium text-text truncate">{tool.label}</div>
-                <div className="text-[10px] text-text-muted leading-tight truncate">{tool.description}</div>
+                <div className="text-xs font-medium text-text truncate">{tool.label}</div>
+                <div className="text-3xs text-text-muted leading-tight truncate">{tool.description}</div>
               </div>
               <div className={`w-3 h-3 rounded-full border flex-shrink-0 flex items-center justify-center ${
                 isOn ? "border-accent bg-accent" : "border-white/20"
               }`}>
-                {isOn && <i className="fa-solid fa-check text-[7px] text-white" />}
+                {isOn && <i className="fa-solid fa-check text-icon-xxs text-white" />}
               </div>
             </button>
           );

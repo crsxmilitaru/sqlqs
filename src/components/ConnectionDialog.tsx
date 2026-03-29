@@ -124,9 +124,9 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
 
   return (
     <div className={`absolute top-11 inset-x-0 bottom-0 bg-black/50 flex items-center justify-center z-[70] transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}>
-      <div className={`bg-surface-raised border border-white/[0.08] shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-transparent">
-          <h2 className="text-sm font-semibold text-text">Connect to Server</h2>
+      <div className={`bg-surface-raised border border-overlay-sm shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
+          <h2 className="text-m font-semibold text-text">Connect to Server</h2>
           <Tooltip content="Close" placement="bottom">
             <button
               onClick={onClose}
@@ -140,7 +140,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
         <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
           {savedConnections.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-muted select-none">Saved Connections</label>
+              <label className="text-s font-medium text-text-muted select-none">Saved Connections</label>
               <Dropdown
                 value={saveName}
                 options={savedConnections.map((c) => ({ value: c.name, label: c.name }))}
@@ -154,7 +154,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           )}
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-muted select-none">Server</label>
+            <label className="text-s font-medium text-text-muted select-none">Server</label>
             <Input
               value={server}
               onChange={(e) => setServer(e.target.value)}
@@ -165,7 +165,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-muted select-none">Database (optional)</label>
+            <label className="text-s font-medium text-text-muted select-none">Database (optional)</label>
             <Input
               value={database}
               onChange={(e) => setDatabase(e.target.value)}
@@ -174,7 +174,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           </div>
 
           {supportsWindowsAuth && (
-            <label className="flex items-center gap-2.5 text-sm text-text cursor-pointer mt-0.5 select-none">
+            <label className="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
               <input
                 type="checkbox"
                 checked={useWindowsAuth}
@@ -187,14 +187,14 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           {!useWindowsAuth && (
             <div className="flex gap-4 mt-0.5">
               <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-text-muted select-none">Username</label>
+                <label className="text-s font-medium text-text-muted select-none">Username</label>
                 <Input
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-text-muted select-none">Password</label>
+                <label className="text-s font-medium text-text-muted select-none">Password</label>
                 <Input
                   type="password"
                   value={password}
@@ -205,7 +205,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           )}
 
           <div className="flex gap-6 mt-1.5 mb-1">
-            <label className="flex items-center gap-2.5 text-sm text-text-muted cursor-pointer select-none">
+            <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={encrypt}
@@ -213,7 +213,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
               />
               <span>Encrypt</span>
             </label>
-            <label className="flex items-center gap-2.5 text-sm text-text-muted cursor-pointer select-none">
+            <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={trustCert}
@@ -226,7 +226,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           <div className="border-t border-border mt-1 pt-4 flex flex-col gap-3">
             <div className="flex gap-4 items-start">
               <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-text-muted select-none">Save as (optional)</label>
+                <label className="text-s font-medium text-text-muted select-none">Save as (optional)</label>
                 <Input
                   value={saveName}
                   onChange={(e) => setSaveName(e.target.value)}
@@ -234,7 +234,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
                 />
               </div>
               <div className="flex flex-col gap-2 mt-[22px]">
-                <label className="flex items-center gap-2.5 text-sm text-text-muted cursor-pointer select-none">
+                <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={rememberPassword}
@@ -242,7 +242,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
                   />
                   <span>Remember password</span>
                 </label>
-                <label className="flex items-center gap-2.5 text-sm text-text-muted cursor-pointer select-none">
+                <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={keepLoggedIn}
@@ -261,7 +261,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
           </div>
 
           {error && (
-            <div className="text-error text-sm bg-error/10 border border-error/30 rounded-lg px-3 py-2 mt-2">
+            <div className="text-error text-m bg-error/10 border border-error/30 rounded-lg px-3 py-2 mt-2">
               {error}
             </div>
           )}

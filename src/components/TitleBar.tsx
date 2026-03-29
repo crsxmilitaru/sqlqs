@@ -212,7 +212,7 @@ export default function TitleBar({
         className="app-titlebar flex items-center h-11 select-none flex-shrink-0 relative"
         onMouseDown={handleTitleBarMouseDown}
       >
-        <div 
+        <div
           className="flex items-center h-full z-10 px-3 gap-1.5"
           style={{ width: sidebarVisible && connected ? sidebarWidth + 1 : 'auto' }}
         >
@@ -255,9 +255,9 @@ export default function TitleBar({
               <button
                 onClick={onToggleSidebar}
                 disabled={dialogOpen || !connected}
-                className={`w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default ${sidebarVisible ? "text-text-muted enabled:hover:text-text" : "text-accent"}`}
+                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default ${sidebarVisible ? "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover" : "text-text bg-surface-header enabled:hover:bg-surface-active"}`}
               >
-                <i className="fa-solid fa-table-columns text-[13px]" />
+                <i className="fa-solid fa-table-columns text-m" />
               </button>
             </Tooltip>
           )}
@@ -267,7 +267,7 @@ export default function TitleBar({
               disabled={settingsDisabled || dialogOpen || !connected}
               className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
-              <i className="fa-solid fa-gear text-[13px]" />
+              <i className="fa-solid fa-gear text-m" />
             </button>
           </Tooltip>
           <Tooltip content={`Open File (${openFileShortcut})`} placement="bottom">
@@ -276,11 +276,11 @@ export default function TitleBar({
               disabled={dialogOpen || !connected}
               className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
-              <i className="fa-solid fa-folder-open text-[13px]" />
+              <i className="fa-solid fa-folder-open text-m" />
             </button>
           </Tooltip>
 
-          <div className="w-px h-4 bg-white/10 mx-1 flex-shrink-0" />
+          <div className="w-px h-4 bg-overlay-sm mx-1 flex-shrink-0" />
 
           {connected ? (
             <Tooltip content="Click to disconnect" placement="bottom">
@@ -289,15 +289,15 @@ export default function TitleBar({
                 disabled={dialogOpen}
                 className="flex items-center gap-2 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text transition-all group enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
               >
-                <i className="fa-solid fa-server text-[11px]" />
-                <span className="text-[11px] font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
+                <i className="fa-solid fa-server text-s" />
+                <span className="text-s font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
               </button>
             </Tooltip>
           ) : (
             <button
               onClick={onConnect}
               disabled={dialogOpen}
-              className="flex items-center gap-1.5 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-[11px] font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+              className="flex items-center gap-1.5 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-s font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
               <i className="fa-solid fa-plug" />
               Connect Server
@@ -321,7 +321,7 @@ export default function TitleBar({
                 <div
                   key={tab.id}
                   ref={tab.id === activeTabId ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
-                  className={`winui-tab flex items-center gap-2 text-[12px] cursor-default whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId ? "active text-text font-medium" : "text-text-muted"}`}
+                  className={`winui-tab flex items-center gap-2 text-s cursor-pointer whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId ? "active text-text font-medium" : "text-text-muted"}`}
                   onClick={() => onTabChange(tab.id)}
                   onDoubleClick={() => handleStartRename(tab)}
                   onAuxClick={(e) => {
@@ -341,7 +341,7 @@ export default function TitleBar({
                         onChange={(e) => setRenameValue(e.target.value)}
                         onBlur={() => handleRename(tab.id)}
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                        className="bg-transparent border-none outline-none text-[12px] w-full min-w-0"
+                        className="bg-transparent border-none outline-none text-s w-full min-w-0"
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
@@ -350,22 +350,22 @@ export default function TitleBar({
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {tab.isExecuting && (
-                      <span className="animate-pulse text-warning text-[10px]">&#9679;</span>
+                      <span className="animate-pulse text-warning text-s">&#9679;</span>
                     )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmClose({ type: "single", tabId: tab.id });
                       }}
-                      className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text cursor-pointer transition-colors"
+                      className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-surface-active text-text-muted hover:text-text cursor-pointer transition-colors"
                     >
-                      <i className="fa-solid fa-xmark text-[10px]" />
+                      <i className="fa-solid fa-xmark text-s" />
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="w-px h-4 bg-white/[0.08] flex-shrink-0" />
+            <div className="w-px h-4 bg-border flex-shrink-0" />
             <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
               <button
                 onClick={() => {
@@ -376,9 +376,9 @@ export default function TitleBar({
                     }
                   });
                 }}
-                className="flex items-center gap-2 px-3 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-white/10 rounded-lg transition-colors flex-shrink-0 cursor-pointer text-[12px] font-medium"
+                className="flex items-center gap-2 px-3 h-8 mx-2.5 text-text-muted hover:text-text hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0 cursor-pointer text-s font-medium"
               >
-                <i className="fa-solid fa-plus text-[14px]" />
+                <i className="fa-solid fa-plus text-m" />
                 <span>New</span>
               </button>
             </Tooltip>
@@ -387,22 +387,35 @@ export default function TitleBar({
 
         <div className="flex-1" />
 
-        <div className="flex h-full items-center z-10">
+        <div className="flex h-full z-10">
+          {hasAiKey && connected && (
+            <div className="flex items-center px-1">
+              <Tooltip content="AI Chat" placement="bottom">
+                <button
+                  onClick={onToggleAiChat}
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-s transition-colors cursor-pointer ${aiChatOpen ? "text-text font-medium bg-surface-header hover:bg-surface-active" : "text-text-muted font-normal hover:text-text hover:bg-surface-hover"}`}
+                >
+                  <i className="fa-solid fa-wand-sparkles" />
+                  <span>Chat</span>
+                </button>
+              </Tooltip>
+            </div>
+          )}
           {!isMac && (
-            <div className="flex h-full ml-4">
+            <div className="flex h-full">
               <Tooltip content="Minimize" placement="bottom">
                 <button onClick={handleMinimize} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all">
-                  <i className="fa-solid fa-window-minimize text-[10px]" />
+                  <i className="fa-solid fa-window-minimize text-s" />
                 </button>
               </Tooltip>
               <Tooltip content="Maximize" placement="bottom">
                 <button onClick={handleMaximize} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all">
-                  <i className="fa-regular fa-square text-[10px]" />
+                  <i className="fa-regular fa-square text-s" />
                 </button>
               </Tooltip>
               <Tooltip content="Close" placement="bottom">
-                <button onClick={handleClose} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-[#c42b1c] hover:text-white transition-all">
-                  <i className="fa-solid fa-xmark text-[14px]" />
+                <button onClick={handleClose} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-windows-close-hover hover:text-white transition-all">
+                  <i className="fa-solid fa-xmark text-m" />
                 </button>
               </Tooltip>
             </div>

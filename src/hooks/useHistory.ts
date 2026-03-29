@@ -26,8 +26,9 @@ function loadExecutedQueries(): ExecutedQuery[] {
     return parsed
       .map(item => {
         if (typeof item === 'string') {
-          return { sql: item, title: item.substring(0, 40) + (item.length > 40 ? "..." : "") };
+          return { sql: item, title: generateTabTitle(item) || item.substring(0, 40) + (item.length > 40 ? "..." : "") };
         }
+
         return item as ExecutedQuery;
       })
       .filter((query): query is ExecutedQuery => !!query.sql && query.sql.trim().length > 0)

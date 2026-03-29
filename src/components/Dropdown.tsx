@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 
 interface DropdownOption {
@@ -36,6 +36,10 @@ export default function Dropdown({
   const filterInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const portalTarget =
+    typeof document !== "undefined"
+      ? ((dropdownRef.current?.closest(".app-shell") as HTMLElement | null) ?? document.body)
+      : null;
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -92,16 +96,26 @@ export default function Dropdown({
     };
   }, [close]);
 
-  useEffect(() => {
-    if (isOpen) {
-      updatePosition();
-      if (filterable && filterInputRef.current) {
-        filterInputRef.current.focus();
-      }
-      const idx = filteredOptions.findIndex((opt) => opt.value === value);
-      setHighlightedIndex(idx >= 0 ? idx : 0);
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    updatePosition();
+    if (filterable && filterInputRef.current) {
+      filterInputRef.current.focus();
     }
-  }, [isOpen]);
+
+    const idx = filteredOptions.findIndex((opt) => opt.value === value);
+    setHighlightedIndex(idx >= 0 ? idx : 0);
+
+    const handleReposition = () => updatePosition();
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [filterable, filteredOptions, isOpen, updatePosition, value]);
 
   // scroll highlighted item into view
   useEffect(() => {
@@ -170,10 +184,12 @@ export default function Dropdown({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={`
-          flex items-center justify-between gap-2 px-2.5 h-[30px] text-[12px] rounded-md w-full
-          bg-surface-raised border border-border transition-all
-          ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-white/15"}
-          ${isOpen ? "border-accent" : ""}
+          dropdown-trigger
+          flex items-center justify-between gap-2 px-2.5 h-[32px] text-m rounded-md w-full
+          transition-all
+          text-text placeholder-text-muted
+          focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
+          ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
         `}
       >
         <span
@@ -182,7 +198,7 @@ export default function Dropdown({
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <i
-          className={`fa-solid fa-chevron-down text-text-muted text-[9px] transition-transform duration-150 ${
+          className={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${
             isOpen
               ? openUpwards
                 ? ""
@@ -194,26 +210,29 @@ export default function Dropdown({
         />
       </button>
 
-      {isOpen &&
+      {isOpen && portalTarget &&
         createPortal(
           <div
             ref={listRef}
             style={popupStyle}
-            className="z-50 py-1 bg-surface-raised border border-border rounded-md shadow-xl max-h-52 overflow-y-auto"
+            className="dropdown-panel z-50 py-1 backdrop-blur-xl rounded-lg max-h-52 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-100"
             role="listbox"
           >
             {filterable && (
-              <div className="px-1.5 pb-1.5 pt-1">
-                <input
-                  ref={filterInputRef}
-                  type="text"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  placeholder="Search..."
-                  className="w-full px-2 py-1.5 text-[12px] bg-surface border border-border rounded-md focus:outline-none focus:border-accent text-text placeholder-text-muted transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={handleKeyDown}
-                />
+              <div className="px-2 pb-2 pt-1">
+                <div className="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-all">
+                  <i className="fa-solid fa-magnifying-glass text-3xs opacity-40" />
+                  <input
+                    ref={filterInputRef}
+                    type="text"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Search databases..."
+                    className="w-full bg-transparent text-m text-text caret-accent placeholder:text-text-muted/60 outline-none"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={handleKeyDown}
+                  />
+                </div>
               </div>
             )}
             {filteredOptions.length > 0 ? (
@@ -229,21 +248,21 @@ export default function Dropdown({
                   onClick={() => handleSelect(option.value)}
                   onMouseEnter={() => setHighlightedIndex(index)}
                   className={`
-                    w-full px-2.5 py-1.5 text-[12px] text-left transition-colors rounded-sm
-                    ${index === highlightedIndex ? "bg-white/[0.06]" : ""}
-                    ${option.value === value ? "text-text font-semibold" : "text-text"}
+                    dropdown-option w-full px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
+                    ${index === highlightedIndex ? "dropdown-option--active" : ""}
+                    ${option.value === value ? "dropdown-option--selected" : ""}
                   `}
                 >
                   {option.label}
                 </button>
               ))
             ) : (
-              <div className="px-2.5 py-2 text-[12px] text-text-muted">
+              <div className="px-2.5 py-2 text-sm text-text-muted">
                 No results
               </div>
             )}
           </div>,
-          document.body
+          portalTarget
         )}
     </div>
   );

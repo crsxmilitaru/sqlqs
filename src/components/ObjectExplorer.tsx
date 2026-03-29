@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ColumnInfo, DatabaseObject, ExecutedQuery } from "../lib/types";
+import { useCallback, useEffect, useState } from "react";
 import type { SavedQuery } from "../hooks/useSavedQueries";
+import type { ColumnInfo, DatabaseObject, ExecutedQuery } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconView } from "./Icons";
 import Tooltip from "./Tooltip";
@@ -72,12 +72,45 @@ function initExpandedSections(): Set<string> {
 }
 
 const ICON_WRAP = "w-4 flex justify-center flex-shrink-0";
+const SECTION_HEADER = "flex items-center justify-between px-3 py-2 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group";
+const LIST_ROW = "rounded-md px-4 py-1.5 cursor-pointer group whitespace-nowrap select-text transition-colors";
 
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <span className={`w-4 h-4 flex items-center justify-center flex-shrink-0 text-text-muted transition-transform ml-auto ${expanded ? "rotate-90" : ""}`}>
       <IconChevronRight className="w-2.5 h-2.5" />
     </span>
+  );
+}
+
+function FilterInput({ placeholder, value, onChange }: { placeholder: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <input
+      type="text"
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      className="explorer-filter w-full h-full"
+    />
+  );
+}
+
+function SectionHeader({ title, expanded, onToggle, actions, onContextMenu }: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  actions?: React.ReactNode;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div className={SECTION_HEADER} onClick={onToggle} onContextMenu={onContextMenu}>
+      <span className="font-bold text-s uppercase tracking-wider select-none">{title}</span>
+      <div className="flex items-center gap-2">
+        {actions}
+        <Chevron expanded={expanded} />
+      </div>
+    </div>
   );
 }
 
@@ -113,7 +146,7 @@ function ObjectIcon({ type }: { type: string }) {
     case "table":
       return <div className={ICON_WRAP}><IconTable className="text-success w-3.5 h-3.5" /></div>;
     case "view":
-      return <div className={ICON_WRAP}><IconView className="text-green-400 w-3.5 h-3.5" /></div>;
+      return <div className={ICON_WRAP}><IconView className="text-success w-3.5 h-3.5" /></div>;
     case "procedure":
       return <div className={ICON_WRAP}><IconProcedure className="text-purple-400 w-3.5 h-3.5" /></div>;
     case "function":
@@ -149,8 +182,8 @@ function loadSectionHeights(): ExplorerSectionHeights {
 export default function ObjectExplorer({
   onSelect,
   onDatabaseChange,
-  currentDatabase, 
-  executedQueries = [], 
+  currentDatabase,
+  executedQueries = [],
   onDeleteHistory,
   onClearHistory,
   savedQueries = [],
@@ -226,7 +259,6 @@ export default function ObjectExplorer({
 
   async function loadDatabases() {
     try {
-
       const dbs: string[] = await invoke("get_databases");
       setDatabases(dbs);
     } catch (err) {
@@ -238,7 +270,6 @@ export default function ObjectExplorer({
     if (!force && tableCache[database]) return;
     setLoading((prev) => new Set(prev).add(database));
     try {
-
       const tables: DatabaseObject[] = await invoke("get_tables", { database });
       setTableCache((prev) => ({ ...prev, [database]: tables }));
     } catch (err) {
@@ -523,7 +554,6 @@ export default function ObjectExplorer({
             onClick: async () => {
               if (objectType === "VIEW") {
                 try {
-            
                   const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                   const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
                   onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n${colList}\nFROM [${schema}].[<source_table>]\nGO`);
@@ -532,7 +562,6 @@ export default function ObjectExplorer({
                 }
               } else {
                 try {
-            
                   const script: string = await invoke("generate_create_script", { database, schema, table });
                   onSelect(script);
                 } catch {
@@ -548,7 +577,6 @@ export default function ObjectExplorer({
             onClick: async () => {
               if (objectType === "VIEW") {
                 try {
-            
                   const def: string = await invoke("get_object_definition", { database, schema, name: table });
                   const altered = def.replace(/\bCREATE\s+(VIEW)\b/i, "ALTER $1");
                   onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
@@ -578,7 +606,6 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-magnifying-glass" />,
             onClick: async () => {
               try {
-          
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
                 onSelect(`SELECT\n${colList}\nFROM ${fullName}`);
@@ -593,7 +620,6 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-circle-plus" />,
             onClick: async () => {
               try {
-          
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const filtered = cols.filter((c) => !c.is_identity);
                 const colNames = filtered.map((c) => `\t[${c.name}]`).join(",\n");
@@ -610,7 +636,6 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-pen-to-square" />,
             onClick: async () => {
               try {
-          
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const filtered = cols.filter((c) => !c.is_identity);
                 const setClauses = filtered.map((c) => `\t[${c.name}] = <${c.name}, ${c.type_name},>`).join(",\n");
@@ -626,7 +651,6 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-xmark" />,
             onClick: async () => {
               try {
-          
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const first = cols[0];
                 const hint = first ? `[${first.name}] = <${first.name}, ${first.type_name},>` : `<search_condition,,>`;
@@ -650,31 +674,20 @@ export default function ObjectExplorer({
 
   return (
     <div className="flex flex-col h-full bg-transparent">
-      <div className="flex-1 overflow-hidden pt-3 pb-1 px-2.5 text-xs flex flex-col gap-1 explorer-content">
+      <div className="flex-1 overflow-hidden pt-3 pb-1 px-1 text-s flex flex-col gap-1 explorer-content">
         <div className={`flex flex-col ${expanded.has("root:databases") ? "flex-1 min-h-0" : "flex-none"}`}>
-          <div
-            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
-            onClick={() => toggle("root:databases")}
+          <SectionHeader
+            title="Databases"
+            expanded={expanded.has("root:databases")}
+            onToggle={() => toggle("root:databases")}
             onContextMenu={(e) => handleContextMenu(e, "", "", "", "DATABASE_FOLDER")}
-          >
-            <span className="font-bold text-[11px] uppercase tracking-wider select-none">Databases</span>
-            <div className="flex items-center gap-2">
-              <Chevron expanded={expanded.has("root:databases")} />
-            </div>
-          </div>
+          />
 
           <div className={`accordion-content ${expanded.has("root:databases") ? "expanded flex-1 min-h-0" : ""}`}>
-            <div className="accordion-inner h-full">
+            <div className="accordion-inner h-full px-2">
               {databases.length > 0 && (
-                <div className="mx-0.5 mb-2 h-7 flex-shrink-0" style={{ paddingLeft: "12px" }}>
-                  <input
-                    type="text"
-                    placeholder="Filter databases..."
-                    value={folderFilters["root:databases"] || ""}
-                    onChange={(e) => updateFilter("root:databases", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="explorer-filter w-full h-full"
-                  />
+                <div className="mb-2 h-7 flex-shrink-0">
+                  <FilterInput placeholder="Filter databases..." value={folderFilters["root:databases"] || ""} onChange={(v) => updateFilter("root:databases", v)} />
                 </div>
               )}
 
@@ -684,7 +697,7 @@ export default function ObjectExplorer({
                   .map((db) => (
                     <div key={db} style={{ display: "flex", flexDirection: "column" }}>
                       <div
-                        className={`tree-node cursor-pointer ${contextMenu?.visible && contextMenu.database === db && contextMenu.objectType === "DATABASE" ? "bg-white/10" : ""}`}
+                        className={`tree-node cursor-pointer ${contextMenu?.visible && contextMenu.database === db && contextMenu.objectType === "DATABASE" ? "bg-surface-active" : ""}`}
                         style={{ "--depth": 0 } as React.CSSProperties}
                         onClick={() => handleDbClick(db)}
                         onDoubleClick={() => onDatabaseChange(db)}
@@ -714,34 +727,27 @@ export default function ObjectExplorer({
                                 return (
                                   <div key={group.key}>
                                     <div
-                                      className={`tree-node cursor-pointer group relative ${contextMenu?.visible && contextMenu.database === db && contextMenu.table === group.key && contextMenu.objectType === "FOLDER" ? "bg-white/10" : ""}`}
+                                      className={`tree-node cursor-pointer group relative ${contextMenu?.visible && contextMenu.database === db && contextMenu.table === group.key && contextMenu.objectType === "FOLDER" ? "bg-surface-active" : ""}`}
                                       style={{ "--depth": 1 } as React.CSSProperties}
                                       onClick={() => toggle(folderId)}
                                       onContextMenu={(e) => handleContextMenu(e, db, "", group.key, "FOLDER")}
                                     >
-                                      <i className={`fa-solid ${isOpen ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-[#eab308] w-4 text-center text-[12px]`} />
+                                      <i className={`fa-solid ${isOpen ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-warning w-4 text-center text-s`} />
                                       <span className="truncate flex-1 min-w-0">{group.label} ({group.items.length})</span>
                                       <Chevron expanded={isOpen} />
                                     </div>
                                     {isOpen && (
                                       <div className="accordion-content expanded">
                                         <div className="accordion-inner">
-                                          <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "36px" }}>
-                                            <input
-                                              type="text"
-                                              placeholder={`Filter ${group.label.toLowerCase()}...`}
-                                              value={folderFilters[folderId] || ""}
-                                              onChange={(e) => updateFilter(folderId, e.target.value)}
-                                              onClick={(e) => e.stopPropagation()}
-                                              className="explorer-filter w-full h-full"
-                                            />
+                                          <div className="explorer-filter-nested mb-1 h-7 flex-shrink-0">
+                                            <FilterInput placeholder={`Filter ${group.label.toLowerCase()}...`} value={folderFilters[folderId] || ""} onChange={(v) => updateFilter(folderId, v)} />
                                           </div>
                                           {filtered.map((o) => {
                                             const isCtx = contextMenu?.visible && contextMenu.database === db && contextMenu.schema === o.schema_name && contextMenu.table === o.name;
                                             return (
                                               <div
                                                 key={`${db}.${o.schema_name}.${o.name}`}
-                                                className={`tree-node cursor-pointer ${isCtx ? "bg-white/10" : ""}`}
+                                                className={`tree-node cursor-pointer ${isCtx ? "bg-surface-active" : ""}`}
                                                 style={{ "--depth": 2 } as React.CSSProperties}
                                                 onDoubleClick={canDblClick ? () => handleTableDoubleClick(db, o.schema_name, o.name) : undefined}
                                                 onContextMenu={(e) => handleContextMenu(e, db, o.schema_name, o.name, group.objectType)}
@@ -785,41 +791,27 @@ export default function ObjectExplorer({
           className="flex flex-col mt-1 flex-none min-h-0"
           style={expanded.has("root:saved_queries") ? { height: sectionHeights.saved } : undefined}
         >
-          <div
-            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
-            onClick={() => toggle("root:saved_queries")}
-          >
-            <span className="font-bold text-[11px] uppercase tracking-wider select-none">Saved Queries</span>
-            <div className="flex items-center gap-2">
-              {onOpenSavedQueriesFolder && (
-                <Tooltip content="Open folder" placement="top">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenSavedQueriesFolder();
-                    }}
-                    className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
-                  >
-                    <i className="fa-regular fa-folder-open text-[10px]" />
-                  </button>
-                </Tooltip>
-              )}
-              <Chevron expanded={expanded.has("root:saved_queries")} />
-            </div>
-          </div>
+          <SectionHeader
+            title="Saved Queries"
+            expanded={expanded.has("root:saved_queries")}
+            onToggle={() => toggle("root:saved_queries")}
+            actions={onOpenSavedQueriesFolder && (
+              <Tooltip content="Open folder" placement="top">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOpenSavedQueriesFolder(); }}
+                  className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+                >
+                  <i className="fa-regular fa-folder-open text-[12px]" />
+                </button>
+              </Tooltip>
+            )}
+          />
 
           <div className={`accordion-content ${expanded.has("root:saved_queries") ? "expanded flex-1" : ""}`}>
-            <div className="accordion-inner h-full flex flex-col">
+            <div className="accordion-inner h-full flex flex-col px-2">
               {savedQueries.length > 0 && (
-                <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "24px" }}>
-                  <input
-                    type="text"
-                    placeholder="Filter saved queries..."
-                    value={folderFilters["root:saved_queries"] || ""}
-                    onChange={(e) => updateFilter("root:saved_queries", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="explorer-filter w-full h-full"
-                  />
+                <div className="mb-1 h-7 flex-shrink-0">
+                  <FilterInput placeholder="Filter saved queries..." value={folderFilters["root:saved_queries"] || ""} onChange={(v) => updateFilter("root:saved_queries", v)} />
                 </div>
               )}
               <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
@@ -833,28 +825,32 @@ export default function ObjectExplorer({
                     .filter((item) =>
                       item.title.toLowerCase().includes((folderFilters["root:saved_queries"] || "").toLowerCase())
                     )
-                    .map((item) => (
-                      <Tooltip key={item.id} content={item.filePath} placement="right">
-                        <div
-                          className="tree-node cursor-pointer group"
-                          style={{ "--depth": 0 } as React.CSSProperties}
-                          onClick={() => onLoadSavedQuery?.(item.filePath, item.title)}
-                          onContextMenu={(e) => handleContextMenu(e, "", "", item.title, "SAVED_QUERY", item.id, item.filePath)}
-                        >
-                          <i className="fa-solid fa-file-code flex-shrink-0 text-accent w-4 text-center text-[12px]" />
-                          <span className="truncate flex-1 min-w-0">{item.title}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteSavedQuery?.(item.id);
-                            }}
-                            className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    .map((item) => {
+                      const isCtx = contextMenu?.visible && contextMenu.sql === item.id;
+                      return (
+                        <Tooltip key={item.id} content={item.filePath} placement="right">
+                          <div
+                            className={`${LIST_ROW} ${isCtx ? "bg-white/10" : "hover:bg-surface-hover"}`}
+                            onClick={() => onLoadSavedQuery?.(item.filePath, item.title)}
+                            onContextMenu={(e) => handleContextMenu(e, "", "", item.title, "SAVED_QUERY", item.id, item.filePath)}
                           >
-                            <i className="fa-solid fa-trash-can text-[10px]" />
-                          </button>
-                        </div>
-                      </Tooltip>
-                    ))
+                            <div className="flex items-center justify-between text-s">
+                              <span className="truncate flex-1 min-w-0" title={item.title}>{item.title}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteSavedQuery?.(item.id);
+                                }}
+                                className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              >
+                                <i className="fa-solid fa-trash-can text-s" />
+                              </button>
+                            </div>
+                          </div>
+
+                        </Tooltip>
+                      );
+                    })
                 )}
               </div>
             </div>
@@ -872,48 +868,34 @@ export default function ObjectExplorer({
           className="flex flex-col mt-1 flex-none min-h-0"
           style={expanded.has("root:history") ? { height: sectionHeights.history } : undefined}
         >
-          <div
-            className="flex items-center justify-between px-4 py-2.5 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group"
-            onClick={() => toggle("root:history")}
-          >
-            <span className="font-bold text-[11px] uppercase tracking-wider select-none">History</span>
-            <div className="flex items-center gap-2">
-              {onClearHistory && executedQueries.length > 0 && (
-                <Tooltip content="Clear all" placement="top">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onClearHistory();
-                    }}
-                    className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error transition-colors cursor-pointer"
-                  >
-                    <i className="fa-solid fa-trash-can text-[10px]" />
-                  </button>
-                </Tooltip>
-              )}
-              <Chevron expanded={expanded.has("root:history")} />
-            </div>
-          </div>
+          <SectionHeader
+            title="History"
+            expanded={expanded.has("root:history")}
+            onToggle={() => toggle("root:history")}
+            actions={onClearHistory && executedQueries.length > 0 && (
+              <Tooltip content="Clear all" placement="top">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onClearHistory(); }}
+                  className="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-trash-can text-s" />
+                </button>
+              </Tooltip>
+            )}
+          />
 
           <div className={`accordion-content ${expanded.has("root:history") ? "expanded flex-1" : ""}`}>
-            <div className="accordion-inner h-full flex flex-col">
+            <div className="accordion-inner h-full flex flex-col px-2">
               {executedQueries.length > 0 && (
-                <div className="mx-0.5 mb-1 h-7 flex-shrink-0" style={{ paddingLeft: "24px" }}>
-                  <input
-                    type="text"
-                    placeholder="Filter history..."
-                    value={folderFilters["root:history"] || ""}
-                    onChange={(e) => updateFilter("root:history", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="explorer-filter w-full h-full"
-                  />
+                <div className="mb-1 h-7 flex-shrink-0">
+                  <FilterInput placeholder="Filter history..." value={folderFilters["root:history"] || ""} onChange={(v) => updateFilter("root:history", v)} />
                 </div>
               )}
               <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
                 {executedQueries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
-                    <i className="fa-solid fa-clock-rotate-left text-3xl mb-3" />
-                    <p className="text-[12px]">No history yet</p>
+                    <i className="fa-solid fa-clock-rotate-left text-m mb-3" />
+                    <p className="text-s">No history yet</p>
                   </div>
                 ) : (
                   executedQueries
@@ -921,24 +903,26 @@ export default function ObjectExplorer({
                       item.sql.toLowerCase().includes((folderFilters["root:history"] || "").toLowerCase()) ||
                       item.title.toLowerCase().includes((folderFilters["root:history"] || "").toLowerCase())
                     )
-                    .map((item, i) => (
-                      <Tooltip key={`${item.sql}-${i}`} content={item.sql} placement="right">
-                        <div
-                          className="tree-node cursor-pointer group flex items-center gap-2"
-                          style={{ "--depth": 0 } as React.CSSProperties}
-                          onClick={() => onSelect(item.sql, false, item.title, item.database, `history:${item.sql}`)}
-                          onContextMenu={(e) => handleContextMenu(e, item.database, "", item.title, "HISTORY", item.sql)}
-                        >
-                          <div className="w-4 flex justify-center flex-shrink-0">
-                            <i className="fa-solid fa-clock-rotate-left text-text-muted/60 text-[11px]" />
+                    .map((item, i) => {
+                      const isCtx = contextMenu?.visible && contextMenu.sql === item.sql && contextMenu.objectType === "HISTORY";
+                      return (
+                        <Tooltip key={`${item.sql}-${i}`} content={item.sql} placement="right">
+                          <div
+                            className={`${LIST_ROW} ${isCtx ? "bg-white/10" : "hover:bg-surface-hover"}`}
+                            onClick={() => onSelect(item.sql, false, item.title, item.database, `history:${item.sql}`)}
+                            onContextMenu={(e) => handleContextMenu(e, item.database, "", item.title, "HISTORY", item.sql)}
+                          >
+                            <div className="flex items-center justify-between text-s">
+                              <span className="truncate flex-1 min-w-0">{item.title}</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-1 text-icon opacity-50">
+                              <span className="truncate max-w-[150px]">{item.database}</span>
+                              <span className="flex-shrink-0 ml-2">{formatTimeAgo(item.executedAt)}</span>
+                            </div>
                           </div>
-                          <span className="truncate flex-1 min-w-0">{item.title}</span>
-                          <span className="text-[10px] text-text-muted/40 ml-2 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pr-2">
-                            {formatTimeAgo(item.executedAt)}
-                          </span>
-                        </div>
-                      </Tooltip>
-                    ))
+                        </Tooltip>
+                      );
+                    })
                 )}
               </div>
             </div>

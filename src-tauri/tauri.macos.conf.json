@@ -1,6 +1,7 @@
 {
   "mainBinaryName": "SQL Query Studio",
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "SQL Query Studio",
