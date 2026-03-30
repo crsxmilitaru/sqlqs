@@ -44,6 +44,7 @@ export interface SavedTab {
   sql: string;
   userTitle?: boolean;
   sourceId?: string;
+  pinned?: boolean;
 }
 
 export function saveTabs(tabs: SavedTab[]) {

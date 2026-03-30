@@ -126,6 +126,113 @@
     visibility: hidden;
   }
 
+  /* Tab appear animation */
+  .tab-animate-in {
+    animation: tab-slide-in 0.2s var(--ease-out) backwards;
+  }
+
+  @keyframes tab-slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Drag-and-drop styles */
+  .winui-tab.dragging {
+    opacity: 0.35;
+    transform: scale(0.97);
+  }
+
+  .tab-drop-indicator {
+    width: 2px;
+    height: 20px;
+    background: var(--color-accent);
+    border-radius: 1px;
+    flex-shrink: 0;
+    animation: drop-indicator-in 0.12s var(--ease-out);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--color-accent) 50%, transparent);
+  }
+
+  @keyframes drop-indicator-in {
+    from {
+      opacity: 0;
+      transform: scaleY(0.4);
+    }
+    to {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+  }
+
+  /* Close button: hover-only on inactive tabs */
+  .tab-close-btn {
+    opacity: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
+  }
+
+  .tab-close-btn i {
+    font-size: 10px;
+  }
+
+  .tab-close-btn.active,
+  .winui-tab:hover .tab-close-btn {
+    opacity: 1;
+  }
+
+  /* Unsaved changes indicator */
+  .modified-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    flex-shrink: 0;
+    animation: dot-fade-in 0.2s ease;
+  }
+
+  .winui-tab:hover .modified-dot,
+  .winui-tab.active .modified-dot {
+    display: none;
+  }
+
+  @keyframes dot-fade-in {
+    from { opacity: 0; transform: scale(0); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  /* Pin indicator */
+  .pin-icon {
+    opacity: 0.5;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    transform: rotate(-45deg);
+  }
+
+  .winui-tab:hover .pin-icon,
+  .winui-tab.active .pin-icon {
+    opacity: 0.8;
+  }
+
+  .winui-tab.pinned {
+    max-width: clamp(100px, 12vw, 160px);
+  }
+
+  /* Pin divider between pinned and unpinned tabs */
+  .pin-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-border);
+    margin: 0 2px;
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+
   /* ─── Resizer handles ─── */
 
   .resizer {
@@ -521,6 +628,7 @@
   .btn svg {
     display: inline-flex;
     align-items: center;
+    align-content: center;
     justify-content: center;
     width: 14px;
     height: 14px;

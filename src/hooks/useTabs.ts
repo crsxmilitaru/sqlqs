@@ -1,16 +1,17 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import type { QueryTab } from "../lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadPreferences, loadSavedTabs, saveTabs } from "../lib/settings";
 import { generateTabTitle } from "../lib/sql";
+import type { QueryTab } from "../lib/types";
 
 let tabCounter = 1;
 
-function createTab(): QueryTab {
+function createTab(sql = ""): QueryTab {
   const id = `tab-${tabCounter++}`;
   return {
     id,
-    title: "Query",
-    sql: "",
+    title: "New Query",
+    sql,
+    savedSql: sql,
     isExecuting: false,
   };
 }
@@ -22,11 +23,11 @@ export function useTabs() {
     try {
       const saved = loadSavedTabs();
       return saved.map((s) => {
-        const tab = createTab();
+        const tab = createTab(s.sql);
         tab.title = s.title;
-        tab.sql = s.sql;
         tab.userTitle = s.userTitle;
         tab.sourceId = s.sourceId;
+        tab.pinned = s.pinned;
         return tab;
       });
     } catch {
@@ -47,6 +48,7 @@ export function useTabs() {
         sql: t.sql,
         userTitle: t.userTitle,
         sourceId: t.sourceId,
+        pinned: t.pinned,
       })),
     );
   }, [tabs]);
@@ -60,9 +62,8 @@ export function useTabs() {
       }
     }
 
-    const tab = createTab();
     const normalizedSql = sql.replace(/\r\n/g, "\n");
-    tab.sql = normalizedSql;
+    const tab = createTab(normalizedSql);
 
     if (sourceId) {
       tab.sourceId = sourceId;
@@ -100,12 +101,19 @@ export function useTabs() {
   }, [activeTabId]);
 
   const closeAllTabs = useCallback(() => {
-    setTabs([]);
-    setActiveTabId("");
+    setTabs((prev) => {
+      const pinned = prev.filter((t) => t.pinned);
+      if (pinned.length > 0) {
+        setActiveTabId(pinned[0].id);
+        return pinned;
+      }
+      setActiveTabId("");
+      return [];
+    });
   }, []);
 
   const closeOtherTabs = useCallback((tabId: string) => {
-    setTabs((prev) => prev.filter((t) => t.id === tabId));
+    setTabs((prev) => prev.filter((t) => t.id === tabId || t.pinned));
     setActiveTabId(tabId);
   }, []);
 
@@ -113,6 +121,44 @@ export function useTabs() {
     setTabs((prev) =>
       prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
     );
+  }, []);
+
+  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
+    setTabs((prev) => {
+      if (fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const duplicateTab = useCallback((tabId: string) => {
+    const tab = tabsRef.current.find((t) => t.id === tabId);
+    if (!tab) return "";
+    const newTab = createTab(tab.sql);
+    newTab.title = tab.title;
+    newTab.userTitle = tab.userTitle;
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+    return newTab.id;
+  }, []);
+
+  const togglePin = useCallback((tabId: string) => {
+    setTabs((prev) => {
+      const tabIndex = prev.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return prev;
+      const tab = prev[tabIndex];
+      const newPinned = !tab.pinned;
+      const next = prev.filter((t) => t.id !== tabId);
+      const updatedTab = { ...tab, pinned: newPinned || undefined };
+
+      // Place at the end of pinned section
+      const lastPinnedIndex = next.reduce((acc, t, i) => (t.pinned ? i : acc), -1);
+      next.splice(lastPinnedIndex + 1, 0, updatedTab);
+
+      return next;
+    });
   }, []);
 
   return {
@@ -124,5 +170,8 @@ export function useTabs() {
     closeAllTabs,
     closeOtherTabs,
     updateTab,
+    reorderTabs,
+    duplicateTab,
+    togglePin,
   };
 }

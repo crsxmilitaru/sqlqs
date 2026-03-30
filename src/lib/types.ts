@@ -48,11 +48,13 @@ export interface QueryTab {
   id: string;
   title: string;
   sql: string;
+  savedSql: string;
   result?: QueryResult;
   isExecuting: boolean;
   error?: string;
   sourceId?: string;
   userTitle?: boolean;
+  pinned?: boolean;
 }
 
 export interface ExecutedQuery {

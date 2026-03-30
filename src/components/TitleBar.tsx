@@ -24,6 +24,8 @@ async function getCurrentAppWindow() {
   return currentWindowPromise;
 }
 
+const DRAG_THRESHOLD = 5;
+
 interface Props {
   connected: boolean;
   serverName: string;
@@ -44,6 +46,9 @@ interface Props {
   onTabCloseOthers: (id: string) => void;
   onTabCloseAll: () => void;
   onTabUpdate: (id: string, updates: Partial<QueryTab>) => void;
+  onTabReorder: (fromIndex: number, toIndex: number) => void;
+  onTabDuplicate: (id: string) => string;
+  onTabTogglePin: (id: string) => void;
   onTabSave?: (id: string) => void;
   aiChatOpen: boolean;
   onToggleAiChat: () => void;
@@ -69,6 +74,9 @@ export default function TitleBar({
   onTabCloseOthers,
   onTabCloseAll,
   onTabUpdate,
+  onTabReorder,
+  onTabDuplicate,
+  onTabTogglePin,
   onTabSave,
   aiChatOpen,
   onToggleAiChat,
@@ -92,6 +100,19 @@ export default function TitleBar({
   } | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const tabBarRef = useRef<HTMLDivElement>(null);
+
+  // Pointer-based drag-and-drop state
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dragRef = useRef<{
+    tabId: string;
+    fromIndex: number;
+    startX: number;
+    active: boolean;
+  } | null>(null);
+  const justDraggedRef = useRef(false);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   const handleMinimize = useCallback(async () => {
     const win = await getCurrentAppWindow();
@@ -168,7 +189,96 @@ export default function TitleBar({
     });
   }, []);
 
+  // --- Pointer-based drag-and-drop ---
+
+  const computeDropIndex = useCallback((clientX: number, draggedTabId: string) => {
+    const tabBar = tabBarRef.current;
+    if (!tabBar) return null;
+
+    const tabElements = tabBar.querySelectorAll<HTMLElement>("[data-tab-index]");
+    const currentTabs = tabsRef.current;
+    const draggedTab = currentTabs.find((t) => t.id === draggedTabId);
+    if (!draggedTab) return null;
+
+    let result = currentTabs.length;
+    for (const el of tabElements) {
+      const idx = Number(el.dataset.tabIndex);
+      const targetTab = currentTabs[idx];
+      if (!targetTab) continue;
+
+      // Enforce pinned/unpinned boundary
+      if (!!draggedTab.pinned !== !!targetTab.pinned) continue;
+
+      const rect = el.getBoundingClientRect();
+      const midpoint = rect.left + rect.width / 2;
+      if (clientX < midpoint) {
+        result = idx;
+        break;
+      }
+    }
+
+    return result;
+  }, []);
+
+  const handleTabPointerDown = useCallback((e: React.PointerEvent, tabId: string, index: number) => {
+    // Only left button, ignore buttons/inputs
+    if (e.button !== 0) return;
+    if ((e.target as Element).closest("button, input")) return;
+
+    dragRef.current = {
+      tabId,
+      fromIndex: index,
+      startX: e.clientX,
+      active: false,
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+
+      if (!drag.active) {
+        if (Math.abs(ev.clientX - drag.startX) < DRAG_THRESHOLD) return;
+        drag.active = true;
+        setDragTabId(drag.tabId);
+        document.body.style.cursor = "grabbing";
+      }
+
+      const newDropIndex = computeDropIndex(ev.clientX, drag.tabId);
+      setDropIndex(newDropIndex);
+    };
+
+    const onPointerUp = () => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = "";
+
+      const drag = dragRef.current;
+      if (drag?.active) {
+        justDraggedRef.current = true;
+        requestAnimationFrame(() => { justDraggedRef.current = false; });
+
+        // Read latest drop index from the state setter to avoid stale closures
+        setDropIndex((currentDropIndex) => {
+          if (currentDropIndex !== null && drag.fromIndex !== currentDropIndex && drag.fromIndex !== currentDropIndex - 1) {
+            const adjusted = currentDropIndex > drag.fromIndex ? currentDropIndex - 1 : currentDropIndex;
+            onTabReorder(drag.fromIndex, adjusted);
+          }
+          return null;
+        });
+      }
+
+      dragRef.current = null;
+      setDragTabId(null);
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  }, [computeDropIndex, onTabReorder]);
+
+  // --- Context menu items ---
+
   const getTabContextMenuItems = (tabId: string): ContextMenuItem[] => {
+    const tab = tabs.find((t) => t.id === tabId);
     const items: ContextMenuItem[] = [
       {
         id: "close",
@@ -188,6 +298,28 @@ export default function TitleBar({
         icon: <i className="fa-solid fa-trash" />,
         onClick: () => setConfirmClose({ type: "all" }),
       },
+      { id: "sep-actions", separator: true },
+      {
+        id: "duplicate",
+        label: "Duplicate Tab",
+        icon: <i className="fa-solid fa-clone" />,
+        onClick: () => {
+          const newId = onTabDuplicate(tabId);
+          if (newId) {
+            requestAnimationFrame(() => {
+              if (tabBarRef.current) {
+                tabBarRef.current.scrollLeft = tabBarRef.current.scrollWidth;
+              }
+            });
+          }
+        },
+      },
+      {
+        id: "pin",
+        label: tab?.pinned ? "Unpin Tab" : "Pin Tab",
+        icon: <i className="fa-solid fa-thumbtack" style={tab?.pinned ? { opacity: 0.5 } : undefined} />,
+        onClick: () => onTabTogglePin(tabId),
+      },
     ];
 
     if (onTabSave) {
@@ -204,6 +336,8 @@ export default function TitleBar({
 
     return items;
   };
+
+  const pinnedCount = tabs.filter((t) => t.pinned).length;
 
   return (
     <>
@@ -305,67 +439,101 @@ export default function TitleBar({
           )}
         </div>
 
-        {connected && tabs.length > 0 && (
+        {connected && (
           <div className="flex items-center min-w-0 flex-shrink overflow-hidden no-drag">
-            <div
-              ref={tabBarRef}
-              onWheel={(e) => {
-                if (tabBarRef.current) {
-                  e.preventDefault();
-                  tabBarRef.current.scrollLeft += e.deltaY;
-                }
-              }}
-              className="flex overflow-x-auto winui-tab-bar min-w-0"
-            >
-              {tabs.map((tab) => (
+            {tabs.length > 0 && (
+              <>
                 <div
-                  key={tab.id}
-                  ref={tab.id === activeTabId ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
-                  className={`winui-tab flex items-center gap-2 text-s cursor-pointer whitespace-nowrap select-none flex-shrink-0 ${tab.id === activeTabId ? "active text-text font-medium" : "text-text-muted"}`}
-                  onClick={() => onTabChange(tab.id)}
-                  onDoubleClick={() => handleStartRename(tab)}
-                  onAuxClick={(e) => {
-                    if (e.button === 1) {
+                  ref={tabBarRef}
+                  onWheel={(e) => {
+                    if (tabBarRef.current) {
                       e.preventDefault();
-                      setConfirmClose({ type: "single", tabId: tab.id });
+                      tabBarRef.current.scrollLeft += e.deltaY;
                     }
                   }}
-                  onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                  className="flex overflow-x-auto winui-tab-bar min-w-0"
                 >
-                  <div className="flex-1 min-w-0 mr-2">
-                    {renamingTabId === tab.id ? (
-                      <input
-                        ref={renameInputRef}
-                        type="text"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => handleRename(tab.id)}
-                        onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                        className="bg-transparent border-none outline-none text-s w-full min-w-0"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="truncate block" data-text={tab.title}>{tab.title}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {tab.isExecuting && (
-                      <span className="animate-pulse text-warning text-s">&#9679;</span>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmClose({ type: "single", tabId: tab.id });
-                      }}
-                      className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-surface-active text-text-muted hover:text-text cursor-pointer transition-colors"
-                    >
-                      <i className="fa-solid fa-xmark text-s" />
-                    </button>
-                  </div>
+                  {tabs.map((tab, index) => {
+                    const isActive = tab.id === activeTabId;
+                    const isDragging = tab.id === dragTabId;
+                    const isModified = tab.sql !== tab.savedSql;
+                    const showDropBefore = dropIndex === index;
+                    const showDropAfter = dropIndex === index + 1 && index === tabs.length - 1;
+                    const showPinDivider = tab.pinned && index === pinnedCount - 1 && pinnedCount < tabs.length;
+
+                    return (
+                      <div key={tab.id} className="flex items-center flex-shrink-0">
+                        {showDropBefore && (
+                          <div className="tab-drop-indicator" />
+                        )}
+                        <div
+                          ref={isActive ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
+                          data-tab-index={index}
+                          onPointerDown={(e) => handleTabPointerDown(e, tab.id, index)}
+                          className={`winui-tab flex items-center gap-2 text-s cursor-pointer whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive ? "active text-text font-medium" : "text-text-muted"} ${isDragging ? "dragging" : ""} ${tab.pinned ? "pinned" : ""}`}
+                          onClick={() => {
+                            if (justDraggedRef.current) return;
+                            onTabChange(tab.id);
+                          }}
+                          onDoubleClick={() => handleStartRename(tab)}
+                          onAuxClick={(e) => {
+                            if (e.button === 1) {
+                              e.preventDefault();
+                              setConfirmClose({ type: "single", tabId: tab.id });
+                            }
+                          }}
+                          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                        >
+                          {tab.pinned && (
+                            <i className="fa-solid fa-thumbtack text-[9px] text-text-muted pin-icon" />
+                          )}
+                          <div className="flex-1 min-w-0 mr-2">
+                            {renamingTabId === tab.id ? (
+                              <input
+                                ref={renameInputRef}
+                                type="text"
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onBlur={() => handleRename(tab.id)}
+                                onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
+                                className="bg-transparent border-none outline-none text-s w-full min-w-0"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span className="truncate block" data-text={tab.title}>{tab.title}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {tab.isExecuting && (
+                              <span className="animate-pulse text-warning text-s">&#9679;</span>
+                            )}
+                            {isModified && !tab.isExecuting && (
+                              <span className="modified-dot" title="Unsaved changes" />
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmClose({ type: "single", tabId: tab.id });
+                              }}
+                              className={`tab-close-btn flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive ? "active" : ""}`}
+                            >
+                              <i className="fa-solid fa-xmark text-s" />
+                            </button>
+                          </div>
+                        </div>
+                        {showDropAfter && (
+                          <div className="tab-drop-indicator" />
+                        )}
+                        {showPinDivider && (
+                          <div className="pin-divider" />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-            <div className="w-px h-4 bg-border flex-shrink-0" />
+                <div className="w-px h-4 bg-border flex-shrink-0" />
+              </>
+            )}
             <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
               <button
                 onClick={() => {
@@ -393,7 +561,8 @@ export default function TitleBar({
               <Tooltip content="AI Chat" placement="bottom">
                 <button
                   onClick={onToggleAiChat}
-                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-s transition-colors cursor-pointer ${aiChatOpen ? "text-text font-medium bg-surface-header hover:bg-surface-active" : "text-text-muted font-normal hover:text-text hover:bg-surface-hover"}`}
+                  disabled={tabs.length === 0}
+                  className={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-s transition-colors ${tabs.length === 0 ? "opacity-50 cursor-default" : "cursor-pointer"} ${aiChatOpen ? "text-text font-medium bg-surface-header enabled:hover:bg-surface-active" : "text-text-muted font-normal enabled:hover:text-text enabled:hover:bg-surface-hover"}`}
                 >
                   <i className="fa-solid fa-wand-sparkles" />
                   <span>Chat</span>

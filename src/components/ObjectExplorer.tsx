@@ -692,7 +692,7 @@ export default function ObjectExplorer({
 
   return (
     <div className="flex flex-col h-full bg-transparent">
-      <div className="flex-1 overflow-hidden pt-3 pb-1 px-1 text-s flex flex-col gap-1 explorer-content">
+      <div className="flex-1 overflow-hidden p-2 text-s flex flex-col gap-1 explorer-content">
         <div className={`flex flex-col ${expanded.has("root:databases") ? "flex-1 min-h-0" : "flex-none"}`}>
           <SectionHeader
             title="Databases"

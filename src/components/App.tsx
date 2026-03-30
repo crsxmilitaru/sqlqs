@@ -26,6 +26,9 @@ export default function App() {
     closeAllTabs,
     closeOtherTabs,
     updateTab,
+    reorderTabs,
+    duplicateTab,
+    togglePin,
   } = useTabs();
 
   const {
@@ -200,8 +203,9 @@ export default function App() {
       if (!tab || !tab.sql.trim()) return;
 
       await saveQuery(tab.title, tab.sql);
+      updateTab(tabId, { savedSql: tab.sql });
     },
-    [tabs, saveQuery],
+    [tabs, saveQuery, updateTab],
   );
 
   const handleLoadSavedQuery = useCallback(
@@ -298,6 +302,9 @@ export default function App() {
         onTabCloseOthers={closeOtherTabs}
         onTabCloseAll={closeAllTabs}
         onTabUpdate={updateTab}
+        onTabReorder={reorderTabs}
+        onTabDuplicate={duplicateTab}
+        onTabTogglePin={togglePin}
         onTabSave={handleTabSave}
         aiChatOpen={aiChatOpen}
         onToggleAiChat={handleToggleAiChat}
