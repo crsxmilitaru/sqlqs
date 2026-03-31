@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
@@ -57,6 +57,11 @@ export default function QueryEditorPanel({
   useEffect(() => {
     localStorage.setItem("sqlqs_ai_chat_width", aiChatWidth.toString());
   }, [aiChatWidth]);
+
+  const databaseOptions = useMemo(
+    () => databases.map((db) => ({ value: db, label: db })),
+    [databases],
+  );
 
   const [copied, setCopied] = useState(false);
   const [queryCopied, setQueryCopied] = useState(false);
@@ -216,7 +221,7 @@ export default function QueryEditorPanel({
                 {databases.length > 0 && onDatabaseChange && (
                   <Dropdown
                     value={currentDatabase || ""}
-                    options={databases.map((db) => ({ value: db, label: db }))}
+                    options={databaseOptions}
                     onChange={onDatabaseChange}
                     placeholder="Select database"
                     className="w-64"

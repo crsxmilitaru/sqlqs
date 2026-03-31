@@ -253,7 +253,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     return () => { cancelled = true; };
   }, [currentDatabase]);
 
-  return <div ref={containerRef} onContextMenu={onContextMenu} className="h-full w-full overflow-hidden" />;
+  return <div ref={containerRef} onContextMenu={onContextMenu} className="flex-1 min-h-0 w-full relative" />;
 });
 
 export default SqlEditor;

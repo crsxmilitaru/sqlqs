@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 interface DropdownOption {
@@ -41,16 +41,18 @@ export default function Dropdown({
       ? ((dropdownRef.current?.closest(".app-shell") as HTMLElement | null) ?? document.body)
       : null;
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  const selectedOption = useMemo(() => options.find((opt) => opt.value === value), [options, value]);
 
-  const filteredOptions =
+  const filteredOptions = useMemo(() => 
     filterable && filter
       ? options.filter(
         (opt) =>
           opt.label.toLowerCase().includes(filter.toLowerCase()) ||
           opt.value.toLowerCase().includes(filter.toLowerCase())
       )
-      : options;
+      : options,
+    [filterable, filter, options]
+  );
 
   const close = useCallback(() => {
     setIsOpen(false);
@@ -214,11 +216,11 @@ export default function Dropdown({
           <div
             ref={listRef}
             style={popupStyle}
-            className="dropdown-panel z-50 py-1 backdrop-blur-xl rounded-lg max-h-52 overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-100"
+            className="dropdown-panel z-50 py-1 backdrop-blur-xl rounded-lg max-h-52 flex flex-col items-stretch animate-in fade-in-0 zoom-in-95 duration-100"
             role="listbox"
           >
             {filterable && (
-              <div className="px-2 pb-2 pt-1">
+              <div className="px-2 pb-2 pt-1 flex-shrink-0 border-b border-border/5">
                 <div className="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-all">
                   <i className="fa-solid fa-magnifying-glass text-3xs opacity-40" />
                   <input
@@ -234,32 +236,34 @@ export default function Dropdown({
                 </div>
               </div>
             )}
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option, index) => (
-                <button
-                  key={option.value}
-                  ref={(el) => {
-                    itemRefs.current[index] = el;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={option.value === value}
-                  onClick={() => handleSelect(option.value)}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                  className={`
-                    dropdown-option w-full px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
-                    ${index === highlightedIndex ? "dropdown-option--active" : ""}
-                    ${option.value === value ? "dropdown-option--selected" : ""}
-                  `}
-                >
-                  {option.label}
-                </button>
-              ))
-            ) : (
-              <div className="px-2.5 py-2 text-sm text-text-muted">
-                No results
-              </div>
-            )}
+            <div className="flex-1 overflow-y-auto">
+              {filteredOptions.length > 0 ? (
+                filteredOptions.map((option, index) => (
+                  <button
+                    key={option.value}
+                    ref={(el) => {
+                      itemRefs.current[index] = el;
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={option.value === value}
+                    onClick={() => handleSelect(option.value)}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    className={`
+                      dropdown-option w-full px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
+                      ${index === highlightedIndex ? "dropdown-option--active" : ""}
+                      ${option.value === value ? "dropdown-option--selected" : ""}
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))
+              ) : (
+                <div className="px-2.5 py-2 text-sm text-text-muted">
+                  No results
+                </div>
+              )}
+            </div>
           </div>,
           portalTarget
         )}

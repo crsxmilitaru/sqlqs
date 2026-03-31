@@ -503,19 +503,19 @@ export default function TitleBar({
                               <span className="truncate block" data-text={tab.title}>{tab.title}</span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center justify-center w-5 h-5 flex-shrink-0 relative">
                             {tab.isExecuting && (
-                              <span className="animate-pulse text-warning text-s">&#9679;</span>
+                              <span className="animate-pulse text-warning text-s absolute">&#9679;</span>
                             )}
                             {isModified && !tab.isExecuting && (
-                              <span className="modified-dot" title="Unsaved changes" />
+                              <span className="modified-dot absolute" title="Unsaved changes" />
                             )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setConfirmClose({ type: "single", tabId: tab.id });
                               }}
-                              className={`tab-close-btn flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive ? "active" : ""}`}
+                              className={`tab-close-btn relative flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive ? "active" : ""}`}
                             >
                               <i className="fa-solid fa-xmark text-s" />
                             </button>
