@@ -371,6 +371,16 @@
     font-family: var(--font-mono);
     font-size: var(--text-m);
     width: 100%;
+    table-layout: fixed;
+  }
+
+  .results-table th:first-child,
+  .results-table td:first-child {
+    width: 28px !important;
+    min-width: 28px !important;
+    max-width: 28px !important;
+    padding: 0 !important;
+    text-align: center;
   }
 
   .results-table th {
@@ -390,7 +400,6 @@
     border-bottom: 1px solid rgba(63, 63, 70, 0.4);
     padding: 4px 12px;
     white-space: nowrap;
-    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     user-select: text;
@@ -398,6 +407,10 @@
 
   .results-table tr:hover td {
     background: var(--color-surface-hover);
+  }
+
+  .results-table tr.selected td {
+    background: var(--color-surface-active);
   }
 
   /* ─── Object explorer tree ─── */

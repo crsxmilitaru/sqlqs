@@ -216,7 +216,7 @@ export default function QueryEditorPanel({
             className={`flex flex-row overflow-hidden ${resultsCollapsed ? 'flex-1' : 'flex-shrink-0'}`}
             style={resultsCollapsed ? undefined : { height: editorHeight }}
           >
-            <div className="flex flex-col flex-1 min-w-0">
+            <div className="flex flex-col flex-1 min-w-0 min-h-0">
               <div className="flex items-center gap-2 p-3.5 flex-shrink-0">
                 {databases.length > 0 && onDatabaseChange && (
                   <Dropdown
@@ -276,7 +276,7 @@ export default function QueryEditorPanel({
                 <div className="flex-1" />
               </div>
 
-              <div className="relative flex-1 min-w-0">
+              <div className="relative flex-1 min-w-0 min-h-0">
                 <SqlEditor
                   ref={editorRef}
                   value={activeTab.sql}

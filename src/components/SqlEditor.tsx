@@ -48,6 +48,24 @@ export interface SqlEditorHandle {
   getSelectedText: () => string;
 }
 
+function createFoldMarker(open: boolean): HTMLElement {
+  const marker = document.createElement("span");
+  marker.className = "cm-foldMarker";
+  marker.setAttribute("aria-hidden", "true");
+  marker.dataset.state = open ? "open" : "closed";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 12 12");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", open ? "M3 4.5 6 7.5 9 4.5" : "M4.5 3 7.5 6 4.5 9");
+
+  svg.appendChild(path);
+  marker.appendChild(svg);
+
+  return marker;
+}
+
 const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   { value, onChange, onExecute, readOnly, theme, currentDatabase, onContextMenu }: Props,
   ref,
@@ -152,7 +170,9 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         highlightActiveLineGutter(),
         highlightActiveLine(),
         history(),
-        foldGutter(),
+        foldGutter({
+          markerDOM: (open) => createFoldMarker(open),
+        }),
         bracketMatching(),
         closeBrackets(),
         autocompletion({
@@ -253,7 +273,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     return () => { cancelled = true; };
   }, [currentDatabase]);
 
-  return <div ref={containerRef} onContextMenu={onContextMenu} className="flex-1 min-h-0 w-full relative" />;
+  return <div ref={containerRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full relative" />;
 });
 
 export default SqlEditor;

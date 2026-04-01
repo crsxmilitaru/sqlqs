@@ -28,6 +28,16 @@ pkg.version = version;
 writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
 console.log("  Updated package.json");
 
+// package-lock.json
+try {
+  const pkgLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  pkgLock.version = version;
+  writeFileSync("package-lock.json", JSON.stringify(pkgLock, null, 2) + "\n");
+  console.log("  Updated package-lock.json");
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+
 // src-tauri/tauri.conf.json
 const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
 tauri.version = version;
@@ -55,7 +65,7 @@ console.log("  Updated src-tauri/Cargo.lock");
 // Git commit, tag, push
 console.log("\nCommitting and tagging...");
 execSync(
-  "git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+  "git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
   { stdio: "inherit" },
 );
 execSync(`git commit -m "v${version}"`, { stdio: "inherit" });

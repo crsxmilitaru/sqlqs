@@ -119,12 +119,24 @@ function buildDeleteSql(
   return `${warning}DELETE FROM ${tableName}\nWHERE\n  ${whereClause};`;
 }
 
+function buildInsertSql(
+  tableName: string,
+  columns: ResultSet["columns"],
+  row: ResultSet["rows"][number],
+): string {
+  const colNames = columns.map((c) => quoteIdentifier(c.name)).join(", ");
+  const valList = row.map((v) => sqlLiteral(v)).join(", ");
+  return `INSERT INTO ${tableName} (${colNames})\nVALUES (${valList});`;
+}
+
 function VirtualGrid({
   resultSet,
   onContextMenu,
+  selectedRowIndex,
 }: {
   resultSet: ResultSet;
   onContextMenu: (e: React.MouseEvent, ri: number) => void;
+  selectedRowIndex: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -132,19 +144,19 @@ function VirtualGrid({
 
   const rowHeight = 28;
   const buffer = 10;
-  const charWidth = 8;
+  const charWidth = 9;
   const cellPadding = 24;
 
   const colWidths = useMemo(() => {
     const sampleSize = Math.min(resultSet.rows.length, 100);
     return resultSet.columns.map((col, ci) => {
-      let maxLen = col.name.length;
+      let maxLen = col.name.length + (col.type_name ? col.type_name.length + 4 : 0);
       for (let ri = 0; ri < sampleSize; ri++) {
         const cell = resultSet.rows[ri][ci];
         const len = cell != null ? String(cell).length : 4;
         if (len > maxLen) maxLen = len;
       }
-      return Math.min(maxLen * charWidth + cellPadding, 400);
+      return Math.min(maxLen * charWidth + cellPadding, 600);
     });
   }, [resultSet]);
 
@@ -174,25 +186,29 @@ function VirtualGrid({
       style={{ minHeight: 180, height: "100%" }}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
     >
-      <table className="results-table" style={{ tableLayout: "fixed", minWidth: "100%" }}>
+      <table className="results-table" style={{ tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: 48 }} />
+          <col style={{ width: 28 }} />
           {colWidths.map((w, i) => (
             <col key={i} style={{ width: w }} />
           ))}
         </colgroup>
         <thead>
           <tr>
-            <th className="text-center bg-surface-table border-b border-r border-border/40">
+            <th className="text-center px-0 bg-surface-table border-b border-r border-border/40">
               #
             </th>
             {resultSet.columns.map((col, i) => (
               <th
                 key={i}
-                title={col.type_name}
-                className="bg-surface-table border-b border-r border-border/40"
+                className="bg-surface-table border-b border-r border-border/40 px-3"
               >
-                {col.name}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate">{col.name}</span>
+                  <span className="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
+                    {col.type_name}
+                  </span>
+                </div>
               </th>
             ))}
           </tr>
@@ -206,10 +222,11 @@ function VirtualGrid({
             return (
               <tr
                 key={actualIndex}
+                className={actualIndex === selectedRowIndex ? "selected" : ""}
                 style={{ height: rowHeight }}
                 onContextMenu={(e) => onContextMenu(e, actualIndex)}
               >
-                <td className="text-center text-text-muted/60 bg-surface-table/30 border-r border-border/10">
+                <td className="text-center px-0 text-text-muted/60 bg-surface-table/30 border-r border-border/10">
                   {actualIndex + 1}
                 </td>
                 {row.map((cell, ci) => (
@@ -297,6 +314,17 @@ export default function ResultsGrid({
 
   const contextMenuItems: ContextMenuItem[] = [
     {
+      id: "copy-row",
+      label: "Copy",
+      icon: <i className="fa-solid fa-copy" />,
+      onClick: () => {
+        if (!selectedRow) return;
+        const text = selectedRow.map((v) => (v === null ? "NULL" : String(v))).join("\t");
+        navigator.clipboard.writeText(text);
+      },
+    },
+    { id: "sep-copy", separator: true },
+    {
       id: "edit-row",
       label: "Edit Row",
       icon: <i className="fa-solid fa-pen-to-square" />,
@@ -305,6 +333,17 @@ export default function ResultsGrid({
         if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)
           return;
         onGenerateSql(buildUpdateSql(tableName, currentResultSet.columns, selectedRow));
+      },
+    },
+    {
+      id: "duplicate-row",
+      label: "Duplicate Row",
+      icon: <i className="fa-solid fa-clone" />,
+      disabled: !canGenerateRowSql,
+      onClick: () => {
+        if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)
+          return;
+        onGenerateSql(buildInsertSql(tableName, currentResultSet.columns, selectedRow));
       },
     },
     {
@@ -336,6 +375,7 @@ export default function ResultsGrid({
           <VirtualGrid
             key={i}
             resultSet={rs}
+            selectedRowIndex={rowContextMenu?.resultSetIndex === i ? rowContextMenu.rowIndex : null}
             onContextMenu={(e, ri) => handleContextMenu(e, ri, i)}
           />
         ))
