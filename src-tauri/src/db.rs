@@ -119,6 +119,7 @@ fn parse_server(server: &str) -> (String, Option<String>, Option<u16>) {
     (host, instance, explicit_port)
 }
 
+/// Establishes connection to SQL Server.
 pub async fn connect(
     config: &ConnectionConfig,
     cached_port: Option<u16>,
@@ -167,7 +168,6 @@ pub async fn connect(
 
     tib_config.application_name("SQLQueryStudio");
 
-    // On Windows localhost, try named pipe first (faster, skips TCP/IP stack)
     #[cfg(windows)]
     {
         let is_local =
@@ -181,15 +181,15 @@ pub async fn connect(
                 tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name)
             {
                 let stream = TransportStream::NamedPipe(pipe);
-                return Client::connect(tib_config, stream.compat_write())
+                let mut client = Client::connect(tib_config, stream.compat_write())
                     .await
-                    .map(|c| (c, None))
-                    .map_err(|e| format!("SQL Server connection failed: {}", e));
+                    .map_err(|e| format!("SQL Server connection failed: {}", e))?;
+                init_session(&mut client).await?;
+                return Ok((client, None));
             }
         }
     }
 
-    // For named instances with cached port, skip SQL Browser and connect directly
     if instance.is_some() {
         if let Some(cached) = cached_port {
             if let Ok(tcp) = TcpStream::connect(format!("{}:{}", host, cached)).await {
@@ -197,16 +197,16 @@ pub async fn connect(
                 let stream = TransportStream::Tcp(tcp);
                 let mut direct_config = tib_config.clone();
                 direct_config.port(cached);
-                if let Ok(client) =
+                if let Ok(mut client) =
                     Client::connect(direct_config, stream.compat_write()).await
                 {
+                    init_session(&mut client).await?;
                     return Ok((client, Some(cached)));
                 }
             }
         }
     }
 
-    // TCP connection (remote servers, or localhost fallback if named pipe unavailable)
     let tcp = if instance.is_some() {
         TcpStream::connect_named(&tib_config)
             .await
@@ -222,24 +222,157 @@ pub async fn connect(
     tcp.set_nodelay(true).ok();
     let stream = TransportStream::Tcp(tcp);
 
-    let client = Client::connect(tib_config, stream.compat_write())
+    let mut client = Client::connect(tib_config, stream.compat_write())
         .await
         .map_err(|e| format!("SQL Server connection failed: {}", e))?;
 
+    init_session(&mut client).await?;
     Ok((client, resolved_port))
 }
 
-pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryResult, String> {
-    let start = std::time::Instant::now();
-    let messages = Vec::new();
+/// Send the same SET options SSMS sends when opening a new connection.
+/// These persist for the lifetime of the connection.
+async fn init_session(client: &mut SqlClient) -> Result<(), String> {
+    client
+        .simple_query(concat!(
+            "SET ANSI_NULLS ON;",
+            "SET ANSI_PADDING ON;",
+            "SET ANSI_WARNINGS ON;",
+            "SET ARITHABORT ON;",
+            "SET CONCAT_NULL_YIELDS_NULL ON;",
+            "SET NUMERIC_ROUNDABORT OFF;",
+            "SET QUOTED_IDENTIFIER ON;",
+            "SET TEXTSIZE 2147483647;",
+        ))
+        .await
+        .map_err(|e| format!("Failed to initialize session: {}", e))?
+        .into_results()
+        .await
+        .map_err(|e| format!("Failed to initialize session: {}", e))?;
+    Ok(())
+}
+
+/// Split SQL text on GO batch separators, respecting strings, comments,
+/// and `GO N` repeat counts — matching SSMS behavior.
+fn split_batches(sql: &str) -> Vec<String> {
+    let mut batches = Vec::new();
+    let mut current_batch = String::new();
+    let mut in_block_comment = false;
+
+    for line in sql.lines() {
+        if in_block_comment {
+            if let Some(end) = line.find("*/") {
+                let rest = &line[end + 2..];
+                in_block_comment = rest.contains("/*");
+            }
+            if !current_batch.is_empty() {
+                current_batch.push('\n');
+            }
+            current_batch.push_str(line);
+            continue;
+        }
+
+        let trimmed = line.trim();
+
+        let is_go = if trimmed.len() >= 2
+            && trimmed[..2].eq_ignore_ascii_case("go")
+        {
+            let after_go = trimmed[2..].trim();
+            after_go.is_empty() || after_go.bytes().all(|b| b.is_ascii_digit())
+        } else {
+            false
+        };
+
+        if is_go {
+            if !current_batch.trim().is_empty() {
+                let repeat: usize = trimmed[2..]
+                    .trim()
+                    .parse()
+                    .unwrap_or(1)
+                    .max(1);
+                for _ in 0..repeat {
+                    batches.push(current_batch.clone());
+                }
+            }
+            current_batch = String::new();
+        } else {
+            if !current_batch.is_empty() {
+                current_batch.push('\n');
+            }
+            current_batch.push_str(line);
+
+            let check = strip_strings_and_line_comments(line);
+            let opens = check.matches("/*").count();
+            let closes = check.matches("*/").count();
+            if opens > closes {
+                in_block_comment = true;
+            }
+        }
+    }
+    if !current_batch.trim().is_empty() {
+        batches.push(current_batch);
+    }
+    batches
+}
+
+/// Remove string literals and single-line comments so we can safely
+/// detect block comment boundaries without false positives.
+fn strip_strings_and_line_comments(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if i + 1 < len && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            break;
+        }
+        if bytes[i] == b'\'' {
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\'' {
+                    i += 1;
+                    if i < len && bytes[i] == b'\'' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i] == b'[' {
+            i += 1;
+            while i < len && bytes[i] != b']' {
+                i += 1;
+            }
+            if i < len {
+                i += 1;
+            }
+            continue;
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
+struct BatchResult {
+    result_sets: Vec<ResultSet>,
+    rows_affected: u64,
+    messages: Vec<String>,
+}
+
+async fn execute_single_batch(client: &mut SqlClient, sql: &str) -> Result<BatchResult, String> {
     let mut result_sets = Vec::new();
     let mut current_columns = Vec::new();
     let mut current_rows = Vec::new();
 
     let mut stream = client
-        .query(sql, &[])
+        .simple_query(sql)
         .await
-        .map_err(|e| format!("Query failed: {}", e))?;
+        .map_err(|e| format!("{}", e))?;
 
     while let Some(item) = stream
         .try_next()
@@ -280,16 +413,59 @@ pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryRes
         });
     }
 
-    let rows_affected = if result_sets.is_empty() {
-        get_last_rowcount(client).await?
+    let mut messages = Vec::new();
+
+    if result_sets.is_empty() {
+        let rows = get_last_rowcount(client).await?;
+        if rows > 0 {
+            messages.push(format!("({} row(s) affected)", rows));
+        } else {
+            messages.push("Commands completed successfully.".to_string());
+        }
+        Ok(BatchResult {
+            result_sets,
+            rows_affected: rows,
+            messages,
+        })
     } else {
-        result_sets.iter().map(|rs| rs.rows.len() as u64).sum()
-    };
+        let total: u64 = result_sets.iter().map(|rs| rs.rows.len() as u64).sum();
+        for rs in &result_sets {
+            messages.push(format!("({} row(s) affected)", rs.rows.len()));
+        }
+        Ok(BatchResult {
+            result_sets,
+            rows_affected: total,
+            messages,
+        })
+    }
+}
+
+/// Executes SQL query (supports 'GO' batches).
+pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryResult, String> {
+    let start = std::time::Instant::now();
+    let batches = split_batches(sql);
+
+    let mut all_result_sets = Vec::new();
+    let mut total_rows_affected: u64 = 0;
+    let mut all_messages = Vec::new();
+
+    for (i, batch) in batches.iter().enumerate() {
+        let result = execute_single_batch(client, batch).await.map_err(|e| {
+            if batches.len() > 1 {
+                format!("Batch {} failed: {}", i + 1, e)
+            } else {
+                format!("Query failed: {}", e)
+            }
+        })?;
+        all_result_sets.extend(result.result_sets);
+        total_rows_affected += result.rows_affected;
+        all_messages.extend(result.messages);
+    }
 
     Ok(QueryResult {
-        result_sets,
-        rows_affected,
-        messages,
+        result_sets: all_result_sets,
+        rows_affected: total_rows_affected,
+        messages: all_messages,
         elapsed_ms: start.elapsed().as_millis() as u64,
     })
 }
@@ -352,6 +528,7 @@ fn extract_row(row: &Row, col_count: usize) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Lists server databases.
 pub async fn get_databases(client: &mut SqlClient) -> Result<Vec<String>, String> {
     let sql = "SELECT name FROM sys.databases ORDER BY name";
     let stream = client
@@ -369,6 +546,7 @@ pub async fn get_databases(client: &mut SqlClient) -> Result<Vec<String>, String
         .collect())
 }
 
+/// Gets active database name.
 pub async fn get_current_database_name(client: &mut SqlClient) -> Result<Option<String>, String> {
     let stream = client
         .query("SELECT DB_NAME()", &[])
@@ -384,6 +562,7 @@ pub async fn get_current_database_name(client: &mut SqlClient) -> Result<Option<
         .and_then(|row| row.try_get::<&str, _>(0).ok().flatten().map(String::from)))
 }
 
+/// Generates schema summary for context.
 pub async fn get_schema_summary(client: &mut SqlClient) -> Result<String, String> {
     let sql = r#"
 WITH objects AS (
@@ -483,6 +662,7 @@ ORDER BY o.OBJECT_RANK, c.COLUMN_RANK
     Ok(summary_lines.join("\n"))
 }
 
+/// Lists database objects.
 pub async fn get_tables(
     client: &mut SqlClient,
     database: &str,
@@ -527,6 +707,7 @@ pub async fn get_tables(
         .collect())
 }
 
+/// Retrieves column information for a specific table.
 pub async fn get_columns(
     client: &mut SqlClient,
     database: &str,
@@ -572,6 +753,7 @@ pub async fn get_columns(
         .collect())
 }
 
+/// Retrieves table indexes.
 pub async fn get_indexes(
     client: &mut SqlClient,
     database: &str,
@@ -636,6 +818,7 @@ pub async fn get_indexes(
     }
 }
 
+/// Retrieves foreign keys.
 pub async fn get_foreign_keys(
     client: &mut SqlClient,
     database: &str,
@@ -691,6 +874,7 @@ pub async fn get_foreign_keys(
     }
 }
 
+/// Generates CREATE TABLE script including PKs and defaults.
 pub async fn generate_create_script(
     client: &mut SqlClient,
     database: &str,
@@ -701,7 +885,6 @@ pub async fn generate_create_script(
     let sch = schema.replace('\'', "''");
     let tbl = table.replace('\'', "''");
 
-    // 1. Columns: name, type, length/precision/scale, nullability, identity, computed expression
     let col_sql = format!(
         "SELECT \
             c.name, \
@@ -728,7 +911,6 @@ pub async fn generate_create_script(
         tbl = tbl
     );
 
-    // 2. Primary key columns
     let pk_sql = format!(
         "SELECT \
             i.name AS index_name, \
@@ -746,7 +928,6 @@ pub async fn generate_create_script(
         tbl = tbl
     );
 
-    // 3. Default constraints
     let def_sql = format!(
         "SELECT \
             col.name AS column_name, \
@@ -762,7 +943,6 @@ pub async fn generate_create_script(
         tbl = tbl
     );
 
-    // Execute all three queries
     let col_rows = {
         let stream = client.query(&col_sql, &[]).await.map_err(|e| format!("Failed to read columns: {}", e))?;
         stream.into_first_result().await.map_err(|e| format!("Failed to parse columns: {}", e))?
@@ -776,7 +956,6 @@ pub async fn generate_create_script(
         stream.into_first_result().await.map_err(|e| format!("Failed to parse defaults: {}", e))?
     };
 
-    // Build column definitions
     let mut col_defs: Vec<String> = Vec::new();
     let mut has_lob = false;
 
@@ -799,7 +978,6 @@ pub async fn generate_create_script(
             continue;
         }
 
-        // Format the type with length/precision
         let type_str = match type_name.to_lowercase().as_str() {
             "varchar" | "char" | "varbinary" => {
                 if max_length == -1 {
@@ -851,7 +1029,6 @@ pub async fn generate_create_script(
         ") ON [PRIMARY]"
     };
 
-    // Build the script
     let sch_escaped = schema.replace(']', "]]");
     let tbl_escaped = table.replace(']', "]]");
 
@@ -866,7 +1043,6 @@ pub async fn generate_create_script(
         on_primary
     ));
 
-    // Primary key as ALTER TABLE
     if !pk_rows.is_empty() {
         let mut pk_cols: Vec<String> = Vec::new();
         for row in &pk_rows {
@@ -885,7 +1061,6 @@ pub async fn generate_create_script(
         ));
     }
 
-    // Default constraints as ALTER TABLE
     for row in &def_rows {
         let col_name = row.try_get::<&str, _>(0).ok().flatten().unwrap_or("");
         let definition = row.try_get::<&str, _>(1).ok().flatten().unwrap_or("");
@@ -898,6 +1073,7 @@ pub async fn generate_create_script(
     Ok(script)
 }
 
+/// Retrieves object definition.
 pub async fn get_object_definition(
     client: &mut SqlClient,
     database: &str,
