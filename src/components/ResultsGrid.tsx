@@ -63,27 +63,12 @@ function sqlLiteral(value: unknown): string {
   return `N'${text.replace(/'/g, "''")}'`;
 }
 
-function normalizedColumnName(name: string): string {
-  return name.toLowerCase().replace(/[[\]"]/g, "").replace(/\s+/g, "");
-}
-
-function guessKeyColumnIndexes(columns: ResultSet["columns"]): number[] {
-  const normalized = columns.map((c, i) => ({ i, n: normalizedColumnName(c.name) }));
-  const exactId = normalized.filter((entry) => entry.n === "id").map((entry) => entry.i);
-  if (exactId.length > 0) return exactId;
-
-  const idLike = normalized.filter((entry) => entry.n.endsWith("id")).map((entry) => entry.i);
-  return idLike;
-}
-
 function buildWhereClause(
   columns: ResultSet["columns"],
   row: ResultSet["rows"][number],
-  keyIndexes: number[],
 ): string {
-  const indexes = keyIndexes.length > 0 ? keyIndexes : columns.map((_, i) => i);
-  const predicates = indexes.map((i) => {
-    const col = quoteIdentifier(columns[i].name);
+  const predicates = columns.map((c, i) => {
+    const col = quoteIdentifier(c.name);
     const val = row[i];
     return val === null ? `${col} IS NULL` : `${col} = ${sqlLiteral(val)}`;
   });
@@ -95,16 +80,12 @@ function buildUpdateSql(
   columns: ResultSet["columns"],
   row: ResultSet["rows"][number],
 ): string {
-  const keyIndexes = guessKeyColumnIndexes(columns);
-  const whereClause = buildWhereClause(columns, row, keyIndexes);
-  const setIndexes = columns.map((_, i) => i).filter((i) => !keyIndexes.includes(i));
-  const effectiveSetIndexes = setIndexes.length > 0 ? setIndexes : columns.map((_, i) => i);
-  const setClause = effectiveSetIndexes
-    .map((i) => `  ${quoteIdentifier(columns[i].name)} = ${sqlLiteral(row[i])}`)
+  const setClause = columns
+    .map((c, i) => `  ${quoteIdentifier(c.name)} = ${sqlLiteral(row[i])}`)
     .join(",\n");
-  const warning = keyIndexes.length === 0 ? "-- Warning: no obvious key column found.\n" : "";
+  const whereClause = buildWhereClause(columns, row);
 
-  return `${warning}UPDATE ${tableName}\nSET\n${setClause}\nWHERE\n  ${whereClause};`;
+  return `-- Update row in ${tableName}\nUPDATE ${tableName}\nSET\n${setClause}\nWHERE\n  ${whereClause};`;
 }
 
 function buildDeleteSql(
@@ -112,11 +93,9 @@ function buildDeleteSql(
   columns: ResultSet["columns"],
   row: ResultSet["rows"][number],
 ): string {
-  const keyIndexes = guessKeyColumnIndexes(columns);
-  const whereClause = buildWhereClause(columns, row, keyIndexes);
-  const warning = keyIndexes.length === 0 ? "-- Warning: no obvious key column found.\n" : "";
+  const whereClause = buildWhereClause(columns, row);
 
-  return `${warning}DELETE FROM ${tableName}\nWHERE\n  ${whereClause};`;
+  return `-- Delete row from ${tableName}\nDELETE FROM ${tableName}\nWHERE\n  ${whereClause};`;
 }
 
 function buildInsertSql(
@@ -126,7 +105,7 @@ function buildInsertSql(
 ): string {
   const colNames = columns.map((c) => quoteIdentifier(c.name)).join(", ");
   const valList = row.map((v) => sqlLiteral(v)).join(", ");
-  return `INSERT INTO ${tableName} (${colNames})\nVALUES (${valList});`;
+  return `-- Insert row into ${tableName}\nINSERT INTO ${tableName} (${colNames})\nVALUES (${valList});`;
 }
 
 function VirtualGrid({
@@ -146,8 +125,9 @@ function VirtualGrid({
   const buffer = 10;
   const charWidth = 9;
   const cellPadding = 24;
+  const minColWidth = 40;
 
-  const colWidths = useMemo(() => {
+  const autoWidths = useMemo(() => {
     const sampleSize = Math.min(resultSet.rows.length, 100);
     return resultSet.columns.map((col, ci) => {
       let maxLen = col.name.length + (col.type_name ? col.type_name.length + 4 : 0);
@@ -159,6 +139,42 @@ function VirtualGrid({
       return Math.min(maxLen * charWidth + cellPadding, 600);
     });
   }, [resultSet]);
+
+  const [colOverrides, setColOverrides] = useState<Record<number, number>>({});
+  const colWidths = useMemo(
+    () => autoWidths.map((w, i) => colOverrides[i] ?? w),
+    [autoWidths, colOverrides],
+  );
+
+  const dragRef = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = e.clientX - dragRef.current.startX;
+      const newWidth = Math.max(minColWidth, dragRef.current.startWidth + delta);
+      setColOverrides((prev) => ({ ...prev, [dragRef.current!.colIndex]: newWidth }));
+    };
+    const onMouseUp = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const startResize = useCallback((e: React.MouseEvent, colIndex: number) => {
+    e.preventDefault();
+    dragRef.current = { colIndex, startX: e.clientX, startWidth: colWidths[colIndex] };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [colWidths]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -201,7 +217,7 @@ function VirtualGrid({
             {resultSet.columns.map((col, i) => (
               <th
                 key={i}
-                className="bg-surface-table border-b border-r border-border/40 px-3"
+                className="bg-surface-table border-b border-r border-border/40 px-3 relative"
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate">{col.name}</span>
@@ -209,6 +225,10 @@ function VirtualGrid({
                     {col.type_name}
                   </span>
                 </div>
+                <div
+                  className="col-resizer"
+                  onMouseDown={(e) => startResize(e, i)}
+                />
               </th>
             ))}
           </tr>
@@ -386,7 +406,9 @@ export default function ResultsGrid({
             Query executed successfully.
           </p>
           <div className="space-y-1.5 opacity-80">
-            <p>{result.rows_affected} row(s) affected.</p>
+            {result.rows_affected > 0 && (
+              <p>{result.rows_affected} row(s) affected.</p>
+            )}
             <p className="text-s">Execution time: {result.elapsed_ms}ms</p>
             {result.messages.map((msg, i) => (
                 <p key={i} className="text-s bg-surface-hover p-2 rounded-md border border-border/10">

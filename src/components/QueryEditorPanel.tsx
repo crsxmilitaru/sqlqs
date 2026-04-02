@@ -152,7 +152,9 @@ export default function QueryEditorPanel({
           break;
         }
       }
+      setResultsCollapsed(true);
       editorRef.current?.focus();
+      requestAnimationFrame(() => editorRef.current?.scrollToBottom());
     },
     [activeTab, onTabUpdate, onTabAdd],
   );

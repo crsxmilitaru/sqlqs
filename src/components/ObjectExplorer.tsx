@@ -484,7 +484,15 @@ export default function ObjectExplorer({
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
-          onClick: () => select(`-- Script procedure definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+          onClick: async () => {
+            try {
+              const def: string = await invoke("get_object_definition", { database, schema, name: table });
+              const altered = def.replace(/\bCREATE\s+(PROC(?:EDURE)?)\b/i, "ALTER $1");
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
+            } catch {
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nALTER PROCEDURE [${schema}].[${table}]\nAS\nBEGIN\n\tSET NOCOUNT ON;\n\t-- TODO\nEND\nGO`);
+            }
+          },
         },
         {
           id: "get-last-modified",
@@ -514,7 +522,15 @@ export default function ObjectExplorer({
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
-          onClick: () => select(`-- Script function definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+          onClick: async () => {
+            try {
+              const def: string = await invoke("get_object_definition", { database, schema, name: table });
+              const altered = def.replace(/\bCREATE\s+(FUNCTION)\b/i, "ALTER $1");
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
+            } catch {
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nALTER FUNCTION [${schema}].[${table}]\n(\n)\nRETURNS <return_type>\nAS\nBEGIN\n\t-- TODO\n\tRETURN <value>\nEND\nGO`);
+            }
+          },
         },
         {
           id: "get-last-modified",
@@ -538,7 +554,28 @@ export default function ObjectExplorer({
           id: "view-definition",
           label: "View Definition",
           icon: <i className="fa-solid fa-file-code" />,
-          onClick: () => select(`-- Trigger definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+          onClick: async () => {
+            try {
+              const def: string = await invoke("get_object_definition", { database, schema, name: table });
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${def}\nGO`);
+            } catch {
+              select(`-- Could not retrieve definition for [${schema}].[${table}]\n-- Object may be encrypted or not accessible.`);
+            }
+          },
+        },
+        {
+          id: "script-alter",
+          label: "Script ALTER",
+          icon: <i className="fa-solid fa-pen" />,
+          onClick: async () => {
+            try {
+              const def: string = await invoke("get_object_definition", { database, schema, name: table });
+              const altered = def.replace(/\bCREATE\s+(TRIGGER)\b/i, "ALTER $1");
+              select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
+            } catch {
+              select(`-- Could not retrieve definition for [${schema}].[${table}]\n-- Object may be encrypted or not accessible.`);
+            }
+          },
         },
         {
           id: "trigger-details",

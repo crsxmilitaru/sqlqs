@@ -280,6 +280,24 @@
     cursor: row-resize;
   }
 
+  /* ─── Column resizer (results grid) ─── */
+
+  .col-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+
+  .col-resizer:hover,
+  .col-resizer:active {
+    background: var(--color-accent);
+    opacity: 0.5;
+  }
+
   /* ─── macOS window controls ─── */
 
   .mac-window-controls {

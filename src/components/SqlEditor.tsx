@@ -46,6 +46,7 @@ export interface SqlEditorHandle {
   focus: () => void;
   openCompletion: () => void;
   getSelectedText: () => string;
+  scrollToBottom: () => void;
 }
 
 function createFoldMarker(open: boolean): HTMLElement {
@@ -97,6 +98,15 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         const selection = view.state.selection.main;
         if (selection.from === selection.to) return "";
         return view.state.doc.sliceString(selection.from, selection.to);
+      },
+      scrollToBottom() {
+        const view = viewRef.current;
+        if (!view) return;
+        const end = view.state.doc.length;
+        view.dispatch({
+          selection: { anchor: end },
+          scrollIntoView: true,
+        });
       },
     }),
     [],
