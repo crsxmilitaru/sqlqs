@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { QueryTab } from "../lib/types";
+import type { QueryTab, ServerObjectIndexStatus } from "../lib/types";
 import { AiService } from "../lib/ai";
 import { getModifierKeyLabel, isMacOS } from "../lib/platform";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
@@ -32,6 +32,10 @@ interface Props {
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenSqlFile: () => void;
+  onToggleObjectJump?: () => void;
+  objectJumpOpen?: boolean;
+  objectJumpEnabled?: boolean;
+  objectJumpIndexStatus?: ServerObjectIndexStatus;
   onShowSettings: () => void;
   settingsDisabled?: boolean;
   onToggleSidebar?: () => void;
@@ -60,6 +64,10 @@ export default function TitleBar({
   onConnect,
   onDisconnect,
   onOpenSqlFile,
+  onToggleObjectJump,
+  objectJumpOpen = false,
+  objectJumpEnabled = false,
+  objectJumpIndexStatus,
   onShowSettings,
   settingsDisabled = false,
   onToggleSidebar,
@@ -83,8 +91,18 @@ export default function TitleBar({
 }: Props) {
   const isMac = isMacOS();
   const openFileShortcut = `${getModifierKeyLabel()}+O`;
+  const objectJumpShortcut = `${getModifierKeyLabel()}+Shift+F`;
   const newQueryShortcut = `${getModifierKeyLabel()}+N`;
   const hasAiKey = AiService.getStatus().hasKey;
+  const objectJumpIndexing = objectJumpIndexStatus?.indexing ?? false;
+  const processedDatabaseCount = objectJumpIndexStatus?.processed_database_count ?? 0;
+  const databaseCount = objectJumpIndexStatus?.database_count ?? 0;
+  const failedDatabaseCount = objectJumpIndexStatus?.failed_databases.length ?? 0;
+  const objectJumpTooltip = objectJumpIndexing
+    ? databaseCount > 0
+      ? `Jump to Object (${objectJumpShortcut}) • Indexing ${processedDatabaseCount}/${databaseCount} DBs${failedDatabaseCount > 0 ? ` • ${failedDatabaseCount} failed` : ""}`
+      : `Jump to Object (${objectJumpShortcut}) • Indexing server objects...`
+    : `Jump to Object (${objectJumpShortcut})`;
   const [confirmClose, setConfirmClose] = useState<{
     type: "single" | "others" | "all";
     tabId?: string;
@@ -413,6 +431,28 @@ export default function TitleBar({
               <i className="fa-solid fa-folder-open text-m" />
             </button>
           </Tooltip>
+          {onToggleObjectJump && (
+            <Tooltip content={objectJumpTooltip} placement="bottom">
+              <button
+                onClick={onToggleObjectJump}
+                disabled={(!objectJumpOpen && dialogOpen) || !objectJumpEnabled}
+                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-default enabled:cursor-pointer ${
+                  objectJumpOpen
+                    ? "bg-surface-header text-text hover:bg-surface-active"
+                    : "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover"
+                }`}
+              >
+                <span className="relative flex items-center justify-center">
+                  <i className="fa-solid fa-magnifying-glass text-m" />
+                  {objectJumpIndexing && (
+                    <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-surface-raised text-[8px] text-text">
+                      <i className="fa-solid fa-spinner animate-spin" />
+                    </span>
+                  )}
+                </span>
+              </button>
+            </Tooltip>
+          )}
 
           <div className="w-px h-4 bg-overlay-sm mx-1 flex-shrink-0" />
 
@@ -556,6 +596,18 @@ export default function TitleBar({
         <div className="flex-1" />
 
         <div className="flex h-full z-10 flex-shrink-0">
+          {isMac && connected && (
+            <Tooltip content="Click to disconnect" placement="bottom">
+              <button
+                onClick={onDisconnect}
+                disabled={dialogOpen}
+                className="flex items-center gap-2 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text transition-all group enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+              >
+                <i className="fa-solid fa-server text-s" />
+                <span className="text-s font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
+              </button>
+            </Tooltip>
+          )}
           {hasAiKey && connected && (
             <div className="flex items-center px-1">
               <Tooltip content="AI Chat" placement="bottom">

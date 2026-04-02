@@ -1,7 +1,10 @@
 mod db;
 mod settings;
 
-use db::{ColumnInfo, ConnectionConfig, DatabaseObject, QueryResult, SqlClient};
+use db::{
+    CachedServerObjectIndex, ColumnInfo, ConnectionConfig, DatabaseObject, QueryResult,
+    ServerObjectIndexStatus, ServerObjectSearchResponse, SqlClient,
+};
 use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,6 +20,8 @@ const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
 struct AppState {
     client: Arc<Mutex<Option<SqlClient>>>,
     cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+    server_object_index: Arc<Mutex<CachedServerObjectIndex>>,
+    server_object_index_token: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 #[derive(serde::Serialize)]
@@ -24,6 +29,136 @@ struct OpenedSqlFile {
     path: String,
     file_name: String,
     content: String,
+}
+
+async fn reset_server_object_index(state: &AppState) {
+    let token = {
+        let mut token_lock = state.server_object_index_token.lock().await;
+        token_lock.take()
+    };
+
+    if let Some(token) = token {
+        token.cancel();
+    }
+
+    let mut object_index = state.server_object_index.lock().await;
+    *object_index = CachedServerObjectIndex::default();
+}
+
+async fn ensure_server_object_indexing_started(
+    state: &AppState,
+) -> Result<ServerObjectIndexStatus, String> {
+    {
+        let client_lock = state.client.lock().await;
+        if client_lock.is_none() {
+            return Err("Not connected to a server".to_string());
+        }
+    }
+
+    let should_start = {
+        let mut object_index = state.server_object_index.lock().await;
+        if object_index.initialized {
+            false
+        } else {
+            *object_index = CachedServerObjectIndex::start();
+            true
+        }
+    };
+
+    if !should_start {
+        let object_index = state.server_object_index.lock().await;
+        return Ok(object_index.status());
+    }
+
+    let token = CancellationToken::new();
+    {
+        let previous_token = {
+            let mut token_lock = state.server_object_index_token.lock().await;
+            token_lock.replace(token.clone())
+        };
+        if let Some(previous_token) = previous_token {
+            previous_token.cancel();
+        }
+    }
+
+    let client = Arc::clone(&state.client);
+    let object_index = Arc::clone(&state.server_object_index);
+
+    tauri::async_runtime::spawn(async move {
+        let databases = {
+            let mut client_lock = client.lock().await;
+            let Some(client) = client_lock.as_mut() else {
+                let mut object_index = object_index.lock().await;
+                object_index.finish();
+                return;
+            };
+
+            match db::get_databases(client).await {
+                Ok(databases) => databases,
+                Err(error) => {
+                    eprintln!("Failed to start server object indexing: {}", error);
+                    let mut object_index = object_index.lock().await;
+                    object_index.finish();
+                    return;
+                }
+            }
+        };
+
+        {
+            let mut object_index = object_index.lock().await;
+            if token.is_cancelled() {
+                object_index.finish();
+                return;
+            }
+            object_index.set_database_count(databases.len());
+        }
+
+        for database in databases {
+            if token.is_cancelled() {
+                break;
+            }
+
+            let result = {
+                let mut client_lock = client.lock().await;
+                let Some(client) = client_lock.as_mut() else {
+                    break;
+                };
+                db::get_tables(client, &database).await
+            };
+
+            if token.is_cancelled() {
+                break;
+            }
+
+            {
+                let mut object_index = object_index.lock().await;
+                if token.is_cancelled() {
+                    break;
+                }
+
+                match result {
+                    Ok(database_objects) => {
+                        object_index.add_database_objects(database.clone(), database_objects);
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "Failed to index objects for database '{}': {}",
+                            database, error
+                        );
+                        object_index.add_failed_database(database);
+                    }
+                }
+            }
+
+            tokio::task::yield_now().await;
+        }
+
+        let mut object_index = object_index.lock().await;
+        object_index.finish();
+    });
+
+    let object_index = state.server_object_index.lock().await;
+    Ok(object_index.status())
 }
 
 fn extract_startup_sql_file_path() -> Option<String> {
@@ -189,6 +324,8 @@ async fn connect_to_server(
 
     let mut lock = state.client.lock().await;
     *lock = Some(client);
+    drop(lock);
+    reset_server_object_index(&state).await;
 
     Ok("Connected".to_string())
 }
@@ -197,6 +334,8 @@ async fn connect_to_server(
 async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String> {
     let mut lock = state.client.lock().await;
     *lock = None;
+    drop(lock);
+    reset_server_object_index(&state).await;
     Ok(())
 }
 
@@ -256,6 +395,47 @@ async fn get_tables(
         .as_mut()
         .ok_or("Not connected to a server".to_string())?;
     db::get_tables(client, &database).await
+}
+
+#[tauri::command]
+async fn search_server_objects(
+    state: State<'_, AppState>,
+    query: String,
+    preferred_database: Option<String>,
+    limit: Option<usize>,
+) -> Result<ServerObjectSearchResponse, String> {
+    let limit = limit.unwrap_or(60).clamp(1, 200);
+    let _ = ensure_server_object_indexing_started(&state).await?;
+
+    let object_index = state.server_object_index.lock().await;
+
+    Ok(db::search_server_objects(
+        &object_index,
+        &query,
+        preferred_database.as_deref(),
+        limit,
+    ))
+}
+
+#[tauri::command]
+async fn start_server_object_indexing(
+    state: State<'_, AppState>,
+) -> Result<ServerObjectIndexStatus, String> {
+    ensure_server_object_indexing_started(&state).await
+}
+
+#[tauri::command]
+async fn get_server_object_index_status(
+    state: State<'_, AppState>,
+) -> Result<ServerObjectIndexStatus, String> {
+    let client_lock = state.client.lock().await;
+    if client_lock.is_none() {
+        return Err("Not connected to a server".to_string());
+    }
+    drop(client_lock);
+
+    let object_index = state.server_object_index.lock().await;
+    Ok(object_index.status())
 }
 
 #[tauri::command]
@@ -343,6 +523,8 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 
     let mut lock = state.client.lock().await;
     *lock = Some(client);
+    drop(lock);
+    reset_server_object_index(&state).await;
 
     Ok(AutoConnectResult {
         connected: true,
@@ -487,6 +669,8 @@ pub fn run() {
         .manage(AppState {
             client: Arc::new(Mutex::new(None)),
             cancel_token: Arc::new(Mutex::new(None)),
+            server_object_index: Arc::new(Mutex::new(CachedServerObjectIndex::default())),
+            server_object_index_token: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             connect_to_server,
@@ -495,6 +679,9 @@ pub fn run() {
             cancel_query,
             get_databases,
             get_tables,
+            search_server_objects,
+            start_server_object_indexing,
+            get_server_object_index_status,
             get_columns,
             get_indexes,
             get_foreign_keys,

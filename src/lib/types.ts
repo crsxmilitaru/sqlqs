@@ -33,6 +33,29 @@ export interface DatabaseObject {
   object_type: string;
 }
 
+export interface ServerDatabaseObject extends DatabaseObject {
+  database: string;
+}
+
+export interface ServerObjectSearchResponse {
+  results: ServerDatabaseObject[];
+  total_matches: number;
+  initialized: boolean;
+  indexing: boolean;
+  database_count: number;
+  processed_database_count: number;
+  failed_databases: string[];
+}
+
+export interface ServerObjectIndexStatus {
+  initialized: boolean;
+  indexing: boolean;
+  database_count: number;
+  processed_database_count: number;
+  failed_databases: string[];
+  object_count: number;
+}
+
 export interface SavedConnection {
   name: string;
   config: ConnectionConfig;

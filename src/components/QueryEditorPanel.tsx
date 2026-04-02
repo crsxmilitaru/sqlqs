@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
@@ -46,7 +45,6 @@ export default function QueryEditorPanel({
   onAiChatOpenChange,
   onSave,
 }: Props) {
-  const modifierKeyLabel = getModifierKeyLabel();
   const hasDatabaseSelected = Boolean(currentDatabase);
   const [editorHeight, setEditorHeight] = useState(300);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
@@ -184,7 +182,6 @@ export default function QueryEditorPanel({
         id: "format",
         label: "Format",
         icon: <IconFormat />,
-        shortcut: `${modifierKeyLabel}+Shift+F`,
         onClick: handleFormatSql,
         disabled: !hasDatabaseSelected || !activeTab?.sql.trim(),
       },

@@ -7,14 +7,29 @@ import { useTabs } from "../hooks/useTabs";
 import { getSavedQueriesDir } from "../lib/path";
 import { getPlatformClass } from "../lib/platform";
 import { loadTheme } from "../lib/theme";
-import type { ConnectionConfig, QueryResult, QueryTab } from "../lib/types";
+import type {
+  ConnectionConfig,
+  QueryResult,
+  QueryTab,
+  ServerObjectIndexStatus,
+} from "../lib/types";
 import { generateTabTitle } from "../lib/sql";
 import ConnectionDialog from "./ConnectionDialog";
+import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
 import ObjectExplorer from "./ObjectExplorer";
 import QueryEditorPanel from "./QueryEditorPanel";
 import SettingsDialog from "./SettingsDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "./UpdateDialog";
+
+const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
+  initialized: false,
+  indexing: false,
+  database_count: 0,
+  processed_database_count: 0,
+  failed_databases: [],
+  object_count: 0,
+};
 
 export default function App() {
   const {
@@ -50,6 +65,10 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [explorerWidth, setExplorerWidth] = useState(325);
   const [theme, setTheme] = useState(loadTheme());
+  const [isObjectJumpOpen, setIsObjectJumpOpen] = useState(false);
+  const [objectJumpIndexStatus, setObjectJumpIndexStatus] = useState<ServerObjectIndexStatus>(
+    EMPTY_OBJECT_INDEX_STATUS,
+  );
   const [aiChatOpen, setAiChatOpen] = useState(() => {
     return localStorage.getItem("sqlqs_ai_chat_open") === "true";
   });
@@ -136,6 +155,34 @@ export default function App() {
       }
     },
     [tabs, updateTab, addHistory, currentDatabase],
+  );
+
+  const handleOpenQueryTab = useCallback(
+    ({
+      sql,
+      execute,
+      title,
+      database,
+      sourceId,
+      preserveTitle,
+    }: {
+      sql: string;
+      execute?: boolean;
+      title?: string;
+      database?: string;
+      sourceId?: string;
+      preserveTitle?: boolean;
+    }) => {
+      if (database && database !== currentDatabase) {
+        changeDatabase(database);
+      }
+
+      const tabId = addTab(sql, title, sourceId, preserveTitle);
+      if (execute) {
+        setTimeout(() => handleExecute(tabId, sql), 0);
+      }
+    },
+    [addTab, changeDatabase, currentDatabase, handleExecute],
   );
 
   const handleOpenSqlFile = useCallback(() => {
@@ -236,6 +283,17 @@ export default function App() {
     }
   }, []);
 
+  const hasBlockingDialog = isConnectionDialogOpen || isSettingsDialogOpen || !!updateAvailable;
+  const canOpenObjectJump = connected;
+
+  const handleToggleObjectJump = useCallback(() => {
+    if (!canOpenObjectJump || hasBlockingDialog) {
+      return;
+    }
+
+    setIsObjectJumpOpen((prev) => !prev);
+  }, [canOpenObjectJump, hasBlockingDialog]);
+
   useEffect(() => {
     let isMounted = true;
     let unlisten: (() => void) | undefined;
@@ -267,8 +325,10 @@ export default function App() {
   }, [handleOpenSqlFilePath]);
 
   useEffect(() => {
+    if (isObjectJumpOpen) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
         event.preventDefault();
         handleOpenSqlFile();
       }
@@ -276,9 +336,75 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleOpenSqlFile]);
+  }, [handleOpenSqlFile, isObjectJumpOpen]);
 
-  const isAnyDialogOpen = isConnectionDialogOpen || isSettingsDialogOpen || !!updateAvailable;
+  useEffect(() => {
+    if (!canOpenObjectJump || hasBlockingDialog) {
+      setIsObjectJumpOpen(false);
+    }
+  }, [canOpenObjectJump, hasBlockingDialog]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!canOpenObjectJump || hasBlockingDialog) {
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setIsObjectJumpOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canOpenObjectJump, hasBlockingDialog]);
+
+  useEffect(() => {
+    if (!connected) {
+      setObjectJumpIndexStatus(EMPTY_OBJECT_INDEX_STATUS);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const syncIndexStatus = async (startIndexing: boolean) => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke<ServerObjectIndexStatus>(
+          startIndexing ? "start_server_object_indexing" : "get_server_object_index_status",
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setObjectJumpIndexStatus(status);
+
+        if (status.indexing) {
+          timer = window.setTimeout(() => {
+            void syncIndexStatus(false);
+          }, 700);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to sync object jump index status:", error);
+        }
+      }
+    };
+
+    void syncIndexStatus(true);
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [connected]);
+
+  const isAnyDialogOpen = hasBlockingDialog || isObjectJumpOpen;
 
   return (
     <div className="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-white">
@@ -308,6 +434,10 @@ export default function App() {
         onTabSave={handleTabSave}
         aiChatOpen={aiChatOpen}
         onToggleAiChat={handleToggleAiChat}
+        onToggleObjectJump={handleToggleObjectJump}
+        objectJumpOpen={isObjectJumpOpen}
+        objectJumpEnabled={canOpenObjectJump}
+        objectJumpIndexStatus={objectJumpIndexStatus}
       />
 
       <div className="app-workspace flex flex-1 overflow-hidden relative">
@@ -316,13 +446,7 @@ export default function App() {
             <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative">
               <ObjectExplorer
                 onSelect={(sql, execute, title, database, sourceId) => {
-                  if (database && database !== currentDatabase) {
-                    changeDatabase(database);
-                  }
-                  const tabId = addTab(sql, title, sourceId);
-                  if (execute) {
-                    setTimeout(() => handleExecute(tabId, sql), 0);
-                  }
+                  handleOpenQueryTab({ sql, execute, title, database, sourceId });
                 }}
                 onDatabaseChange={changeDatabase}
                 currentDatabase={currentDatabase}
@@ -387,6 +511,15 @@ export default function App() {
           onCancel={() => cancelUpdate(updateAvailable)}
         />
       )}
+
+      <ObjectJumpPalette
+        open={isObjectJumpOpen}
+        connected={connected}
+        currentDatabase={currentDatabase}
+        indexStatus={objectJumpIndexStatus}
+        onClose={() => setIsObjectJumpOpen(false)}
+        onSelect={(selection: ObjectJumpSelection) => handleOpenQueryTab(selection)}
+      />
     </div>
   );
 }
