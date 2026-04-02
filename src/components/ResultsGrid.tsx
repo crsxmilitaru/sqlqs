@@ -1,7 +1,7 @@
-import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryResult, ResultSet } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
-import { getModifierKeyLabel } from "../lib/platform";
 
 interface Props {
   result?: QueryResult;
@@ -53,12 +53,12 @@ function sqlLiteral(value: unknown): string {
     typeof value === "string"
       ? value
       : (() => {
-          try {
-            return JSON.stringify(value);
-          } catch {
-            return String(value);
-          }
-        })();
+        try {
+          return JSON.stringify(value);
+        } catch {
+          return String(value);
+        }
+      })();
 
   return `N'${text.replace(/'/g, "''")}'`;
 }
@@ -120,6 +120,60 @@ function VirtualGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
+
+  const [sortConfig, setSortConfig] = useState<{ colIndex: number; direction: "asc" | "desc" } | null>(null);
+  const [filters, setFilters] = useState<Record<number, string>>({});
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    setSortConfig(null);
+    setFilters({});
+    setShowFilters(false);
+    setScrollTop(0);
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [resultSet]);
+
+  const processedRows = useMemo(() => {
+    let result = resultSet.rows.map((row, i) => ({ row, originalIndex: i }));
+
+    const activeFilters = Object.entries(filters).filter(([_, val]) => val.trim() !== "");
+    if (activeFilters.length > 0) {
+      result = result.filter(({ row }) => {
+        return activeFilters.every(([colIdxStr, filterText]) => {
+          const colIdx = parseInt(colIdxStr, 10);
+          const cellVal = row[colIdx];
+          if (cellVal == null) return false;
+          return String(cellVal).toLowerCase().includes(filterText.toLowerCase());
+        });
+      });
+    }
+
+    if (sortConfig) {
+      const { colIndex, direction } = sortConfig;
+      result.sort((a, b) => {
+        const valA = a.row[colIndex];
+        const valB = b.row[colIndex];
+
+        if (valA === valB) return 0;
+        if (valA === null) return direction === "asc" ? -1 : 1;
+        if (valB === null) return direction === "asc" ? 1 : -1;
+
+        if (typeof valA === "number" && typeof valB === "number") {
+          return direction === "asc" ? valA - valB : valB - valA;
+        }
+
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+        if (strA < strB) return direction === "asc" ? -1 : 1;
+        if (strA > strB) return direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [resultSet, filters, sortConfig]);
 
   const rowHeight = 28;
   const buffer = 10;
@@ -186,14 +240,24 @@ function VirtualGrid({
     return () => observer.disconnect();
   }, []);
 
-  const totalHeight = resultSet.rows.length * rowHeight;
+  const handleSort = useCallback((colIndex: number) => {
+    setSortConfig((prev) => {
+      if (prev?.colIndex === colIndex) {
+        if (prev.direction === "asc") return { colIndex, direction: "desc" };
+        return null;
+      }
+      return { colIndex, direction: "asc" };
+    });
+  }, []);
+
+  const totalHeight = processedRows.length * rowHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
   const endIndex = Math.min(
-    resultSet.rows.length,
+    processedRows.length,
     Math.ceil((scrollTop + containerHeight) / rowHeight) + buffer,
   );
 
-  const visibleRows = resultSet.rows.slice(startIndex, endIndex);
+  const visibleRows = processedRows.slice(startIndex, endIndex);
 
   return (
     <div
@@ -211,20 +275,60 @@ function VirtualGrid({
         </colgroup>
         <thead>
           <tr>
-            <th className="text-center px-0 bg-surface-table border-b border-r border-border/40">
-              #
+            <th className="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
+              <div className="flex flex-col items-center justify-center h-full min-h-[24px]">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`p-1 rounded hover:bg-surface-hover transition-colors ${Object.values(filters).some((v) => v.trim())
+                      ? "text-accent"
+                      : "text-text-muted/60"
+                    }`}
+                  title="Toggle filters"
+                >
+                  <i className="fa-solid fa-filter text-[10px]" />
+                </button>
+                {showFilters && (
+                  <div className="mt-2 text-[10px] text-text-muted/40 font-normal">#</div>
+                )}
+              </div>
             </th>
             {resultSet.columns.map((col, i) => (
               <th
                 key={i}
-                className="bg-surface-table border-b border-r border-border/40 px-3 relative"
+                className="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top"
               >
-                <div className="flex items-center justify-between gap-3">
+                <div
+                  className="flex items-center justify-between gap-3 cursor-pointer select-none hover:text-text transition-colors"
+                  onClick={() => handleSort(i)}
+                >
                   <span className="truncate">{col.name}</span>
-                  <span className="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
-                    {col.type_name}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
+                      {col.type_name}
+                    </span>
+                    {sortConfig?.colIndex === i ? (
+                      <i
+                        className={`fa-solid ${sortConfig.direction === "asc" ? "fa-sort-up mt-1" : "fa-sort-down mb-1"
+                          } text-accent text-[10px] w-2 flex justify-center`}
+                      />
+                    ) : (
+                      <i className="fa-solid fa-sort text-text-muted/20 hover:text-text-muted/50 text-[10px] w-2 flex justify-center" />
+                    )}
+                  </div>
                 </div>
+                {showFilters && (
+                  <div className="mt-1.5 mb-0.5">
+                    <input
+                      type="text"
+                      className="w-full bg-surface border border-border/40 rounded px-1.5 py-0.5 text-xs text-text outline-none focus:border-accent font-normal"
+                      placeholder="Filter..."
+                      value={filters[i] || ""}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, [i]: e.target.value }))}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                )}
                 <div
                   className="col-resizer"
                   onMouseDown={(e) => startResize(e, i)}
@@ -235,19 +339,19 @@ function VirtualGrid({
         </thead>
         <tbody>
           <tr style={{ height: startIndex * rowHeight }}>
-            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
+            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0, border: 0, background: 'transparent' }} />
           </tr>
-          {visibleRows.map((row, i) => {
-            const actualIndex = startIndex + i;
+          {visibleRows.map(({ row, originalIndex }, i) => {
+            const visualIndex = startIndex + i;
             return (
               <tr
-                key={actualIndex}
-                className={actualIndex === selectedRowIndex ? "selected" : ""}
+                key={originalIndex}
+                className={originalIndex === selectedRowIndex ? "selected" : ""}
                 style={{ height: rowHeight }}
-                onContextMenu={(e) => onContextMenu(e, actualIndex)}
+                onContextMenu={(e) => onContextMenu(e, originalIndex)}
               >
-                <td className="text-center px-0 text-text-muted/60 bg-surface-table/30 border-r border-border/10">
-                  {actualIndex + 1}
+                <td className="text-center px-0 text-text-muted/60 border-r border-border/10">
+                  {visualIndex + 1}
                 </td>
                 {row.map((cell, ci) => (
                   <td
@@ -265,8 +369,8 @@ function VirtualGrid({
               </tr>
             );
           })}
-          <tr style={{ height: Math.max(0, (resultSet.rows.length - endIndex) * rowHeight) }}>
-            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0 }} />
+          <tr style={{ height: Math.max(0, (processedRows.length - endIndex) * rowHeight) }}>
+            <td colSpan={resultSet.columns.length + 1} style={{ padding: 0, border: 0, background: 'transparent' }} />
           </tr>
         </tbody>
       </table>
@@ -411,9 +515,9 @@ export default function ResultsGrid({
             )}
             <p className="text-s">Execution time: {result.elapsed_ms}ms</p>
             {result.messages.map((msg, i) => (
-                <p key={i} className="text-s bg-surface-hover p-2 rounded-md border border-border/10">
-                  {msg}
-                </p>
+              <p key={i} className="text-s bg-surface-hover p-2 rounded-md border border-border/10">
+                {msg}
+              </p>
             ))}
           </div>
         </div>

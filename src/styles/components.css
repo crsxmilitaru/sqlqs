@@ -136,6 +136,7 @@
       opacity: 0;
       transform: translateY(-6px) scale(0.96);
     }
+
     to {
       opacity: 1;
       transform: translateY(0) scale(1);
@@ -163,6 +164,7 @@
       opacity: 0;
       transform: scaleY(0.4);
     }
+
     to {
       opacity: 1;
       transform: scaleY(1);
@@ -203,8 +205,15 @@
   }
 
   @keyframes dot-fade-in {
-    from { opacity: 0; transform: scale(0); }
-    to { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   /* Pin indicator */
@@ -399,6 +408,8 @@
     max-width: 28px !important;
     padding: 0 !important;
     text-align: center;
+    position: sticky;
+    left: 0;
   }
 
   .results-table th {
@@ -414,6 +425,10 @@
     color: var(--color-text-muted);
   }
 
+  .results-table th:first-child {
+    z-index: 3;
+  }
+
   .results-table td {
     border-bottom: 1px solid rgba(63, 63, 70, 0.4);
     padding: 4px 12px;
@@ -423,12 +438,25 @@
     user-select: text;
   }
 
+  .results-table td:first-child {
+    z-index: 2;
+    background-color: var(--color-surface-table);
+  }
+
   .results-table tr:hover td {
     background: var(--color-surface-hover);
   }
 
+  .results-table tr:hover td:first-child {
+    background-color: var(--color-surface-hover);
+  }
+
   .results-table tr.selected td {
     background: var(--color-surface-active);
+  }
+
+  .results-table tr.selected td:first-child {
+    background-color: var(--color-surface-active);
   }
 
   /* ─── Object explorer tree ─── */
