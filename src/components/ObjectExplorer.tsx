@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SavedQuery } from "../hooks/useSavedQueries";
 import type { ColumnInfo, DatabaseObject, ExecutedQuery } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
-import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconView } from "./Icons";
+import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconTrigger, IconType, IconView } from "./Icons";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -119,7 +119,7 @@ interface ObjectGroup {
   label: string;
   type: string;
   iconName: string;
-  objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION";
+  objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER" | "TYPE";
   items: DatabaseObject[];
 }
 
@@ -128,6 +128,8 @@ const GROUP_DEFS: Omit<ObjectGroup, "items">[] = [
   { key: "views", label: "Views", type: "VIEW", iconName: "view", objectType: "VIEW" },
   { key: "procedures", label: "Stored Procedures", type: "PROCEDURE", iconName: "procedure", objectType: "PROCEDURE" },
   { key: "functions", label: "Functions", type: "FUNCTION", iconName: "function", objectType: "FUNCTION" },
+  { key: "triggers", label: "Triggers", type: "TRIGGER", iconName: "trigger", objectType: "TRIGGER" },
+  { key: "types", label: "Types", type: "TYPE", iconName: "type", objectType: "TYPE" },
 ];
 
 function groupDatabaseObjects(objects: DatabaseObject[]): ObjectGroup[] {
@@ -151,6 +153,10 @@ function ObjectIcon({ type }: { type: string }) {
       return <div className={ICON_WRAP}><IconProcedure className="text-purple-400 w-3.5 h-3.5" /></div>;
     case "function":
       return <div className={ICON_WRAP}><IconFunction className="text-orange-400 w-3.5 h-3.5" /></div>;
+    case "trigger":
+      return <div className={ICON_WRAP}><IconTrigger className="text-red-400 w-3.5 h-3.5" /></div>;
+    case "type":
+      return <div className={ICON_WRAP}><IconType className="text-blue-400 w-3.5 h-3.5" /></div>;
     case "column":
       return <div className={ICON_WRAP}><IconColumn className="text-text-muted w-3.5 h-3.5" /></div>;
     default:
@@ -207,7 +213,7 @@ export default function ObjectExplorer({
     schema: string;
     table: string;
     sql?: string;
-    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER";
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER" | "TYPE" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER";
     savedQueryFilePath?: string;
   } | null>(null);
 
@@ -312,7 +318,7 @@ export default function ObjectExplorer({
   }
 
   function handleTableDoubleClick(db: string, schema: string, table: string) {
-    onSelect(`SELECT TOP 100 * FROM [${db}].[${schema}].[${table}]`);
+    onSelect(`SELECT TOP 100 * FROM [${db}].[${schema}].[${table}]`, undefined, undefined, db);
   }
 
   function handleContextMenu(
@@ -320,7 +326,7 @@ export default function ObjectExplorer({
     db: string = "",
     schema: string = "",
     table: string = "",
-    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER",
+    objectType: "TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER" | "TYPE" | "DATABASE" | "HISTORY" | "DATABASE_FOLDER" | "SAVED_QUERY" | "FOLDER",
     sql?: string,
     savedQueryFilePath?: string,
   ) {
@@ -343,6 +349,10 @@ export default function ObjectExplorer({
     if (!contextMenu) return [];
 
     const { database, schema, table, objectType } = contextMenu;
+
+    // Wrap onSelect so every context-menu action switches to the correct database
+    const select = (sql: string, execute?: boolean) =>
+      onSelect(sql, execute, undefined, database);
 
     if (objectType === "DATABASE_FOLDER") {
       return [
@@ -468,19 +478,19 @@ export default function ObjectExplorer({
           id: "exec",
           label: "Execute",
           icon: <i className="fa-solid fa-play" />,
-          onClick: () => onSelect(`EXEC ${fullName}`, true),
+          onClick: () => select(`EXEC ${fullName}`, true),
         },
         {
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
-          onClick: () => onSelect(`-- Script procedure definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+          onClick: () => select(`-- Script procedure definition\nEXEC sp_helptext '${schema}.${table}'`, true),
         },
         {
           id: "get-last-modified",
           label: "Get Last Modified",
           icon: <i className="fa-solid fa-clock-rotate-left" />,
-          onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
+          onClick: () => select(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
         },
         { id: "sep-proc-1", separator: true },
         {
@@ -498,21 +508,87 @@ export default function ObjectExplorer({
           id: "script-select",
           label: "Script SELECT",
           icon: <i className="fa-solid fa-file-code" />,
-          onClick: () => onSelect(`SELECT ${fullName}()`, true),
+          onClick: () => select(`SELECT ${fullName}()`, true),
         },
         {
           id: "script-alter",
           label: "Script ALTER",
           icon: <i className="fa-solid fa-pen" />,
-          onClick: () => onSelect(`-- Script function definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+          onClick: () => select(`-- Script function definition\nEXEC sp_helptext '${schema}.${table}'`, true),
         },
         {
           id: "get-last-modified",
           label: "Get Last Modified",
           icon: <i className="fa-solid fa-clock-rotate-left" />,
-          onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
+          onClick: () => select(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
         },
         { id: "sep-fn-1", separator: true },
+        {
+          id: "copy-name",
+          label: "Copy Name",
+          icon: <i className="fa-solid fa-copy" />,
+          onClick: () => navigator.clipboard.writeText(fullName),
+        },
+      ];
+    }
+
+    if (objectType === "TRIGGER") {
+      return [
+        {
+          id: "view-definition",
+          label: "View Definition",
+          icon: <i className="fa-solid fa-file-code" />,
+          onClick: () => select(`-- Trigger definition\nEXEC sp_helptext '${schema}.${table}'`, true),
+        },
+        {
+          id: "trigger-details",
+          label: "Trigger Details",
+          icon: <i className="fa-solid fa-circle-info" />,
+          onClick: () => select(`SELECT\n\tt.name AS [Trigger],\n\tOBJECT_NAME(t.parent_id) AS [ParentTable],\n\tSCHEMA_NAME(o.schema_id) AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM [${database}].sys.triggers t\nJOIN [${database}].sys.objects o ON t.object_id = o.object_id\nWHERE t.object_id = OBJECT_ID('${fullName}')`, true),
+        },
+        {
+          id: "enable-trigger",
+          label: "Script ENABLE",
+          icon: <i className="fa-solid fa-toggle-on" />,
+          onClick: () => select(`DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM [${database}].sys.triggers WHERE object_id = OBJECT_ID('${fullName}')));\nEXEC('ENABLE TRIGGER [${schema}].[${table}] ON [${schema}].' + QUOTENAME(@parent))`),
+        },
+        {
+          id: "disable-trigger",
+          label: "Script DISABLE",
+          icon: <i className="fa-solid fa-toggle-off" />,
+          onClick: () => select(`DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM [${database}].sys.triggers WHERE object_id = OBJECT_ID('${fullName}')));\nEXEC('DISABLE TRIGGER [${schema}].[${table}] ON [${schema}].' + QUOTENAME(@parent))`),
+        },
+        {
+          id: "get-last-modified",
+          label: "Get Last Modified",
+          icon: <i className="fa-solid fa-clock-rotate-left" />,
+          onClick: () => select(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
+        },
+        { id: "sep-trigger-1", separator: true },
+        {
+          id: "copy-name",
+          label: "Copy Name",
+          icon: <i className="fa-solid fa-copy" />,
+          onClick: () => navigator.clipboard.writeText(fullName),
+        },
+      ];
+    }
+
+    if (objectType === "TYPE") {
+      return [
+        {
+          id: "view-definition",
+          label: "View Definition",
+          icon: <i className="fa-solid fa-file-code" />,
+          onClick: () => select(`SELECT\n\tt.name AS [TypeName],\n\tSCHEMA_NAME(t.schema_id) AS [Schema],\n\tTYPE_NAME(t.system_type_id) AS [BaseType],\n\tt.max_length AS [MaxLength],\n\tt.precision AS [Precision],\n\tt.scale AS [Scale],\n\tt.is_nullable AS [IsNullable],\n\tt.is_table_type AS [IsTableType]\nFROM [${database}].sys.types t\nWHERE t.name = '${table}'\n\tAND SCHEMA_NAME(t.schema_id) = '${schema}'`, true),
+        },
+        {
+          id: "script-drop",
+          label: "Script DROP",
+          icon: <i className="fa-solid fa-trash" />,
+          onClick: () => select(`DROP TYPE ${fullName}`),
+        },
+        { id: "sep-type-1", separator: true },
         {
           id: "copy-name",
           label: "Copy Name",
@@ -532,25 +608,25 @@ export default function ObjectExplorer({
             id: "select-top-100",
             label: "Select Top 100",
             icon: <i className="fa-solid fa-arrow-up-wide-short" />,
-            onClick: () => onSelect(`SELECT TOP 100 * FROM ${fullName}`, true),
+            onClick: () => select(`SELECT TOP 100 * FROM ${fullName}`, true),
           },
           {
             id: "select-bottom-100",
             label: "Select Bottom 100",
             icon: <i className="fa-solid fa-arrow-down-wide-short" />,
-            onClick: () => onSelect(`SELECT * FROM (\n  SELECT TOP 100 * FROM ${fullName} ORDER BY 1 DESC\n) t ORDER BY 1 ASC`, true),
+            onClick: () => select(`SELECT * FROM (\n  SELECT TOP 100 * FROM ${fullName} ORDER BY 1 DESC\n) t ORDER BY 1 ASC`, true),
           },
           {
             id: "select-all",
             label: "Select All Rows",
             icon: <i className="fa-solid fa-table" />,
-            onClick: () => onSelect(`SELECT * FROM ${fullName}`, true),
+            onClick: () => select(`SELECT * FROM ${fullName}`, true),
           },
           {
             id: "select-count",
             label: "Count Rows",
             icon: <i className="fa-solid fa-calculator" />,
-            onClick: () => onSelect(`SELECT COUNT(*) AS [TotalRows] FROM ${fullName}`, true),
+            onClick: () => select(`SELECT COUNT(*) AS [TotalRows] FROM ${fullName}`, true),
           },
         ],
       },
@@ -568,16 +644,16 @@ export default function ObjectExplorer({
                 try {
                   const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                   const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
-                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n${colList}\nFROM [${schema}].[<source_table>]\nGO`);
+                  select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n${colList}\nFROM [${schema}].[<source_table>]\nGO`);
                 } catch {
-                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
+                  select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
                 }
               } else {
                 try {
                   const script: string = await invoke("generate_create_script", { database, schema, table });
-                  onSelect(script);
+                  select(script);
                 } catch {
-                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE TABLE [${schema}].[${table}](\n\t[Id] [int] IDENTITY(1,1) NOT NULL\n) ON [PRIMARY]\nGO`);
+                  select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nCREATE TABLE [${schema}].[${table}](\n\t[Id] [int] IDENTITY(1,1) NOT NULL\n) ON [PRIMARY]\nGO`);
                 }
               }
             },
@@ -591,12 +667,12 @@ export default function ObjectExplorer({
                 try {
                   const def: string = await invoke("get_object_definition", { database, schema, name: table });
                   const altered = def.replace(/\bCREATE\s+(VIEW)\b/i, "ALTER $1");
-                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
+                  select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${altered}\nGO`);
                 } catch {
-                  onSelect(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nALTER VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
+                  select(`SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\nALTER VIEW [${schema}].[${table}]\nAS\nSELECT\n\t*\nFROM [${schema}].[<source_table>]\nGO`);
                 }
               } else {
-                onSelect(`ALTER TABLE ${fullName}\nADD [NewColumn] NVARCHAR(255) NULL\nGO`);
+                select(`ALTER TABLE ${fullName}\nADD [NewColumn] NVARCHAR(255) NULL\nGO`);
               }
             },
           },
@@ -606,7 +682,7 @@ export default function ObjectExplorer({
             icon: <i className="fa-solid fa-trash" />,
             onClick: () => {
               const kind = objectType === "VIEW" ? "VIEW" : "TABLE";
-              onSelect(
+              select(
                 `IF OBJECT_ID('${fullName}', '${objectType === "VIEW" ? "V" : "U"}') IS NOT NULL\n` +
                 `\tDROP ${kind} ${fullName}\nGO`
               );
@@ -620,9 +696,9 @@ export default function ObjectExplorer({
               try {
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const colList = cols.map((c) => `\t[${c.name}]`).join(",\n");
-                onSelect(`SELECT\n${colList}\nFROM ${fullName}`, true);
+                select(`SELECT\n${colList}\nFROM ${fullName}`, true);
               } catch {
-                onSelect(`SELECT\n\t*\nFROM ${fullName}`, true);
+                select(`SELECT\n\t*\nFROM ${fullName}`, true);
               }
             },
           },
@@ -636,9 +712,9 @@ export default function ObjectExplorer({
                 const filtered = cols.filter((c) => !c.is_identity);
                 const colNames = filtered.map((c) => `\t[${c.name}]`).join(",\n");
                 const values = filtered.map((c) => `\t<${c.name}, ${c.type_name},>`).join(",\n");
-                onSelect(`INSERT INTO ${fullName}\n(\n${colNames}\n)\nVALUES\n(\n${values}\n)`);
+                select(`INSERT INTO ${fullName}\n(\n${colNames}\n)\nVALUES\n(\n${values}\n)`);
               } catch {
-                onSelect(`INSERT INTO ${fullName}\n(\n\t[column1],\n\t[column2]\n)\nVALUES\n(\n\t<column1, type,>,\n\t<column2, type,>\n)`);
+                select(`INSERT INTO ${fullName}\n(\n\t[column1],\n\t[column2]\n)\nVALUES\n(\n\t<column1, type,>,\n\t<column2, type,>\n)`);
               }
             },
           },
@@ -651,9 +727,9 @@ export default function ObjectExplorer({
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const filtered = cols.filter((c) => !c.is_identity);
                 const setClauses = filtered.map((c) => `\t[${c.name}] = <${c.name}, ${c.type_name},>`).join(",\n");
-                onSelect(`UPDATE ${fullName}\nSET\n${setClauses}\nWHERE\n\t<search_condition,,>`);
+                select(`UPDATE ${fullName}\nSET\n${setClauses}\nWHERE\n\t<search_condition,,>`);
               } catch {
-                onSelect(`UPDATE ${fullName}\nSET\n\t[column1] = <column1, type,>\nWHERE\n\t<search_condition,,>`);
+                select(`UPDATE ${fullName}\nSET\n\t[column1] = <column1, type,>\nWHERE\n\t<search_condition,,>`);
               }
             },
           },
@@ -666,9 +742,9 @@ export default function ObjectExplorer({
                 const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
                 const first = cols[0];
                 const hint = first ? `[${first.name}] = <${first.name}, ${first.type_name},>` : `<search_condition,,>`;
-                onSelect(`DELETE FROM ${fullName}\nWHERE\n\t${hint}`);
+                select(`DELETE FROM ${fullName}\nWHERE\n\t${hint}`);
               } catch {
-                onSelect(`DELETE FROM ${fullName}\nWHERE\n\t<search_condition,,>`);
+                select(`DELETE FROM ${fullName}\nWHERE\n\t<search_condition,,>`);
               }
             },
           },
@@ -678,7 +754,7 @@ export default function ObjectExplorer({
         id: "get-last-modified",
         label: "Get Last Modified",
         icon: <i className="fa-solid fa-clock-rotate-left" />,
-        onClick: () => onSelect(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
+        onClick: () => select(`SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`, true),
       },
       { id: "sep2", separator: true },
       {

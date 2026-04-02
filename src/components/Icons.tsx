@@ -22,6 +22,14 @@ export function IconFunction({ className }: { className?: string }) {
   return <i className={`fa-solid fa-square-root-variable fa-fw text-xs ${className || ""}`} />;
 }
 
+export function IconTrigger({ className }: { className?: string }) {
+  return <i className={`fa-solid fa-bolt fa-fw text-xs ${className || ""}`} />;
+}
+
+export function IconType({ className }: { className?: string }) {
+  return <i className={`fa-solid fa-shapes fa-fw text-xs ${className || ""}`} />;
+}
+
 export function IconPlay({ className }: { className?: string }) {
   return <i className={`fa-solid fa-play fa-fw ${className || ""}`} />;
 }

@@ -683,21 +683,29 @@ pub async fn get_tables(
     client: &mut SqlClient,
     database: &str,
 ) -> Result<Vec<DatabaseObject>, String> {
+    let db = database.replace(']', "]]");
     let sql = format!(
-        "SELECT s.name AS schema_name, o.name AS object_name, \
-         CASE o.type \
-           WHEN 'U'  THEN 'TABLE' \
-           WHEN 'V'  THEN 'VIEW' \
-           WHEN 'P'  THEN 'PROCEDURE' \
-           WHEN 'FN' THEN 'FUNCTION' \
-           WHEN 'IF' THEN 'FUNCTION' \
-           WHEN 'TF' THEN 'FUNCTION' \
-         END AS object_type \
-         FROM [{db}].sys.objects o \
-         JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
-         WHERE o.type IN ('U','V','P','FN','IF','TF') \
-         ORDER BY object_type, s.name, o.name",
-        db = database.replace(']', "]]")
+        "SELECT schema_name, object_name, object_type FROM ( \
+           SELECT s.name AS schema_name, o.name AS object_name, \
+             CASE o.type \
+               WHEN 'U'  THEN 'TABLE' \
+               WHEN 'V'  THEN 'VIEW' \
+               WHEN 'P'  THEN 'PROCEDURE' \
+               WHEN 'FN' THEN 'FUNCTION' \
+               WHEN 'IF' THEN 'FUNCTION' \
+               WHEN 'TF' THEN 'FUNCTION' \
+               WHEN 'TR' THEN 'TRIGGER' \
+             END AS object_type \
+           FROM [{db}].sys.objects o \
+           JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
+           WHERE o.type IN ('U','V','P','FN','IF','TF','TR') \
+           UNION ALL \
+           SELECT s.name AS schema_name, t.name AS object_name, 'TYPE' AS object_type \
+           FROM [{db}].sys.types t \
+           JOIN [{db}].sys.schemas s ON t.schema_id = s.schema_id \
+           WHERE t.is_user_defined = 1 \
+         ) x ORDER BY object_type, schema_name, object_name",
+        db = db
     );
     let stream = client
         .query(&sql, &[])
