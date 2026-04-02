@@ -30,7 +30,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { getModifierKeyLabel } from "../lib/platform";
-import type { ColumnInfo, DatabaseObject } from "../lib/types";
+import type { DatabaseSchemaCatalogEntry } from "../lib/types";
 
 interface Props {
   value: string;
@@ -67,18 +67,72 @@ function createFoldMarker(open: boolean): HTMLElement {
   return marker;
 }
 
+interface SchemaTableEntry {
+  name: string;
+  schema: string;
+  columns: string[];
+}
+
+type SchemaTableMap = Map<string, SchemaTableEntry>;
+
+const schemaCatalogCache = new Map<string, SchemaTableMap>();
+const schemaCatalogLoaders = new Map<string, Promise<SchemaTableMap>>();
+
+function buildSchemaTableMap(entries: DatabaseSchemaCatalogEntry[]): SchemaTableMap {
+  const map: SchemaTableMap = new Map();
+
+  for (const entry of entries) {
+    map.set(entry.table_name.toLowerCase(), {
+      name: entry.table_name,
+      schema: entry.schema_name,
+      columns: entry.columns,
+    });
+  }
+
+  return map;
+}
+
+async function loadSchemaTableMap(database: string): Promise<SchemaTableMap> {
+  const cached = schemaCatalogCache.get(database);
+  if (cached) {
+    return cached;
+  }
+
+  const existingLoader = schemaCatalogLoaders.get(database);
+  if (existingLoader) {
+    return existingLoader;
+  }
+
+  const loader = invoke<DatabaseSchemaCatalogEntry[]>("get_database_schema_catalog", {
+    database,
+  })
+    .then((entries) => {
+      const map = buildSchemaTableMap(entries);
+      schemaCatalogCache.set(database, map);
+      return map;
+    })
+    .finally(() => {
+      schemaCatalogLoaders.delete(database);
+    });
+
+  schemaCatalogLoaders.set(database, loader);
+  return loader;
+}
+
 const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   { value, onChange, onExecute, readOnly, theme, currentDatabase, onContextMenu }: Props,
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const schemaRef = useRef<{ tables: Map<string, { name: string; schema: string; columns: string[] }> }>({ tables: new Map() });
+  const schemaRef = useRef<{ database?: string; tables: SchemaTableMap }>({ tables: new Map() });
+  const currentDatabaseRef = useRef(currentDatabase);
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
   const onChangeRef = useRef(onChange);
   const onExecuteRef = useRef(onExecute);
   onChangeRef.current = onChange;
   onExecuteRef.current = onExecute;
+  currentDatabaseRef.current = currentDatabase;
 
   useImperativeHandle(
     ref,
@@ -112,8 +166,32 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     [],
   );
 
-  const schemaCompletionSource = useCallback((context: CompletionContext) => {
-    const { tables } = schemaRef.current;
+  const schemaCompletionSource = useCallback(async (context: CompletionContext) => {
+    const database = currentDatabaseRef.current;
+    if (!database) {
+      return null;
+    }
+
+    let { tables } = schemaRef.current;
+    if (schemaRef.current.database !== database) {
+      if (!context.explicit) {
+        return null;
+      }
+
+      try {
+        tables = await loadSchemaTableMap(database);
+      } catch (err) {
+        console.error("Failed to load schema for autocomplete:", err);
+        return null;
+      }
+
+      if (currentDatabaseRef.current !== database) {
+        return null;
+      }
+
+      schemaRef.current = { database, tables };
+    }
+
     if (tables.size === 0) return null;
 
     const word = context.matchBefore(/[\w.]+/);
@@ -243,44 +321,41 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 
   useEffect(() => {
     if (!currentDatabase) return;
+    const cached = schemaCatalogCache.get(currentDatabase);
+    if (cached) {
+      schemaRef.current = { database: currentDatabase, tables: cached };
+      return;
+    }
+
+    schemaRef.current = { database: currentDatabase, tables: new Map() };
+
     let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void loadSchemaTableMap(currentDatabase)
+        .then((tables) => {
+          if (cancelled || currentDatabaseRef.current !== currentDatabase) {
+            return;
+          }
 
-    (async () => {
-      try {
-        const objects: DatabaseObject[] = await invoke("get_tables", { database: currentDatabase });
-        if (cancelled) return;
+          schemaRef.current = { database: currentDatabase, tables };
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            console.error("Failed to preload schema for autocomplete:", err);
+          }
+        });
+    }, 150);
 
-        const tables = objects.filter((o) => o.object_type === "TABLE" || o.object_type === "VIEW");
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [currentDatabase]);
 
-        const entries = await Promise.all(
-          tables.map(async (t) => {
-            try {
-              const cols: ColumnInfo[] = await invoke("get_columns", {
-                database: currentDatabase,
-                schema: t.schema_name,
-                table: t.name,
-              });
-              return [t.schema_name, t.name, cols.map((c) => c.name)] as const;
-            } catch {
-              return [t.schema_name, t.name, [] as string[]] as const;
-            }
-          }),
-        );
-
-        if (cancelled) return;
-
-        const map = new Map<string, { name: string; schema: string; columns: string[] }>();
-        for (const [schemaName, tableName, cols] of entries) {
-          map.set(tableName.toLowerCase(), { name: tableName, schema: schemaName, columns: cols });
-        }
-        schemaRef.current = { tables: map };
-        console.log("[schema-load] loaded", map.size, "tables for", currentDatabase);
-      } catch (err) {
-        console.error("Failed to load schema for autocomplete:", err);
-      }
-    })();
-
-    return () => { cancelled = true; };
+  useEffect(() => {
+    if (!currentDatabase) {
+      schemaRef.current = { database: undefined, tables: new Map() };
+    }
   }, [currentDatabase]);
 
   return <div ref={containerRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full relative" />;

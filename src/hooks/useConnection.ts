@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { startTransition, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ConnectionConfig } from "../lib/types";
 
@@ -11,6 +11,7 @@ interface AutoConnectResult {
 
 export function useConnection() {
   const [connected, setConnected] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [serverName, setServerName] = useState("");
   const [currentDatabase, setCurrentDatabase] = useState<string | undefined>();
   const [databases, setDatabases] = useState<string[]>([]);
@@ -18,13 +19,16 @@ export function useConnection() {
   const loadDatabases = useCallback(async () => {
     try {
       const dbs: string[] = await invoke("get_databases");
-      setDatabases(dbs);
+      startTransition(() => {
+        setDatabases(dbs);
+      });
     } catch (err) {
       console.error("Failed to load databases:", err);
     }
   }, []);
 
   const connect = useCallback((config: ConnectionConfig) => {
+    setIsInitializing(false);
     setConnected(true);
     setServerName(config.server);
     setCurrentDatabase(config.database || undefined);
@@ -35,6 +39,7 @@ export function useConnection() {
     try {
       await invoke("disconnect_from_server");
     } catch {}
+    setIsInitializing(false);
     setConnected(false);
     setServerName("");
     setCurrentDatabase(undefined);
@@ -58,21 +63,33 @@ export function useConnection() {
           setConnected(true);
           setServerName(result.server || "");
           setCurrentDatabase(result.database || undefined);
-          setDatabases(result.databases);
+          startTransition(() => {
+            setDatabases(result.databases);
+          });
+          if (result.databases.length === 0) {
+            void loadDatabases();
+          }
         }
-      } catch {}
+      } catch {
+      } finally {
+        if (!cancelled) {
+          setIsInitializing(false);
+        }
+      }
     }
     tryAutoConnect();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadDatabases]);
 
   return {
     connected,
+    isInitializing,
     serverName,
     currentDatabase,
     databases,
     connect,
     disconnect,
     changeDatabase,
+    refreshDatabases: loadDatabases,
   };
 }

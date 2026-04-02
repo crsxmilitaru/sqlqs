@@ -2,8 +2,9 @@ mod db;
 mod settings;
 
 use db::{
-    CachedServerObjectIndex, ColumnInfo, ConnectionConfig, DatabaseObject, QueryResult,
-    ServerObjectIndexStatus, ServerObjectSearchResponse, SqlClient,
+    CachedServerObjectIndex, ColumnInfo, ConnectionConfig, DatabaseObject,
+    DatabaseSchemaCatalogEntry, QueryResult, ServerObjectIndexStatus,
+    ServerObjectSearchResponse, SqlClient,
 };
 use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
@@ -453,6 +454,18 @@ async fn get_columns(
 }
 
 #[tauri::command]
+async fn get_database_schema_catalog(
+    state: State<'_, AppState>,
+    database: String,
+) -> Result<Vec<DatabaseSchemaCatalogEntry>, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_database_schema_catalog(client, &database).await
+}
+
+#[tauri::command]
 async fn load_connections() -> Result<AppSettings, String> {
     Ok(settings::load_settings())
 }
@@ -501,7 +514,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         ..saved.config
     };
 
-    let (mut client, resolved_port) = match tokio::time::timeout(
+    let (client, resolved_port) = match tokio::time::timeout(
         std::time::Duration::from_secs(10),
         db::connect(&config, saved.cached_port),
     )
@@ -519,8 +532,6 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         }
     }
 
-    let databases = db::get_databases(&mut client).await.unwrap_or_default();
-
     let mut lock = state.client.lock().await;
     *lock = Some(client);
     drop(lock);
@@ -530,7 +541,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         connected: true,
         server: Some(config.server),
         database: config.database,
-        databases,
+        databases: vec![],
     })
 }
 
@@ -683,6 +694,7 @@ pub fn run() {
             start_server_object_indexing,
             get_server_object_index_status,
             get_columns,
+            get_database_schema_catalog,
             get_indexes,
             get_foreign_keys,
             get_object_definition,

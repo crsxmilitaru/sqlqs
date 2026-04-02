@@ -48,12 +48,14 @@ export default function App() {
 
   const {
     connected,
+    isInitializing,
     serverName,
     currentDatabase,
     databases,
     connect,
     disconnect,
     changeDatabase,
+    refreshDatabases,
   } = useConnection();
 
   const { executedQueries, addHistory, deleteHistory, clearHistory } = useHistory();
@@ -345,12 +347,60 @@ export default function App() {
   }, [canOpenObjectJump, hasBlockingDialog]);
 
   useEffect(() => {
+    if (!connected || isInitializing || objectJumpIndexStatus.initialized) {
+      return;
+    }
+
+    let cancelled = false;
+    let idleHandle: number | undefined;
+
+    const startIndexingInBackground = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke<ServerObjectIndexStatus>("start_server_object_indexing");
+
+        if (!cancelled) {
+          setObjectJumpIndexStatus(status);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to start background object indexing:", error);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      if ("requestIdleCallback" in window) {
+        idleHandle = window.requestIdleCallback(() => {
+          void startIndexingInBackground();
+        }, { timeout: 2000 });
+        return;
+      }
+
+      void startIndexingInBackground();
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleHandle !== undefined && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleHandle);
+      }
+    };
+  }, [connected, isInitializing, objectJumpIndexStatus.initialized]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!canOpenObjectJump || hasBlockingDialog) {
         return;
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "f") {
+      const key = event.key.toLowerCase();
+      const isObjectJumpHotkey =
+        ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && key === "f") ||
+        ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && key === "p");
+
+      if (isObjectJumpHotkey) {
         event.preventDefault();
         setIsObjectJumpOpen((prev) => !prev);
       }
@@ -363,6 +413,10 @@ export default function App() {
   useEffect(() => {
     if (!connected) {
       setObjectJumpIndexStatus(EMPTY_OBJECT_INDEX_STATUS);
+      return;
+    }
+
+    if (!isObjectJumpOpen && !objectJumpIndexStatus.indexing) {
       return;
     }
 
@@ -394,7 +448,7 @@ export default function App() {
       }
     };
 
-    void syncIndexStatus(true);
+    void syncIndexStatus(isObjectJumpOpen && !objectJumpIndexStatus.initialized);
 
     return () => {
       cancelled = true;
@@ -402,7 +456,7 @@ export default function App() {
         window.clearTimeout(timer);
       }
     };
-  }, [connected]);
+  }, [connected, isObjectJumpOpen, objectJumpIndexStatus.indexing, objectJumpIndexStatus.initialized]);
 
   const isAnyDialogOpen = hasBlockingDialog || isObjectJumpOpen;
 
@@ -410,6 +464,7 @@ export default function App() {
     <div className="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-white">
       <TitleBar
         connected={connected}
+        isInitializing={isInitializing}
         serverName={serverName}
         onConnect={() => setIsConnectionDialogOpen(true)}
         onDisconnect={disconnect}
@@ -445,6 +500,8 @@ export default function App() {
           <>
             <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative">
               <ObjectExplorer
+                databases={databases}
+                onRefreshDatabases={refreshDatabases}
                 onSelect={(sql, execute, title, database, sourceId) => {
                   handleOpenQueryTab({ sql, execute, title, database, sourceId });
                 }}
@@ -473,6 +530,7 @@ export default function App() {
             onExecute={handleExecute}
             onConnect={() => setIsConnectionDialogOpen(true)}
             connected={connected}
+            isInitializing={isInitializing}
             currentDatabase={currentDatabase}
             databases={databases}
             onDatabaseChange={changeDatabase}

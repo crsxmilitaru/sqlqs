@@ -19,6 +19,7 @@ interface Props {
   onExecute: (id: string, customSql?: string) => void;
   onConnect?: () => void;
   connected: boolean;
+  isInitializing?: boolean;
   currentDatabase?: string;
   databases?: string[];
   onDatabaseChange?: (db: string) => void;
@@ -37,6 +38,7 @@ export default function QueryEditorPanel({
   onExecute,
   onConnect,
   connected,
+  isInitializing = false,
   currentDatabase,
   databases = [],
   onDatabaseChange,
@@ -379,6 +381,12 @@ export default function QueryEditorPanel({
                   <span className="empty-state-btn-label">New file</span>
                 </button>
               </div>
+            </>
+          ) : isInitializing ? (
+            <>
+              <i className="fa-solid fa-spinner animate-spin text-3xl opacity-30" />
+              <p className="text-m">Connecting to your server...</p>
+              <p className="text-s opacity-60">Restoring your last session</p>
             </>
           ) : (
             <>

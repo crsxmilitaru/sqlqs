@@ -33,6 +33,12 @@ export interface DatabaseObject {
   object_type: string;
 }
 
+export interface DatabaseSchemaCatalogEntry {
+  table_name: string;
+  schema_name: string;
+  columns: string[];
+}
+
 export interface ServerDatabaseObject extends DatabaseObject {
   database: string;
 }

@@ -64,6 +64,13 @@ pub struct DatabaseObject {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DatabaseSchemaCatalogEntry {
+    pub table_name: String,
+    pub schema_name: String,
+    pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ServerDatabaseObject {
     pub database: String,
     pub name: String,
@@ -998,6 +1005,67 @@ pub fn search_server_objects(
         processed_database_count: index.processed_database_count,
         failed_databases: index.failed_databases.clone(),
     }
+}
+
+/// Retrieves a table/view catalog with columns for editor autocomplete.
+pub async fn get_database_schema_catalog(
+    client: &mut SqlClient,
+    database: &str,
+) -> Result<Vec<DatabaseSchemaCatalogEntry>, String> {
+    let sql = format!(
+        "SELECT \
+            s.name AS schema_name, \
+            o.name AS object_name, \
+            c.name AS column_name \
+         FROM [{db}].sys.objects o \
+         JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
+         LEFT JOIN [{db}].sys.columns c ON o.object_id = c.object_id \
+         WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0 \
+         ORDER BY s.name, o.name, c.column_id",
+        db = database.replace(']', "]]"),
+    );
+
+    let stream = client
+        .query(&sql, &[])
+        .await
+        .map_err(|e| format!("Failed to load schema catalog: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read schema catalog: {}", e))?;
+
+    let mut catalog: Vec<DatabaseSchemaCatalogEntry> = Vec::new();
+
+    for row in &rows {
+        let schema_name = row.try_get::<&str, _>(0).ok().flatten().unwrap_or("dbo");
+        let table_name = row.try_get::<&str, _>(1).ok().flatten().unwrap_or("");
+        let column_name = row.try_get::<&str, _>(2).ok().flatten();
+
+        if table_name.is_empty() {
+            continue;
+        }
+
+        let needs_new_entry = catalog
+            .last()
+            .map(|entry| entry.schema_name != schema_name || entry.table_name != table_name)
+            .unwrap_or(true);
+
+        if needs_new_entry {
+            catalog.push(DatabaseSchemaCatalogEntry {
+                table_name: table_name.to_string(),
+                schema_name: schema_name.to_string(),
+                columns: Vec::new(),
+            });
+        }
+
+        if let Some(column_name) = column_name {
+            if let Some(entry) = catalog.last_mut() {
+                entry.columns.push(column_name.to_string());
+            }
+        }
+    }
+
+    Ok(catalog)
 }
 
 /// Retrieves column information for a specific table.

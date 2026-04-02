@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import type { SavedQuery } from "../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
@@ -8,6 +8,8 @@ import { buildObjectExplorerMenuItems } from "./objectExplorerObjectMenu";
 import Tooltip from "./Tooltip";
 
 interface Props {
+  databases: string[];
+  onRefreshDatabases?: () => void;
   onSelect: (sql: string, execute?: boolean, title?: string, database?: string, sourceId?: string) => void;
   onDatabaseChange: (db: string) => void;
   currentDatabase?: string;
@@ -187,6 +189,8 @@ function loadSectionHeights(): ExplorerSectionHeights {
 }
 
 export default function ObjectExplorer({
+  databases,
+  onRefreshDatabases,
   onSelect,
   onDatabaseChange,
   currentDatabase,
@@ -198,7 +202,6 @@ export default function ObjectExplorer({
   onLoadSavedQuery,
   onOpenSavedQueriesFolder,
 }: Props) {
-  const [databases, setDatabases] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(() => initExpandedSections());
   const [tableCache, setTableCache] = useState<Record<string, DatabaseObject[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
@@ -220,10 +223,6 @@ export default function ObjectExplorer({
 
   const updateFilter = useCallback((folderId: string, value: string) => {
     setFolderFilters((f) => ({ ...f, [folderId]: value }));
-  }, []);
-
-  useEffect(() => {
-    loadDatabases();
   }, []);
 
   useEffect(() => {
@@ -264,21 +263,14 @@ export default function ObjectExplorer({
     [sectionHeights],
   );
 
-  async function loadDatabases() {
-    try {
-      const dbs: string[] = await invoke("get_databases");
-      setDatabases(dbs);
-    } catch (err) {
-      console.error("Failed to load databases:", err);
-    }
-  }
-
   async function loadTables(database: string, force?: boolean) {
     if (!force && tableCache[database]) return;
     setLoading((prev) => new Set(prev).add(database));
     try {
       const tables: DatabaseObject[] = await invoke("get_tables", { database });
-      setTableCache((prev) => ({ ...prev, [database]: tables }));
+      startTransition(() => {
+        setTableCache((prev) => ({ ...prev, [database]: tables }));
+      });
     } catch (err) {
       console.error("Failed to load tables:", err);
     } finally {
@@ -361,7 +353,7 @@ export default function ObjectExplorer({
           id: "refresh-all",
           label: "Refresh List",
           icon: <i className="fa-solid fa-rotate" />,
-          onClick: () => loadDatabases(),
+          onClick: () => onRefreshDatabases?.(),
         },
       ];
     }

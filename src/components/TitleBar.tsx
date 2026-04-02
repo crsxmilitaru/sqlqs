@@ -28,6 +28,7 @@ const DRAG_THRESHOLD = 5;
 
 interface Props {
   connected: boolean;
+  isInitializing?: boolean;
   serverName: string;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -60,6 +61,7 @@ interface Props {
 
 export default function TitleBar({
   connected,
+  isInitializing = false,
   serverName,
   onConnect,
   onDisconnect,
@@ -91,7 +93,7 @@ export default function TitleBar({
 }: Props) {
   const isMac = isMacOS();
   const openFileShortcut = `${getModifierKeyLabel()}+O`;
-  const objectJumpShortcut = `${getModifierKeyLabel()}+Shift+F`;
+  const objectJumpShortcut = `${getModifierKeyLabel()}+Shift+F / ${getModifierKeyLabel()}+P`;
   const newQueryShortcut = `${getModifierKeyLabel()}+N`;
   const hasAiKey = AiService.getStatus().hasKey;
   const objectJumpIndexing = objectJumpIndexStatus?.indexing ?? false;
@@ -467,6 +469,11 @@ export default function TitleBar({
                 <span className="text-s font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
               </button>
             </Tooltip>
+          ) : isInitializing ? (
+            <div className="flex items-center gap-2 px-2.5 h-8 rounded-md text-text-muted text-s font-medium">
+              <i className="fa-solid fa-spinner animate-spin" />
+              <span>Connecting...</span>
+            </div>
           ) : (
             <button
               onClick={onConnect}
