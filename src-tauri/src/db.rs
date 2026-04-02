@@ -8,6 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConnectionConfig {
     pub server: String,
     pub port: Option<u16>,
@@ -17,6 +18,21 @@ pub struct ConnectionConfig {
     pub use_windows_auth: bool,
     pub encrypt: bool,
     pub trust_server_certificate: bool,
+}
+
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            server: String::new(),
+            port: None,
+            database: None,
+            username: None,
+            password: None,
+            use_windows_auth: false,
+            encrypt: false,
+            trust_server_certificate: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

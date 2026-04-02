@@ -21,7 +21,7 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
   const [trustCert, setTrustCert] = useState(true);
   const [saveName, setSaveName] = useState("");
   const [rememberPassword, setRememberPassword] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
   const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +61,8 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
     setServer(cfg.server);
     setDatabase(cfg.database || "");
     setUsername(cfg.username || "sa");
+    setPassword("");
+    setRememberPassword(false);
     setUseWindowsAuth(supportsWindowsAuth && cfg.use_windows_auth);
     setEncrypt(cfg.encrypt);
     setTrustCert(cfg.trust_server_certificate);
@@ -76,6 +78,11 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
         setRememberPassword(true);
       }
     } catch {}
+  }
+
+  function generateSaveName(srv: string, user: string, winAuth: boolean) {
+    const s = srv.trim();
+    return !winAuth && user.trim() ? `${user.trim()}@${s}` : s;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -157,7 +164,11 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             <label className="text-s font-medium text-text-muted select-none">Server</label>
             <Input
               value={server}
-              onChange={(e) => setServer(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setServer(val);
+                setSaveName(generateSaveName(val, username, useWindowsAuth));
+              }}
               placeholder="hostname or hostname\instance"
               required
               autoFocus
@@ -190,7 +201,11 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
                 <label className="text-s font-medium text-text-muted select-none">Username</label>
                 <Input
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setUsername(val);
+                    setSaveName(generateSaveName(server, val, useWindowsAuth));
+                  }}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1.5">
@@ -234,10 +249,11 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
                 />
               </div>
               <div className="flex flex-col gap-2 mt-[22px]">
-                <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+                <label className={`flex items-center gap-2.5 text-m text-text-muted select-none ${keepLoggedIn ? "opacity-50 cursor-default" : "cursor-pointer"}`}>
                   <input
                     type="checkbox"
-                    checked={rememberPassword}
+                    checked={rememberPassword || keepLoggedIn}
+                    disabled={keepLoggedIn}
                     onChange={(e) => setRememberPassword(e.target.checked)}
                   />
                   <span>Remember password</span>

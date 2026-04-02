@@ -216,7 +216,7 @@ export default function Dropdown({
           <div
             ref={listRef}
             style={popupStyle}
-            className="dropdown-panel z-50 py-1 backdrop-blur-xl rounded-lg max-h-52 flex flex-col items-stretch animate-in fade-in-0 zoom-in-95 duration-100"
+            className="dropdown-panel z-[100] py-1 backdrop-blur-xl rounded-lg max-h-52 flex flex-col items-stretch animate-in fade-in-0 zoom-in-95 duration-100"
             role="listbox"
           >
             {filterable && (
