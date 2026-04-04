@@ -63,7 +63,6 @@ export default function QueryEditorPanel({
     [databases],
   );
 
-  const [copied, setCopied] = useState(false);
   const [queryCopied, setQueryCopied] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState<{
     visible: boolean;
@@ -72,29 +71,6 @@ export default function QueryEditorPanel({
   } | null>(null);
   const editorRef = useRef<SqlEditorHandle | null>(null);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-
-  const copyToClipboard = async () => {
-    let text = "";
-    if (activeTab?.error) {
-      text = activeTab.error;
-    } else {
-      const result = activeTab?.result;
-      if (!result || result.result_sets.length === 0) return;
-      const firstSet = result.result_sets[0];
-      const header = firstSet.columns.map((col) => col.name).join("\t");
-      const rows = firstSet.rows.map((row) =>
-        row.map((cell) => (cell != null ? String(cell) : "NULL")).join("\t"),
-      );
-      text = [header, ...rows].join("\n");
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
 
   useEffect(() => {
     if (activeTab && !activeTab.result && !activeTab.error && !activeTab.isExecuting) {
@@ -332,15 +308,6 @@ export default function QueryEditorPanel({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {(activeTab.error || (activeTab.result && activeTab.result.result_sets.length > 0)) && (
-                  <>
-                    <button onClick={copyToClipboard} className="btn btn-secondary">
-                      <IconCopy className={copied ? "text-success" : ""} />
-                      <span>{copied ? "Copied!" : "Copy"}</span>
-                    </button>
-                    <div className="toolbar-sep" />
-                  </>
-                )}
                 <button
                   onClick={() => setResultsCollapsed(!resultsCollapsed)}
                   className="btn btn-secondary"

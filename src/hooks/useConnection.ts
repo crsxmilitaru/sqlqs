@@ -1,6 +1,8 @@
-import { startTransition, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import type { ConnectionConfig } from "../lib/types";
+
+const STORAGE_KEY_LAST_DATABASE = "sqlqs_last_database";
 
 interface AutoConnectResult {
   connected: boolean;
@@ -15,6 +17,8 @@ export function useConnection() {
   const [serverName, setServerName] = useState("");
   const [currentDatabase, setCurrentDatabase] = useState<string | undefined>();
   const [databases, setDatabases] = useState<string[]>([]);
+
+  const restoredRef = useRef(false);
 
   const loadDatabases = useCallback(async () => {
     try {
@@ -31,27 +35,43 @@ export function useConnection() {
     setIsInitializing(false);
     setConnected(true);
     setServerName(config.server);
-    setCurrentDatabase(config.database || undefined);
+    const db = config.database || undefined;
+    setCurrentDatabase(db);
+    if (db) {
+      localStorage.setItem(STORAGE_KEY_LAST_DATABASE, db);
+    }
     loadDatabases();
   }, [loadDatabases]);
 
   const disconnect = useCallback(async () => {
     try {
       await invoke("disconnect_from_server");
-    } catch {}
+    } catch { }
     setIsInitializing(false);
     setConnected(false);
     setServerName("");
     setCurrentDatabase(undefined);
     setDatabases([]);
+    restoredRef.current = false;
   }, []);
 
   const changeDatabase = useCallback(async (db: string) => {
     try {
       await invoke("change_database", { database: db });
       setCurrentDatabase(db);
-    } catch {}
+      localStorage.setItem(STORAGE_KEY_LAST_DATABASE, db);
+    } catch { }
   }, []);
+
+  useEffect(() => {
+    if (restoredRef.current || !connected || currentDatabase || databases.length === 0) return;
+    const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
+    if (saved && databases.includes(saved)) {
+      restoredRef.current = true;
+      setCurrentDatabase(saved);
+      invoke("change_database", { database: saved }).catch(() => { });
+    }
+  }, [connected, currentDatabase, databases]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +82,16 @@ export function useConnection() {
         if (result.connected) {
           setConnected(true);
           setServerName(result.server || "");
-          setCurrentDatabase(result.database || undefined);
+          let db = result.database || undefined;
+          if (!db) {
+            const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
+            if (saved && result.databases.includes(saved)) {
+              db = saved;
+              restoredRef.current = true;
+              invoke("change_database", { database: saved }).catch(() => { });
+            }
+          }
+          setCurrentDatabase(db);
           startTransition(() => {
             setDatabases(result.databases);
           });
