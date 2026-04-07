@@ -12,6 +12,7 @@ use std::sync::Arc;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -270,6 +271,34 @@ fn get_documents_folder() -> Result<String, String> {
     let docs_dir =
         dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
     Ok(docs_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn pick_folder_dialog(
+    app: tauri::AppHandle,
+    title: Option<String>,
+    starting_directory: Option<String>,
+) -> Result<Option<String>, String> {
+    let mut dialog = app.dialog().file();
+
+    if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+        dialog = dialog.set_title(title);
+    }
+
+    if let Some(starting_directory) = starting_directory.filter(|value| !value.trim().is_empty()) {
+        dialog = dialog.set_directory(starting_directory);
+    }
+
+    let selected = dialog.blocking_pick_folder();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+
+    let path = selected
+        .into_path()
+        .map_err(|err| format!("Failed to resolve selected folder: {}", err))?;
+
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -662,6 +691,11 @@ fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), Stri
     Ok(())
 }
 
+#[tauri::command]
+fn write_export_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| {
@@ -677,6 +711,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             client: Arc::new(Mutex::new(None)),
             cancel_token: Arc::new(Mutex::new(None)),
@@ -708,8 +743,10 @@ pub fn run() {
             read_sql_file,
             write_sql_file,
             get_documents_folder,
+            pick_folder_dialog,
             open_folder,
             set_mica_theme,
+            write_export_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

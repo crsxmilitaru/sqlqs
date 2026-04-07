@@ -42,7 +42,7 @@ interface ExplorerSectionHeights {
 
 const EXPLORER_SECTION_HEIGHTS_KEY = "sqlqs_explorer_section_heights_v1";
 const EXPLORER_COLLAPSED_KEY = "sqlqs_explorer_collapsed_v1";
-const ROOT_SECTIONS = ["root:databases", "root:saved_queries", "root:history"] as const;
+const ROOT_SECTIONS = ["root:databases", "root:queries", "root:history"] as const;
 const MIN_SECTION_HEIGHT = 96;
 const MAX_SECTION_HEIGHT = 360;
 const DEFAULT_SECTION_HEIGHTS: ExplorerSectionHeights = {
@@ -602,12 +602,12 @@ export default function ObjectExplorer({
 
         <div
           className="flex flex-col mt-1 flex-none transition-all duration-300 ease-in-out overflow-hidden"
-          style={{ height: expanded.has("root:saved_queries") ? sectionHeights.saved : 36 }}
+          style={{ height: expanded.has("root:queries") ? sectionHeights.saved : 36 }}
         >
           <SectionHeader
-            title="Saved Queries"
-            expanded={expanded.has("root:saved_queries")}
-            onToggle={() => toggle("root:saved_queries")}
+            title="Queries"
+            expanded={expanded.has("root:queries")}
+            onToggle={() => toggle("root:queries")}
             actions={onOpenSavedQueriesFolder && (
               <Tooltip content="Open folder" placement="top">
                 <button
@@ -623,26 +623,26 @@ export default function ObjectExplorer({
           <div 
             className="flex-1 flex flex-col min-h-0 px-2 transition-opacity duration-300" 
             style={{ 
-              opacity: expanded.has("root:saved_queries") ? 1 : 0,
-              pointerEvents: expanded.has("root:saved_queries") ? "auto" : "none"
+              opacity: expanded.has("root:queries") ? 1 : 0,
+              pointerEvents: expanded.has("root:queries") ? "auto" : "none"
             }}
           >
             <div className="h-full flex flex-col">
               {savedQueries.length > 0 && (
                 <div className="mb-1 h-7 flex-shrink-0">
-                  <FilterInput placeholder="Filter saved queries..." value={folderFilters["root:saved_queries"] || ""} onChange={(v) => updateFilter("root:saved_queries", v)} />
+                  <FilterInput placeholder="Filter queries..." value={folderFilters["root:queries"] || ""} onChange={(v) => updateFilter("root:queries", v)} />
                 </div>
               )}
               <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 scrollbar-gutter-stable">
                 {savedQueries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
                     <i className="fa-solid fa-file-code text-3xl mb-3" />
-                    <p className="text-[12px]">No saved queries</p>
+                    <p className="text-[12px]">No queries</p>
                   </div>
                 ) : (
                   savedQueries
                     .filter((item) =>
-                      item.title.toLowerCase().includes((folderFilters["root:saved_queries"] || "").toLowerCase())
+                      item.title.toLowerCase().includes((folderFilters["root:queries"] || "").toLowerCase())
                     )
                     .map((item) => {
                       const isCtx = contextMenu?.visible && contextMenu.sql === item.id;

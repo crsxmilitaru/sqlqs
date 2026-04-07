@@ -47,5 +47,9 @@ export function IconFormat({ className }: { className?: string }) {
 }
 
 export function IconSave({ className }: { className?: string }) {
+  return <i className={`fa-solid fa-bookmark fa-fw ${className || ""}`} />;
+}
+
+export function IconFloppy({ className }: { className?: string }) {
   return <i className={`fa-solid fa-floppy-disk fa-fw ${className || ""}`} />;
 }

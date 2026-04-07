@@ -11,5 +11,5 @@ export function joinPath(...segments: string[]): string {
 }
 
 export function getSavedQueriesDir(documentsPath: string): string {
-  return joinPath(documentsPath, "SQL Query Studio", "Saved Queries");
+  return joinPath(documentsPath, "SQL Query Studio", "Queries");
 }

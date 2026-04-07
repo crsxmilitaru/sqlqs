@@ -203,24 +203,30 @@ function VirtualGrid({
     }
   }, [resultSet.columns, processedRows]);
 
-  const exportToCsv = useCallback(() => {
+  const exportToCsv = useCallback(async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { invoke } = await import("@tauri-apps/api/core");
+    const filePath = await save({
+      defaultPath: "query_results.csv",
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    if (!filePath) return;
     const header = resultSet.columns.map((col) => `"${col.name.replace(/"/g, '""')}"`).join(",");
     const rows = processedRows.map(({ row }) =>
       row.map((cell) => (cell != null ? `"${String(cell).replace(/"/g, '""')}"` : "")).join(","),
     );
     const text = [header, ...rows].join("\n");
-    const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "query_results.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await invoke("write_export_file", { path: filePath, contents: text });
   }, [resultSet.columns, processedRows]);
 
-  const exportToJson = useCallback(() => {
+  const exportToJson = useCallback(async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const { invoke } = await import("@tauri-apps/api/core");
+    const filePath = await save({
+      defaultPath: "query_results.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!filePath) return;
     const data = processedRows.map(({ row }) => {
       const obj: Record<string, any> = {};
       resultSet.columns.forEach((col, i) => {
@@ -228,15 +234,7 @@ function VirtualGrid({
       });
       return obj;
     });
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "query_results.json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await invoke("write_export_file", { path: filePath, contents: JSON.stringify(data, null, 2) });
   }, [resultSet.columns, processedRows]);
 
   const handleExportClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {

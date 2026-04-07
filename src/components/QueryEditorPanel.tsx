@@ -3,7 +3,7 @@ import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Dropdown from "./Dropdown";
-import { IconCopy, IconFormat, IconPlay, IconSave } from "./Icons";
+import { IconCopy, IconFloppy, IconFormat, IconPlay, IconSave } from "./Icons";
 import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "./Tooltip";
@@ -27,6 +27,7 @@ interface Props {
   aiChatOpen: boolean;
   onAiChatOpenChange: (open: boolean) => void;
   onSave?: (id: string) => void;
+  onSaveToFile?: (id: string) => void;
 }
 
 export default function QueryEditorPanel({
@@ -46,6 +47,7 @@ export default function QueryEditorPanel({
   aiChatOpen,
   onAiChatOpenChange,
   onSave,
+  onSaveToFile,
 }: Props) {
   const hasDatabaseSelected = Boolean(currentDatabase);
   const [editorHeight, setEditorHeight] = useState(300);
@@ -246,6 +248,18 @@ export default function QueryEditorPanel({
                       className="btn btn-secondary"
                     >
                       <IconSave className="w-3.5 h-3.5" />
+                    </button>
+                  </Tooltip>
+                )}
+
+                {onSaveToFile && (
+                  <Tooltip content="Save SQL to file" placement="bottom">
+                    <button
+                      onClick={() => onSaveToFile(activeTab.id)}
+                      disabled={!activeTab.sql.trim()}
+                      className="btn btn-secondary"
+                    >
+                      <IconFloppy className="w-3.5 h-3.5" />
                     </button>
                   </Tooltip>
                 )}

@@ -4,7 +4,7 @@ import { useConnection } from "../hooks/useConnection";
 import { useHistory } from "../hooks/useHistory";
 import { useSavedQueries } from "../hooks/useSavedQueries";
 import { useTabs } from "../hooks/useTabs";
-import { getSavedQueriesDir } from "../lib/path";
+import { getSavedQueriesDir, joinPath } from "../lib/path";
 import { getPlatformClass } from "../lib/platform";
 import { generateTabTitle } from "../lib/sql";
 import { loadTheme } from "../lib/theme";
@@ -30,6 +30,13 @@ const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
   failed_databases: [],
   object_count: 0,
 };
+
+const LAST_SQL_EXPORT_FOLDER_STORAGE_KEY = "sqlqs_last_sql_export_folder";
+
+function getSqlFileName(title: string): string {
+  const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
+  return /\.sql$/i.test(sanitizedTitle) ? sanitizedTitle : `${sanitizedTitle}.sql`;
+}
 
 export default function App() {
   const {
@@ -255,6 +262,36 @@ export default function App() {
       updateTab(tabId, { savedSql: tab.sql });
     },
     [tabs, saveQuery, updateTab],
+  );
+
+  const handleTabSaveToFile = useCallback(
+    async (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (!tab || !tab.sql.trim()) return;
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const lastFolder = localStorage.getItem(LAST_SQL_EXPORT_FOLDER_STORAGE_KEY);
+        const documentsPath = await invoke<string>("get_documents_folder");
+        const folderPath = await invoke<string | null>("pick_folder_dialog", {
+          title: "Choose a folder for your SQL file",
+          startingDirectory: lastFolder || documentsPath,
+        });
+
+        if (!folderPath) {
+          return;
+        }
+
+        const filePath = joinPath(folderPath, getSqlFileName(tab.title));
+        await invoke<string>("write_sql_file", { path: filePath, content: tab.sql });
+
+        localStorage.setItem(LAST_SQL_EXPORT_FOLDER_STORAGE_KEY, folderPath);
+        updateTab(tabId, { savedSql: tab.sql });
+      } catch (error) {
+        console.error("Failed to save SQL file to chosen folder:", error);
+      }
+    },
+    [tabs, updateTab],
   );
 
   const handleLoadSavedQuery = useCallback(
@@ -570,6 +607,7 @@ export default function App() {
                 aiChatOpen={aiChatOpen}
                 onAiChatOpenChange={setAiChatOpen}
                 onSave={handleTabSave}
+                onSaveToFile={handleTabSaveToFile}
               />
             </main>
           </>
