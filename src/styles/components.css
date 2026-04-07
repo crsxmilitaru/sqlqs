@@ -64,8 +64,14 @@
     font-family: inherit;
   }
 
-  .cm-editor.cm-focused {
-    outline: none;
+  .cm-editor.cm-focused,
+  .cm-content,
+  .cm-scroller:focus-within,
+  .cm-content:focus,
+  .cm-editor:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 
   .cm-gutters {
@@ -86,7 +92,7 @@
 
   /* ─── Tab bar ─── */
 
-  .winui-tab-bar {
+  .tab-bar {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -94,36 +100,32 @@
     scrollbar-width: none;
   }
 
-  .winui-tab-bar::-webkit-scrollbar {
+  .tab-bar::-webkit-scrollbar {
     display: none;
   }
 
-  .winui-tab {
+  .tab {
+    position: relative;
     padding: 4px 10px;
     max-width: clamp(160px, 18vw, 240px);
     border-radius: var(--radius-md);
     border: none;
     background: transparent;
     overflow: hidden;
-    transition: all 0.15s ease-in-out;
+    transition: background var(--duration-normal) ease, transform var(--duration-fast) ease;
   }
 
-  .winui-tab:hover {
+  .tab:hover {
     background: var(--color-surface-hover);
   }
 
-  .winui-tab.active {
-    background: var(--color-surface-header);
-    color: var(--color-text);
+  .tab:active {
+    transform: scale(0.97);
   }
 
-  .winui-tab span[data-text]::after {
-    display: block;
-    content: attr(data-text);
-    font-weight: 500;
-    height: 0;
-    overflow: hidden;
-    visibility: hidden;
+  .tab.active {
+    background: var(--color-surface-active);
+    color: var(--color-text);
   }
 
   /* Tab appear animation */
@@ -144,7 +146,7 @@
   }
 
   /* Drag-and-drop styles */
-  .winui-tab.dragging {
+  .tab.dragging {
     opacity: 0.35;
     transform: scale(0.97);
   }
@@ -156,7 +158,6 @@
     border-radius: 1px;
     flex-shrink: 0;
     animation: drop-indicator-in 0.12s var(--ease-out);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--color-accent) 50%, transparent);
   }
 
   @keyframes drop-indicator-in {
@@ -185,7 +186,7 @@
   }
 
   .tab-close-btn.active,
-  .winui-tab:hover .tab-close-btn {
+  .tab:hover .tab-close-btn {
     opacity: 1;
   }
 
@@ -199,8 +200,8 @@
     animation: dot-fade-in 0.2s ease;
   }
 
-  .winui-tab:hover .modified-dot,
-  .winui-tab.active .modified-dot {
+  .tab:hover .modified-dot,
+  .tab.active .modified-dot {
     opacity: 0;
   }
 
@@ -223,12 +224,12 @@
     transform: rotate(-45deg);
   }
 
-  .winui-tab:hover .pin-icon,
-  .winui-tab.active .pin-icon {
+  .tab:hover .pin-icon,
+  .tab.active .pin-icon {
     opacity: 0.8;
   }
 
-  .winui-tab.pinned {
+  .tab.pinned {
     max-width: clamp(100px, 12vw, 160px);
   }
 
@@ -323,13 +324,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow:
-      inset 0 0.5px 0 rgba(255, 255, 255, 0.25),
-      0 0.5px 1px rgba(0, 0, 0, 0.15);
     transition:
       transform var(--duration-normal) ease,
-      filter var(--duration-normal) ease,
-      box-shadow var(--duration-normal) ease;
+      filter var(--duration-normal) ease;
   }
 
   .mac-window-control i {
@@ -357,7 +354,6 @@
   .mac-window-control:active {
     transform: scale(0.94);
     filter: brightness(0.9);
-    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.18);
   }
 
   .mac-window-control:focus-visible {
@@ -366,15 +362,15 @@
   }
 
   .mac-window-control-close {
-    background: var(--color-mac-close);
+    background: #ff5f57;
   }
 
   .mac-window-control-minimize {
-    background: var(--color-mac-minimize);
+    background: #febc2e;
   }
 
   .mac-window-control-zoom {
-    background: var(--color-mac-maximize);
+    background: #28c840;
   }
 
   /* ─── Drag region ─── */
@@ -462,6 +458,7 @@
   /* ─── Object explorer tree ─── */
 
   .tree-node {
+    position: relative;
     padding: 5px 8px;
     margin: 1px 0;
     border-radius: var(--radius-sm);
@@ -547,7 +544,7 @@
 
   /* ─── Inputs ─── */
 
-  .winui-input {
+  .app-input {
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
@@ -555,13 +552,12 @@
     color: var(--color-text);
   }
 
-  .winui-input:focus {
+  .app-input:focus {
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
     outline: none;
   }
 
-  .winui-input::placeholder {
+  .app-input::placeholder {
     color: var(--color-text-muted);
   }
 
@@ -611,13 +607,13 @@
   }
 
   .dropdown-panel {
-    background: var(--color-surface-hover);
+    background: var(--color-surface-popover);
     border: 1px solid var(--color-border);
-    box-shadow: 0 24px 44px color-mix(in srgb, var(--color-overlay-dark-md) 18%, transparent);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
   }
 
   .dropdown-search {
-    background: var(--color-surface-hover);
+    background: var(--color-surface-popover);
     border: 1px solid var(--color-border);
     color: var(--color-text-muted);
   }
@@ -664,9 +660,11 @@
     white-space: nowrap;
     outline: none;
     transition:
-      background-color 0.12s ease,
-      border-color 0.12s ease,
-      color 0.12s ease;
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      color var(--duration-fast) ease,
+      transform var(--duration-fast) ease,
+      filter var(--duration-fast) ease;
   }
 
   .btn:hover:not(:disabled) {
@@ -676,6 +674,8 @@
 
   .btn:active:not(:disabled) {
     background: var(--color-surface-hover);
+    transform: scale(0.97);
+    filter: brightness(0.9);
   }
 
   .btn:disabled {
@@ -735,47 +735,9 @@
     background: var(--color-surface-hover);
   }
 
-  /* ─── AI Chat button ─── */
 
-  .btn-ai {
-    background: linear-gradient(135deg, var(--color-ai-gradient-start) 0%, var(--color-ai-gradient-end) 100%);
-    border-color: transparent;
-    color: #fff;
-    font-weight: 500;
-    position: relative;
-    overflow: hidden;
-    transition: box-shadow 0.2s ease, opacity 0.15s ease;
-  }
 
-  .btn-ai::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, var(--color-ai-hover-start) 0%, var(--color-ai-hover-end) 100%);
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
 
-  .btn-ai:hover:not(:disabled)::before {
-    opacity: 1;
-  }
-
-  .btn-ai>* {
-    position: relative;
-  }
-
-  .btn-ai:hover:not(:disabled) {
-    box-shadow: 0 0 12px rgba(109, 40, 217, 0.5), 0 0 24px rgba(37, 99, 235, 0.3);
-    border-color: transparent;
-  }
-
-  .btn-ai:active:not(:disabled) {
-    opacity: 0.85;
-  }
-
-  .btn-ai--active {
-    box-shadow: 0 0 10px rgba(109, 40, 217, 0.4), 0 0 20px rgba(37, 99, 235, 0.25);
-  }
 
   /* ─── Toolbar separator ─── */
 
@@ -809,11 +771,11 @@
 
   .popup-menu {
     background: var(--color-surface-popover);
-    backdrop-filter: blur(20px);
     border: 1px solid var(--color-border);
-    z-index: 50;
+    z-index: 100000;
     min-width: 160px;
     padding: var(--spacing-s) 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
   }
 
   .popup-menu-item {
@@ -862,7 +824,6 @@
     height: 16px;
     border-radius: 9999px;
     background: white;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
@@ -889,14 +850,12 @@
     border-radius: 9999px;
     background: var(--color-accent);
     border: 2px solid var(--color-surface-raised);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     cursor: pointer;
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    transition: transform 0.1s ease;
   }
 
   .settings-range::-webkit-slider-thumb:hover {
     transform: scale(1.15);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 20%, transparent);
   }
 
   .settings-range::-webkit-slider-thumb:active {
@@ -911,6 +870,7 @@
   }
 
   .settings-nav-btn {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -924,17 +884,22 @@
     background: transparent;
     color: var(--color-text);
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    overflow: hidden;
+    transition: background-color var(--duration-normal) ease, color var(--duration-normal) ease, transform var(--duration-fast) ease;
   }
 
   .settings-nav-btn:hover {
     background: var(--color-surface-hover);
-    color: var(--color-accent);
+    color: var(--color-text);
+  }
+
+  .settings-nav-btn:active {
+    transform: scale(0.97);
   }
 
   .settings-nav-btn.active {
-    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-    color: var(--color-accent);
+    background: var(--color-surface-active);
+    color: var(--color-text);
   }
 
   .settings-nav-btn i {
@@ -942,9 +907,53 @@
     text-align: center;
     font-size: var(--text-s);
     opacity: 0.7;
+    transition: color var(--duration-normal) ease;
   }
 
   .settings-nav-btn.active i {
+    opacity: 1;
+    color: var(--color-accent);
+  }
+
+  /* ─── Dialogs ─── */
+
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, black 50%, transparent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    transition: opacity 0.2s var(--ease-in-out);
+  }
+
+  .dialog-surface {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-overlay-sm);
+    border-radius: var(--radius-lg);
+    transition: all 0.2s var(--ease-in-out);
+    overflow: hidden;
+  }
+
+  /* Shared entry animation states */
+  .dialog-overlay[data-visible="false"] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .dialog-overlay[data-visible="false"] .dialog-surface {
+    transform: scale(0.97) translateY(8px);
+    opacity: 0;
+  }
+
+  .dialog-overlay[data-visible="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .dialog-overlay[data-visible="true"] .dialog-surface {
+    transform: scale(1) translateY(0);
     opacity: 1;
   }
 
@@ -957,25 +966,40 @@
     padding: 5px var(--spacing-m);
     border-radius: var(--radius-sm);
     background: var(--color-surface-popover);
-    backdrop-filter: blur(12px);
     border: 1px solid var(--color-overlay-sm);
     color: var(--color-text);
     font-size: var(--text-s);
     line-height: 1.4;
     max-width: 320px;
     white-space: normal;
-    animation: tooltip-in 0.1s ease-out;
+    animation: tooltip-in 0.15s var(--ease-entry);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
   }
 
   @keyframes tooltip-in {
     from {
       opacity: 0;
-      transform: translateY(3px);
+      transform: translateY(4px) scale(0.95);
     }
 
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-popover-in {
+    animation: popover-in 0.18s var(--ease-entry) forwards;
+  }
+
+  @keyframes popover-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
     }
   }
 }

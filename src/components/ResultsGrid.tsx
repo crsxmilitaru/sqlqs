@@ -3,6 +3,7 @@ import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryResult, ResultSet } from "../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import EmptyState from "./EmptyState";
 
 interface Props {
   result?: QueryResult;
@@ -579,11 +580,11 @@ export default function ResultsGrid({
 
   if (isExecuting) {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-m bg-surface">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-5 w-5 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />
-          <span className="animate-pulse">Executing query...</span>
-        </div>
+      <div className="h-full bg-surface">
+        <EmptyState
+          icon={<div className="mb-5 h-8 w-8 rounded-full border-[3px] border-accent/20 border-t-accent animate-spin" />}
+          title={<span className="animate-pulse">Executing query...</span>}
+        />
       </div>
     );
   }
@@ -625,8 +626,16 @@ export default function ResultsGrid({
 
   if (!result) {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-m bg-surface">
-        Press F5 or {executeShortcutLabel} to execute
+      <div className="h-full bg-surface">
+        <EmptyState
+          icon={null}
+          description={
+            <>
+              Press <kbd className="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">F5</kbd>
+              or <kbd className="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">{executeShortcutLabel}</kbd> to execute
+            </>
+          }
+        />
       </div>
     );
   }

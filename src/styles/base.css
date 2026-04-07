@@ -93,4 +93,8 @@
   .accordion-content:not(.expanded) [class*="overflow-y-auto"] {
     overflow-y: hidden !important;
   }
-}
+
+  .scrollbar-gutter-stable {
+    scrollbar-gutter: stable;
+  }
+}

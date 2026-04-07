@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { AiService, type ChatMessage } from "../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../lib/ai-tools";
-import Tooltip from "./Tooltip";
 import ToolsPopup from "./ToolsPopup";
+import Tooltip from "./Tooltip";
 
 const CHAT_STORAGE_KEY = "sqlqs_chat_history";
 
@@ -234,12 +234,12 @@ export default function AIChatPanel({
   );
 
   return (
-    <div className="flex-shrink-0 h-full flex p-3" style={{ width: width + 8 }}>
+    <div className="flex-shrink-0 h-full flex py-3 pr-3 pl-3 gap-1" style={{ width: width }}>
       <div
-        className="w-1 cursor-col-resize flex-shrink-0 hover:bg-accent/30 transition-colors rounded-full"
+        className="resizer resizer-h"
         onMouseDown={handleResizeStart}
       />
-      <div className="flex flex-col flex-1 min-w-0 bg-surface-panel border border-border rounded-lg overflow-hidden shadow-lg">
+      <div className="flex flex-col flex-1 min-w-0 bg-surface-panel border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-header/50">
           <span className="text-s font-semibold text-text-muted uppercase tracking-wide">Chat</span>
           {messages.length > 0 && (
@@ -384,7 +384,7 @@ export default function AIChatPanel({
                 placeholder="Ask about your SQL..."
                 disabled={isLoading}
                 rows={1}
-                className="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 shadow-sm overflow-hidden"
+                className="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 overflow-hidden"
                 style={{ height: "38px", maxHeight: "150px" }}
               />
               <div className="flex items-center justify-between">
@@ -393,11 +393,10 @@ export default function AIChatPanel({
                     <button
                       ref={toolsButtonRef}
                       onClick={() => setShowTools(!showTools)}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer ${
-                        showTools
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer ${showTools
                           ? "text-accent bg-accent/10"
                           : "text-text-muted hover:text-text hover:bg-surface-hover"
-                      }`}
+                        }`}
                     >
                       <i className="fa-solid fa-wrench text-icon" />
                       <span>Tools</span>
@@ -415,7 +414,7 @@ export default function AIChatPanel({
             <button
               onClick={handleSendMessage}
               disabled={!input.trim() || isLoading}
-              className="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover shadow-lg shadow-accent/20 transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
+              className="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
             >
               <i className="fa-solid fa-paper-plane text-s" />
             </button>

@@ -130,8 +130,17 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
   }
 
   return (
-    <div className={`absolute top-11 inset-x-0 bottom-0 bg-black/50 flex items-center justify-center z-[70] transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}>
-      <div className={`bg-surface-raised border border-overlay-sm shadow-2xl w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}>
+    <div
+      className="dialog-overlay"
+      data-visible={visible}
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="dialog-surface w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
           <h2 className="text-m font-semibold text-text">Connect to Server</h2>
           <Tooltip content="Close" placement="bottom">

@@ -216,7 +216,7 @@ export default function Dropdown({
           <div
             ref={listRef}
             style={popupStyle}
-            className="dropdown-panel z-[100] py-1 backdrop-blur-xl rounded-lg max-h-52 flex flex-col items-stretch animate-in fade-in-0 zoom-in-95 duration-100"
+            className="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
             role="listbox"
           >
             {filterable && (
@@ -250,7 +250,7 @@ export default function Dropdown({
                     onClick={() => handleSelect(option.value)}
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={`
-                      dropdown-option w-full px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
+                      dropdown-option w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
                       ${index === highlightedIndex ? "dropdown-option--active" : ""}
                       ${option.value === value ? "dropdown-option--selected" : ""}
                     `}

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { QueryTab, ServerObjectIndexStatus } from "../lib/types";
 import { AiService } from "../lib/ai";
-import { getModifierKeyLabel, isMacOS } from "../lib/platform";
-import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import { isMacOS } from "../lib/platform";
+import type { QueryTab, ServerObjectIndexStatus } from "../lib/types";
 import ConfirmDialog from "./ConfirmDialog";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Tooltip from "./Tooltip";
 
 function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
@@ -38,6 +38,7 @@ interface Props {
   objectJumpEnabled?: boolean;
   objectJumpIndexStatus?: ServerObjectIndexStatus;
   onShowSettings: () => void;
+  onHideSettings?: () => void;
   settingsDisabled?: boolean;
   onToggleSidebar?: () => void;
   sidebarVisible?: boolean;
@@ -57,6 +58,7 @@ interface Props {
   onTabSave?: (id: string) => void;
   aiChatOpen: boolean;
   onToggleAiChat: () => void;
+  hideAppContent?: boolean;
 }
 
 export default function TitleBar({
@@ -90,11 +92,10 @@ export default function TitleBar({
   onTabSave,
   aiChatOpen,
   onToggleAiChat,
+  hideAppContent = false,
+  onHideSettings,
 }: Props) {
   const isMac = isMacOS();
-  const openFileShortcut = `${getModifierKeyLabel()}+O`;
-  const objectJumpShortcut = `${getModifierKeyLabel()}+Shift+F / ${getModifierKeyLabel()}+P`;
-  const newQueryShortcut = `${getModifierKeyLabel()}+N`;
   const hasAiKey = AiService.getStatus().hasKey;
   const objectJumpIndexing = objectJumpIndexStatus?.indexing ?? false;
   const processedDatabaseCount = objectJumpIndexStatus?.processed_database_count ?? 0;
@@ -102,9 +103,9 @@ export default function TitleBar({
   const failedDatabaseCount = objectJumpIndexStatus?.failed_databases.length ?? 0;
   const objectJumpTooltip = objectJumpIndexing
     ? databaseCount > 0
-      ? `Jump to Object (${objectJumpShortcut}) • Indexing ${processedDatabaseCount}/${databaseCount} DBs${failedDatabaseCount > 0 ? ` • ${failedDatabaseCount} failed` : ""}`
-      : `Jump to Object (${objectJumpShortcut}) • Indexing server objects...`
-    : `Jump to Object (${objectJumpShortcut})`;
+      ? `Jump to Object • Indexing ${processedDatabaseCount}/${databaseCount} DBs${failedDatabaseCount > 0 ? ` • ${failedDatabaseCount} failed` : ""}`
+      : `Jump to Object • Indexing server objects...`
+    : `Jump to Object`;
   const [confirmClose, setConfirmClose] = useState<{
     type: "single" | "others" | "all";
     tabId?: string;
@@ -367,11 +368,11 @@ export default function TitleBar({
         onMouseDown={handleTitleBarMouseDown}
       >
         <div
-          className="flex items-center h-full z-10 px-3 gap-1.5 flex-shrink-0"
+          className="flex items-center h-full px-3 gap-1.5 flex-shrink-0"
           style={{ width: sidebarVisible && connected ? sidebarWidth + 1 : 'auto' }}
         >
           {isMac && (
-            <div className="mac-window-controls pr-2">
+            <div className="mac-window-controls pr-2 relative z-[9999]">
               <Tooltip content="Close" placement="bottom">
                 <button
                   type="button"
@@ -404,89 +405,103 @@ export default function TitleBar({
               </Tooltip>
             </div>
           )}
-          {onToggleSidebar && (
-            <Tooltip content={sidebarVisible ? "Hide Sidebar" : "Show Sidebar"} placement="bottom">
+          {hideAppContent && onHideSettings && (
+            <div className="flex items-center pl-1 no-drag relative z-[9999]">
               <button
-                onClick={onToggleSidebar}
-                disabled={dialogOpen || !connected}
-                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default ${sidebarVisible ? "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover" : "text-text bg-surface-header enabled:hover:bg-surface-active"}`}
+                onClick={onHideSettings}
+                className="flex items-center gap-1.5 px-2.5 h-8 rounded-md hover:bg-surface-hover text-text-muted hover:text-text text-s font-medium transition-all cursor-pointer"
               >
-                <i className="fa-solid fa-table-columns text-m" />
+                <i className="fa-solid fa-arrow-left" />
+                Back to app
               </button>
-            </Tooltip>
-          )}
-          <Tooltip content="Settings" placement="bottom">
-            <button
-              onClick={onShowSettings}
-              disabled={settingsDisabled || dialogOpen || !connected}
-              className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
-            >
-              <i className="fa-solid fa-gear text-m" />
-            </button>
-          </Tooltip>
-          <Tooltip content={`Open File (${openFileShortcut})`} placement="bottom">
-            <button
-              onClick={onOpenSqlFile}
-              disabled={dialogOpen || !connected}
-              className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
-            >
-              <i className="fa-solid fa-folder-open text-m" />
-            </button>
-          </Tooltip>
-          {onToggleObjectJump && (
-            <Tooltip content={objectJumpTooltip} placement="bottom">
-              <button
-                onClick={onToggleObjectJump}
-                disabled={(!objectJumpOpen && dialogOpen) || !objectJumpEnabled}
-                className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-default enabled:cursor-pointer ${
-                  objectJumpOpen
-                    ? "bg-surface-header text-text hover:bg-surface-active"
-                    : "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover"
-                }`}
-              >
-                <span className="relative flex items-center justify-center">
-                  <i className="fa-solid fa-magnifying-glass text-m" />
-                  {objectJumpIndexing && (
-                    <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-surface-raised text-[8px] text-text">
-                      <i className="fa-solid fa-spinner animate-spin" />
-                    </span>
-                  )}
-                </span>
-              </button>
-            </Tooltip>
-          )}
-
-          <div className="w-px h-4 bg-overlay-sm mx-1 flex-shrink-0" />
-
-          {connected ? (
-            <Tooltip content="Click to disconnect" placement="bottom">
-              <button
-                onClick={onDisconnect}
-                disabled={dialogOpen}
-                className="flex items-center gap-2 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text transition-all group enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
-              >
-                <i className="fa-solid fa-server text-s" />
-                <span className="text-s font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
-              </button>
-            </Tooltip>
-          ) : isInitializing ? (
-            <div className="flex items-center gap-2 px-2.5 h-8 rounded-md text-text-muted text-s font-medium">
-              <i className="fa-solid fa-spinner animate-spin" />
-              <span>Connecting...</span>
             </div>
-          ) : (
-            <button
-              onClick={onConnect}
-              disabled={dialogOpen}
-              className="flex items-center gap-1.5 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-s font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
-            >
-              <i className="fa-solid fa-plug" />
-              Connect Server
-            </button>
+          )}
+          {!hideAppContent && (
+            <>
+              {onToggleSidebar && (
+                <Tooltip content={sidebarVisible ? "Hide Sidebar" : "Show Sidebar"} placement="bottom">
+                  <button
+                    onClick={onToggleSidebar}
+                    disabled={dialogOpen || !connected}
+                    className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default ${sidebarVisible ? "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover" : "text-text bg-surface-header enabled:hover:bg-surface-active"}`}
+                  >
+                    <i className="fa-solid fa-table-columns text-m" />
+                  </button>
+                </Tooltip>
+              )}
+              <Tooltip content="Settings" placement="bottom">
+                <button
+                  onClick={onShowSettings}
+                  disabled={settingsDisabled || dialogOpen || !connected}
+                  className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                >
+                  <i className="fa-solid fa-gear text-m" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Open File" placement="bottom">
+                <button
+                  onClick={onOpenSqlFile}
+                  disabled={dialogOpen || !connected}
+                  className="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                >
+                  <i className="fa-solid fa-folder-open text-m" />
+                </button>
+              </Tooltip>
+              {onToggleObjectJump && (
+                <Tooltip content={objectJumpTooltip} placement="bottom">
+                  <button
+                    onClick={onToggleObjectJump}
+                    disabled={(!objectJumpOpen && dialogOpen) || !objectJumpEnabled}
+                    className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-default enabled:cursor-pointer ${objectJumpOpen
+                      ? "bg-surface-header text-text hover:bg-surface-active"
+                      : "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover"
+                      }`}
+                  >
+                    <span className="relative flex items-center justify-center">
+                      <i className="fa-solid fa-magnifying-glass text-m" />
+                      {objectJumpIndexing && (
+                        <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-surface-raised text-[8px] text-text">
+                          <i className="fa-solid fa-spinner animate-spin" />
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                </Tooltip>
+              )}
+
+              <div className="w-px h-4 bg-overlay-sm mx-1 flex-shrink-0" />
+
+              {connected ? (
+                <Tooltip content="Click to disconnect" placement="bottom">
+                  <button
+                    onClick={onDisconnect}
+                    disabled={dialogOpen}
+                    className="flex items-center gap-2 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text transition-all group enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  >
+                    <i className="fa-solid fa-server text-s" />
+                    <span className="text-s font-medium tracking-wide truncate max-w-[120px]">{serverName}</span>
+                  </button>
+                </Tooltip>
+              ) : isInitializing ? (
+                <div className="flex items-center gap-2 px-2.5 h-8 rounded-md text-text-muted text-s font-medium">
+                  <i className="fa-solid fa-spinner animate-spin" />
+                  <span>Connecting...</span>
+                </div>
+              ) : (
+                <button
+                  onClick={onConnect}
+                  disabled={dialogOpen}
+                  className="flex items-center gap-1.5 px-2.5 h-8 rounded-md enabled:hover:bg-surface-hover text-text-muted enabled:hover:text-text text-s font-medium transition-all enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                >
+                  <i className="fa-solid fa-plug" />
+                  Connect Server
+                </button>
+              )}
+            </>
           )}
         </div>
 
-        {connected && (
+        {!hideAppContent && connected && (
           <div className="flex items-center min-w-0 flex-shrink overflow-hidden no-drag">
             {tabs.length > 0 && (
               <>
@@ -498,7 +513,7 @@ export default function TitleBar({
                       tabBarRef.current.scrollLeft += e.deltaY;
                     }
                   }}
-                  className="flex overflow-x-auto winui-tab-bar min-w-0"
+                  className="flex overflow-x-auto tab-bar min-w-0"
                 >
                   {tabs.map((tab, index) => {
                     const isActive = tab.id === activeTabId;
@@ -517,7 +532,7 @@ export default function TitleBar({
                           ref={isActive ? (el) => { el?.scrollIntoView({ block: "nearest", inline: "nearest" }); } : undefined}
                           data-tab-index={index}
                           onPointerDown={(e) => handleTabPointerDown(e, tab.id, index)}
-                          className={`winui-tab flex items-center gap-2 text-s cursor-pointer whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive ? "active text-text font-medium" : "text-text-muted"} ${isDragging ? "dragging" : ""} ${tab.pinned ? "pinned" : ""}`}
+                          className={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive ? "active text-text cursor-default" : "text-text-muted cursor-pointer"} ${isDragging ? "dragging" : ""} ${tab.pinned ? "pinned" : ""}`}
                           onClick={() => {
                             if (justDraggedRef.current) return;
                             onTabChange(tab.id);
@@ -581,7 +596,7 @@ export default function TitleBar({
                 <div className="w-px h-4 bg-border flex-shrink-0" />
               </>
             )}
-            <Tooltip content={`New Query (${newQueryShortcut})`} placement="bottom">
+            <Tooltip content="New Query" placement="bottom">
               <button
                 onClick={() => {
                   onTabAdd();
@@ -602,8 +617,8 @@ export default function TitleBar({
 
         <div className="flex-1" />
 
-        <div className="flex h-full z-10 flex-shrink-0">
-          {isMac && connected && (
+        <div className="flex h-full flex-shrink-0">
+          {!hideAppContent && isMac && connected && (
             <Tooltip content="Click to disconnect" placement="bottom">
               <button
                 onClick={onDisconnect}
@@ -615,7 +630,7 @@ export default function TitleBar({
               </button>
             </Tooltip>
           )}
-          {hasAiKey && connected && (
+          {!hideAppContent && hasAiKey && connected && (
             <div className="flex items-center px-1">
               <Tooltip content="AI Chat" placement="bottom">
                 <button
@@ -623,14 +638,14 @@ export default function TitleBar({
                   disabled={tabs.length === 0}
                   className={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-s transition-colors ${tabs.length === 0 ? "opacity-50 cursor-default" : "cursor-pointer"} ${aiChatOpen ? "text-text font-medium bg-surface-header enabled:hover:bg-surface-active" : "text-text-muted font-normal enabled:hover:text-text enabled:hover:bg-surface-hover"}`}
                 >
-                  <i className="fa-solid fa-wand-sparkles" />
+                  <i className="fa-solid fa-message" />
                   <span>Chat</span>
                 </button>
               </Tooltip>
             </div>
           )}
           {!isMac && (
-            <div className="flex h-full">
+            <div className="flex h-full relative z-[9999]">
               <Tooltip content="Minimize" placement="bottom">
                 <button onClick={handleMinimize} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-surface-hover hover:text-text transition-all">
                   <i className="fa-solid fa-window-minimize text-s" />
@@ -642,7 +657,7 @@ export default function TitleBar({
                 </button>
               </Tooltip>
               <Tooltip content="Close" placement="bottom">
-                <button onClick={handleClose} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-windows-close-hover hover:text-white transition-all">
+                <button onClick={handleClose} className="w-14 h-full flex items-center justify-center text-text-muted hover:bg-[#c42b1c] hover:text-white transition-all">
                   <i className="fa-solid fa-xmark text-m" />
                 </button>
               </Tooltip>

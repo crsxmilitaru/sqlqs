@@ -36,7 +36,7 @@ export default function ColumnSelector({
   return (
     <div
       ref={popupRef}
-      className="absolute top-full mt-1 right-0 w-[240px] bg-surface-panel border border-border rounded-lg shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
+      className="absolute top-full mt-1 right-0 w-[240px] bg-surface-panel border border-border rounded-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 shadow-md shadow-black/20"
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-surface-header/30">
         <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
@@ -63,7 +63,7 @@ export default function ColumnSelector({
             >
               <div
                 className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${isVisible
-                    ? "border-accent bg-accent shadow-sm shadow-accent/20"
+                    ? "border-accent bg-accent"
                     : "border-border bg-surface-header"
                   }`}
               >

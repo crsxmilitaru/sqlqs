@@ -475,7 +475,14 @@ export default function ObjectExplorer({
   return (
     <div className="flex flex-col h-full bg-transparent">
       <div className="flex-1 overflow-hidden p-2 text-s flex flex-col gap-1 explorer-content">
-        <div className={`flex flex-col ${expanded.has("root:databases") ? "flex-1 min-h-0" : "flex-none"}`}>
+        <div 
+          className="flex flex-col transition-all duration-300 ease-in-out overflow-hidden" 
+          style={{ 
+            flexGrow: expanded.has("root:databases") ? 1 : 0,
+            flexBasis: expanded.has("root:databases") ? "0%" : "36px",
+            minHeight: "36px"
+          }}
+        >
           <SectionHeader
             title="Databases"
             expanded={expanded.has("root:databases")}
@@ -483,15 +490,21 @@ export default function ObjectExplorer({
             onContextMenu={(e) => handleContextMenu(e, "", "", "", "DATABASE_FOLDER")}
           />
 
-          <div className={`accordion-content ${expanded.has("root:databases") ? "expanded flex-1 min-h-0" : ""}`}>
-            <div className="accordion-inner h-full px-2">
+          <div 
+            className="flex-1 flex flex-col min-h-0 px-2 transition-opacity duration-300" 
+            style={{ 
+              opacity: expanded.has("root:databases") ? 1 : 0, 
+              pointerEvents: expanded.has("root:databases") ? "auto" : "none" 
+            }}
+          >
+
               {databases.length > 0 && (
                 <div className="mb-2 h-7 flex-shrink-0">
                   <FilterInput placeholder="Filter databases..." value={folderFilters["root:databases"] || ""} onChange={(v) => updateFilter("root:databases", v)} />
                 </div>
               )}
 
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 scrollbar-gutter-stable">
                 {databases
                   .filter((db) => db.toLowerCase().includes((folderFilters["root:databases"] || "").toLowerCase()))
                   .map((db) => (
@@ -512,7 +525,7 @@ export default function ObjectExplorer({
                       </div>
 
                       <div className={`accordion-content ${expanded.has(db) ? "expanded" : ""}`}>
-                        <div className="accordion-inner slide-down-item">
+                        <div className="accordion-inner">
                           {tableCache[db] ? (
                             <div>
                               {groupDatabaseObjects(tableCache[db]).map(group => {
@@ -578,7 +591,7 @@ export default function ObjectExplorer({
               </div>
             </div>
           </div>
-        </div>
+
 
         {expanded.has("root:saved_queries") && (
           <div
@@ -588,8 +601,8 @@ export default function ObjectExplorer({
         )}
 
         <div
-          className="flex flex-col mt-1 flex-none min-h-0"
-          style={expanded.has("root:saved_queries") ? { height: sectionHeights.saved } : undefined}
+          className="flex flex-col mt-1 flex-none transition-all duration-300 ease-in-out overflow-hidden"
+          style={{ height: expanded.has("root:saved_queries") ? sectionHeights.saved : 36 }}
         >
           <SectionHeader
             title="Saved Queries"
@@ -607,14 +620,20 @@ export default function ObjectExplorer({
             )}
           />
 
-          <div className={`accordion-content ${expanded.has("root:saved_queries") ? "expanded flex-1" : ""}`}>
-            <div className="accordion-inner h-full flex flex-col px-2">
+          <div 
+            className="flex-1 flex flex-col min-h-0 px-2 transition-opacity duration-300" 
+            style={{ 
+              opacity: expanded.has("root:saved_queries") ? 1 : 0,
+              pointerEvents: expanded.has("root:saved_queries") ? "auto" : "none"
+            }}
+          >
+            <div className="h-full flex flex-col">
               {savedQueries.length > 0 && (
                 <div className="mb-1 h-7 flex-shrink-0">
                   <FilterInput placeholder="Filter saved queries..." value={folderFilters["root:saved_queries"] || ""} onChange={(v) => updateFilter("root:saved_queries", v)} />
                 </div>
               )}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 scrollbar-gutter-stable">
                 {savedQueries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
                     <i className="fa-solid fa-file-code text-3xl mb-3" />
@@ -665,8 +684,8 @@ export default function ObjectExplorer({
         )}
 
         <div
-          className="flex flex-col mt-1 flex-none min-h-0"
-          style={expanded.has("root:history") ? { height: sectionHeights.history } : undefined}
+          className="flex flex-col mt-1 flex-none transition-all duration-300 ease-in-out overflow-hidden"
+          style={{ height: expanded.has("root:history") ? sectionHeights.history : 36 }}
         >
           <SectionHeader
             title="History"
@@ -684,14 +703,20 @@ export default function ObjectExplorer({
             )}
           />
 
-          <div className={`accordion-content ${expanded.has("root:history") ? "expanded flex-1" : ""}`}>
-            <div className="accordion-inner h-full flex flex-col px-2">
+          <div 
+            className="flex-1 flex flex-col min-h-0 px-2 transition-opacity duration-300" 
+            style={{ 
+              opacity: expanded.has("root:history") ? 1 : 0,
+              pointerEvents: expanded.has("root:history") ? "auto" : "none"
+            }}
+          >
+            <div className="h-full flex flex-col">
               {executedQueries.length > 0 && (
                 <div className="mb-1 h-7 flex-shrink-0">
                   <FilterInput placeholder="Filter history..." value={folderFilters["root:history"] || ""} onChange={(v) => updateFilter("root:history", v)} />
                 </div>
               )}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden pb-2 scrollbar-gutter-stable">
                 {executedQueries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center text-text-muted py-8 select-none">
                     <i className="fa-solid fa-clock-rotate-left text-m mb-3" />

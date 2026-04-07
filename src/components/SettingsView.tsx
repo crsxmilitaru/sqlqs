@@ -22,6 +22,7 @@ interface Props {
   updateMessage: string | null;
   updateMessageTone: UpdateMessageTone;
   onThemeChange?: (theme: { id: string }) => void;
+  renderLayout?: (sidebar: React.ReactNode, content: React.ReactNode) => React.ReactNode;
 }
 
 type Tab = "general" | "appearance" | "ai" | "about";
@@ -35,7 +36,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 const REPOSITORY_URL = "https://github.com/crsxmilitaru/sqlqs";
 
-export default function SettingsDialog({
+export default function SettingsView({
   onClose,
   version,
   onCheckForUpdates,
@@ -43,6 +44,7 @@ export default function SettingsDialog({
   updateMessage,
   updateMessageTone,
   onThemeChange,
+  renderLayout,
 }: Props) {
   const currentTheme = loadTheme();
   const prefs = loadPreferences();
@@ -84,19 +86,9 @@ export default function SettingsDialog({
     await open(REPOSITORY_URL);
   }
 
-  return (
-    <div
-      className={`absolute top-11 inset-x-0 bottom-0 z-[70] flex items-center justify-center bg-black/50 transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
-      onMouseDown={onClose}
-    >
-      <div
-        className={`w-[600px] h-[420px] max-w-[92vw] flex flex-col rounded-2xl border border-overlay-sm bg-surface-raised shadow-2xl overflow-hidden transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-[168px] bg-surface/50 border-r border-border p-3 flex flex-col gap-0.5 overflow-y-auto">
-            <h2 className="text-s font-semibold text-text-muted mb-2 px-2.5 uppercase tracking-wider">Settings</h2>
+  const sidebarNode = (
+    <>
+        <div className="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pt-4 pb-4">
             {TABS.map(tab => (
               <button
                 key={tab.id}
@@ -108,12 +100,14 @@ export default function SettingsDialog({
               </button>
             ))}
           </div>
+    </>
+  );
 
-          {/* Content */}
-          <div className="flex-1 p-6 flex flex-col overflow-y-auto relative">
-            {activeTab === "general" && (
-              <div className="flex-1 animate-in fade-in duration-200">
-                <h3 className="text-l font-semibold text-text mb-5">General</h3>
+  const contentNode = (
+    <div className="max-w-3xl w-full mx-auto flex flex-col pb-10">
+          {activeTab === "general" && (
+            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 className="text-2xl font-semibold text-text mb-8">General</h1>
 
                 <div className="space-y-5">
                   <div className="settings-section">
@@ -165,9 +159,9 @@ export default function SettingsDialog({
               </div>
             )}
 
-            {activeTab === "appearance" && (
-              <div className="flex-1 animate-in fade-in duration-200">
-                <h3 className="text-l font-semibold text-text mb-5">Appearance</h3>
+          {activeTab === "appearance" && (
+            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 className="text-2xl font-semibold text-text mb-8">Appearance</h1>
 
                 <div>
                   <h4 className="text-s font-medium text-text-muted uppercase tracking-wider mb-3">Theme</h4>
@@ -200,9 +194,9 @@ export default function SettingsDialog({
               </div>
             )}
 
-            {activeTab === "ai" && (
-              <div className="flex-1 animate-in fade-in duration-200">
-                <h3 className="text-l font-semibold text-text mb-5">AI Assistant</h3>
+          {activeTab === "ai" && (
+            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 className="text-2xl font-semibold text-text mb-8">AI Assistant</h1>
                 <div className="space-y-5">
                   <div className="settings-section">
                     <div className="flex items-center gap-3 mb-4">
@@ -284,9 +278,9 @@ export default function SettingsDialog({
               </div>
             )}
 
-            {activeTab === "about" && (
-              <div className="flex-1 animate-in fade-in duration-200">
-                <h3 className="text-l font-semibold text-text mb-5">About</h3>
+          {activeTab === "about" && (
+            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 className="text-2xl font-semibold text-text mb-8">About</h1>
                 <div className="settings-section mb-5">
                   <div className="flex items-center gap-4">
                     <img src="/favicon.png" alt="SQL Query Studio icon" className="h-12 w-12 rounded-lg object-contain drop-shadow-md" />
@@ -326,18 +320,20 @@ export default function SettingsDialog({
               </div>
             )}
 
-            <div className="absolute top-4 right-4 z-10">
-              <Tooltip content="Close" placement="bottom">
-                <button
-                  onClick={onClose}
-                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-surface-hover text-text-muted hover:text-text transition-colors"
-                >
-                  <i className="fa-solid fa-xmark text-s" />
-                </button>
-              </Tooltip>
-            </div>
-          </div>
-        </div>
+    </div>
+  );
+
+  if (renderLayout) {
+    return renderLayout(sidebarNode, contentNode) as React.ReactElement;
+  }
+
+  return (
+    <div className="flex flex-1 w-full h-full bg-surface overflow-hidden animate-in fade-in duration-[var(--duration-slow)]">
+      <div className="w-[260px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
+        {sidebarNode}
+      </div>
+      <div className="flex-1 p-8 md:p-12 overflow-y-auto relative bg-surface-panel">
+        {contentNode}
       </div>
     </div>
   );

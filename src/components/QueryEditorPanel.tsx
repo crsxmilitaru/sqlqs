@@ -265,7 +265,7 @@ export default function QueryEditorPanel({
                   onContextMenu={handleEditorContextMenu}
                 />
                 {!hasDatabaseSelected && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)] backdrop-blur-[1px]">
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">
                     <div className="mx-6 flex max-w-[280px] flex-col items-center gap-3 rounded-xl border border-border bg-surface-panel px-6 py-5 text-center">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-active text-accent">
                         <i className="fa-solid fa-database text-s" />

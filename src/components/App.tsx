@@ -6,6 +6,7 @@ import { useSavedQueries } from "../hooks/useSavedQueries";
 import { useTabs } from "../hooks/useTabs";
 import { getSavedQueriesDir } from "../lib/path";
 import { getPlatformClass } from "../lib/platform";
+import { generateTabTitle } from "../lib/sql";
 import { loadTheme } from "../lib/theme";
 import type {
   ConnectionConfig,
@@ -13,12 +14,11 @@ import type {
   QueryTab,
   ServerObjectIndexStatus,
 } from "../lib/types";
-import { generateTabTitle } from "../lib/sql";
 import ConnectionDialog from "./ConnectionDialog";
-import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
 import ObjectExplorer from "./ObjectExplorer";
+import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
 import QueryEditorPanel from "./QueryEditorPanel";
-import SettingsDialog from "./SettingsDialog";
+import SettingsView from "./SettingsView";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "./UpdateDialog";
 
@@ -63,7 +63,7 @@ export default function App() {
   const { appVersion, updateStatus, updateAvailable, checkForUpdates, installUpdate, cancelUpdate } = useAppUpdater();
 
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] = useState(false);
-  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [explorerWidth, setExplorerWidth] = useState(325);
   const [theme, setTheme] = useState(loadTheme());
@@ -285,7 +285,7 @@ export default function App() {
     }
   }, []);
 
-  const hasBlockingDialog = isConnectionDialogOpen || isSettingsDialogOpen || !!updateAvailable;
+  const hasBlockingDialog = isConnectionDialogOpen || isSettingsOpen || !!updateAvailable;
   const canOpenObjectJump = connected;
 
   const handleToggleObjectJump = useCallback(() => {
@@ -333,6 +333,11 @@ export default function App() {
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
         event.preventDefault();
         handleOpenSqlFile();
+      }
+      if (event.key === ",") {
+        event.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+        return;
       }
     };
 
@@ -469,8 +474,9 @@ export default function App() {
         onConnect={() => setIsConnectionDialogOpen(true)}
         onDisconnect={disconnect}
         onOpenSqlFile={handleOpenSqlFile}
-        onShowSettings={() => setIsSettingsDialogOpen(true)}
-        settingsDisabled={isSettingsDialogOpen}
+        onShowSettings={() => setIsSettingsOpen(true)}
+        onHideSettings={() => setIsSettingsOpen(false)}
+        settingsDisabled={isSettingsOpen}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         sidebarVisible={isSidebarOpen}
         sidebarWidth={explorerWidth}
@@ -493,53 +499,81 @@ export default function App() {
         objectJumpOpen={isObjectJumpOpen}
         objectJumpEnabled={canOpenObjectJump}
         objectJumpIndexStatus={objectJumpIndexStatus}
+        hideAppContent={isSettingsOpen}
       />
 
       <div className="app-workspace flex flex-1 overflow-hidden relative">
-        {connected && isSidebarOpen && (
+        {isSettingsOpen ? (
+          <SettingsView
+            onClose={() => setIsSettingsOpen(false)}
+            version={appVersion}
+            onCheckForUpdates={() => checkForUpdates(true)}
+            checkingForUpdates={updateStatus.checking}
+            updateMessage={updateStatus.message}
+            updateMessageTone={updateStatus.tone}
+            onThemeChange={setTheme}
+            renderLayout={(sidebar, content) => (
+              <>
+                <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative flex flex-col z-10 animate-in fade-in">
+                  {sidebar}
+                </div>
+                <div className="resizer resizer-h" onMouseDown={handleExplorerResize} />
+                <main className={`flex-1 flex flex-col overflow-hidden bg-surface-panel rounded-tl-2xl border-t border-l-0 border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative`}>
+                  <div className="flex-1 w-full h-full p-8 md:p-12 overflow-y-auto animate-in fade-in duration-[var(--duration-slow)]">
+                    {content}
+                  </div>
+                </main>
+              </>
+            )}
+          />
+        ) : (
           <>
-            <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative">
-              <ObjectExplorer
-                databases={databases}
-                onRefreshDatabases={refreshDatabases}
-                onSelect={(sql, execute, title, database, sourceId) => {
-                  handleOpenQueryTab({ sql, execute, title, database, sourceId });
-                }}
-                onDatabaseChange={changeDatabase}
+            {connected && isSidebarOpen && (
+              <>
+                <div style={{ width: explorerWidth }} className="app-sidebar-surface flex-shrink-0 overflow-hidden relative z-10">
+                  <ObjectExplorer
+                    databases={databases}
+                    onRefreshDatabases={refreshDatabases}
+                    onSelect={(sql, execute, title, database, sourceId) => {
+                      handleOpenQueryTab({ sql, execute, title, database, sourceId });
+                    }}
+                    onDatabaseChange={changeDatabase}
+                    currentDatabase={currentDatabase}
+                    executedQueries={executedQueries}
+                    onDeleteHistory={deleteHistory}
+                    onClearHistory={clearHistory}
+                    savedQueries={savedQueries}
+                    onDeleteSavedQuery={handleDeleteSavedQuery}
+                    onLoadSavedQuery={handleLoadSavedQuery}
+                    onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
+                  />
+                </div>
+                <div className="resizer resizer-h" onMouseDown={handleExplorerResize} />
+              </>
+            )}
+
+            <main className={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen && connected ? 'rounded-tl-2xl border-t border-l-0' : 'rounded-none border-l border-t'} border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-colors duration-[var(--duration-slow)]`}>
+              <QueryEditorPanel
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onTabAdd={addTab}
+                onOpenSqlFile={handleOpenSqlFile}
+                onTabUpdate={updateTab}
+                onExecute={handleExecute}
+                onConnect={() => setIsConnectionDialogOpen(true)}
+                connected={connected}
+                isInitializing={isInitializing}
                 currentDatabase={currentDatabase}
-                executedQueries={executedQueries}
-                onDeleteHistory={deleteHistory}
-                onClearHistory={clearHistory}
-                savedQueries={savedQueries}
-                onDeleteSavedQuery={handleDeleteSavedQuery}
-                onLoadSavedQuery={handleLoadSavedQuery}
-                onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
+                databases={databases}
+                onDatabaseChange={changeDatabase}
+                theme={theme}
+                aiChatOpen={aiChatOpen}
+                onAiChatOpenChange={setAiChatOpen}
+                onSave={handleTabSave}
               />
-            </div>
-            <div className="resizer resizer-h" onMouseDown={handleExplorerResize} />
+            </main>
           </>
         )}
-
-        <main className={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen && connected ? 'rounded-tl-2xl border-t border-l-0' : 'rounded-none border-l border-t'} border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-all duration-300`}>
-          <QueryEditorPanel
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onTabAdd={addTab}
-            onOpenSqlFile={handleOpenSqlFile}
-            onTabUpdate={updateTab}
-            onExecute={handleExecute}
-            onConnect={() => setIsConnectionDialogOpen(true)}
-            connected={connected}
-            isInitializing={isInitializing}
-            currentDatabase={currentDatabase}
-            databases={databases}
-            onDatabaseChange={changeDatabase}
-            theme={theme}
-            aiChatOpen={aiChatOpen}
-            onAiChatOpenChange={setAiChatOpen}
-            onSave={handleTabSave}
-          />
-        </main>
       </div>
 
       {isConnectionDialogOpen && (
@@ -549,17 +583,7 @@ export default function App() {
         />
       )}
 
-      {isSettingsDialogOpen && (
-        <SettingsDialog
-          onClose={() => setIsSettingsDialogOpen(false)}
-          version={appVersion}
-          onCheckForUpdates={() => checkForUpdates(true)}
-          checkingForUpdates={updateStatus.checking}
-          updateMessage={updateStatus.message}
-          updateMessageTone={updateStatus.tone}
-          onThemeChange={setTheme}
-        />
-      )}
+
 
       {updateAvailable && (
         <UpdateDialog

@@ -27,11 +27,14 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className={`absolute top-11 inset-x-0 bottom-0 bg-black/50 flex items-center justify-center z-[100] transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
+      className="dialog-overlay"
+      data-visible={visible}
       onMouseDown={onCancel}
+      role="dialog"
+      aria-modal="true"
     >
       <div
-        className={`bg-surface-raised border border-white/[0.08] shadow-2xl w-[400px] rounded-2xl transition-all duration-200 ${visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-[0.97] translate-y-2"}`}
+        className="dialog-surface w-[400px] shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="px-6 py-5">

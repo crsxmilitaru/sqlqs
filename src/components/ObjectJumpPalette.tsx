@@ -181,6 +181,7 @@ export default function ObjectJumpPalette({
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
   const [resolvingSourceId, setResolvingSourceId] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const searchRequestRef = useRef(0);
@@ -239,6 +240,7 @@ export default function ObjectJumpPalette({
 
   useEffect(() => {
     if (!open) {
+      setVisible(false);
       searchRequestRef.current += 1;
       setSearchLoading(false);
       setQuery("");
@@ -258,6 +260,7 @@ export default function ObjectJumpPalette({
     }
 
     requestAnimationFrame(() => {
+      setVisible(true);
       inputRef.current?.focus();
       inputRef.current?.select();
     });
@@ -478,15 +481,16 @@ export default function ObjectJumpPalette({
 
   return createPortal(
     <div
-      className="fixed inset-x-0 top-11 bottom-0 z-[120] bg-black/40"
+      className="dialog-overlay items-start !pt-12"
+      data-visible={visible}
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Jump to database object"
     >
-      <div className="mx-auto flex h-full max-w-2xl flex-col px-4 pt-12">
+      <div className="mx-auto flex h-full w-full max-w-2xl flex-col px-4">
         <div
-          className="overflow-hidden rounded-2xl border border-border bg-surface-panel shadow-none"
+          className="dialog-surface flex flex-col shadow-2xl"
           onMouseDown={(event) => event.stopPropagation()}
         >
           <div className="border-b border-border/50 px-2 py-2">

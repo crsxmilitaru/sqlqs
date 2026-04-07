@@ -78,10 +78,52 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
     [activeSubmenu, onClose],
   );
 
+  const renderItem = (item: ContextMenuItem, isSubmenuItem = false) => {
+    const itemClassName = `popup-menu-item rounded-md mx-1 w-[calc(100%-8px)] ${
+      item.disabled
+        ? "opacity-50 cursor-default hover:bg-transparent hover:text-text-muted"
+        : item.danger
+          ? "text-error hover:bg-error/10 hover:text-error"
+          : ""
+    }`;
+
+    return (
+      <button
+        key={item.id}
+        className={itemClassName}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleItemClick(item);
+        }}
+        onMouseEnter={() => {
+          if (!isSubmenuItem) {
+            setActiveSubmenu(item.children ? item.id : null);
+          }
+        }}
+        disabled={item.disabled}
+      >
+        {item.icon && (
+          <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-90 text-white [&_i]:!text-white [&_svg]:!text-white">
+            {item.icon}
+          </span>
+        )}
+        <span className="flex-1">{item.label}</span>
+        {item.shortcut && (
+          <span className="text-text-muted text-3xs ml-4">
+            {item.shortcut}
+          </span>
+        )}
+        {item.children && !isSubmenuItem && (
+          <i className="fa-solid fa-chevron-right text-icon-xs text-white/50" />
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[200px] p-1.5 bg-surface-raised/95 backdrop-blur-xl border border-border/50 rounded-lg shadow-2xl shadow-black/60 animate-in fade-in-0 zoom-in-95 duration-150"
+      className="popup-menu fixed rounded-lg animate-popover-in"
       style={{ left: position.x, top: position.y }}
     >
       {items.map((item, index) => {
@@ -96,65 +138,11 @@ export default function ContextMenu({ items, x, y, onClose }: Props) {
 
         return (
           <div key={item.id} className="relative">
-            <button
-              className={`flex items-center gap-3 px-3 py-1.5 text-left text-ui transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${item.disabled
-                ? "text-text-muted/50 cursor-default"
-                : item.danger
-                  ? "text-error hover:bg-error/10 cursor-pointer"
-                  : "text-text hover:bg-overlay-sm cursor-pointer"
-                }`}
-              onClick={() => handleItemClick(item)}
-              onMouseEnter={() => {
-                setActiveSubmenu(item.children ? item.id : null);
-              }}
-            >
-              {item.icon && (
-                <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-90 text-white [&_i]:!text-white [&_svg]:!text-white">
-                  {item.icon}
-                </span>
-              )}
-              <span className="flex-1">{item.label}</span>
-              {item.shortcut && (
-                <span className="text-text-muted text-3xs ml-4">
-                  {item.shortcut}
-                </span>
-              )}
-              {item.children && (
-                <i className="fa-solid fa-chevron-right text-icon-xs text-white/50" />
-              )}
-            </button>
+            {renderItem(item)}
 
             {item.children && activeSubmenu === item.id && (
-              <div className="absolute left-full -top-1.5 -ml-1.5 min-w-[200px] p-1.5 bg-surface-raised/95 backdrop-blur-xl border border-border/50 rounded-lg shadow-2xl shadow-black/60 animate-in fade-in-0 zoom-in-95 duration-150">
-                {item.children.map((child) => (
-                  <button
-                    key={child.id}
-                    className={`flex items-center gap-3 px-3 py-1.5 text-left text-ui transition-all rounded-md mx-0.5 w-[calc(100%-4px)] ${child.disabled
-                      ? "text-text-muted/50 cursor-default"
-                      : child.danger
-                        ? "text-error hover:bg-error/10 cursor-pointer"
-                        : "text-text hover:bg-overlay-sm cursor-pointer"
-                      }`}
-                    onClick={() => {
-                      if (!child.disabled) {
-                        child.onClick?.();
-                        onClose();
-                      }
-                    }}
-                  >
-                    {child.icon && (
-                      <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-90 text-white [&_i]:!text-white [&_svg]:!text-white">
-                        {child.icon}
-                      </span>
-                    )}
-                    <span className="flex-1">{child.label}</span>
-                    {child.shortcut && (
-                      <span className="text-text-muted text-3xs ml-4">
-                        {child.shortcut}
-                      </span>
-                    )}
-                  </button>
-                ))}
+              <div className="popup-menu absolute left-full -top-2 -ml-1 rounded-lg animate-popover-in">
+                {item.children.map((child) => renderItem(child, true))}
               </div>
             )}
           </div>
