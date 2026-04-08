@@ -53,8 +53,8 @@ export default function SettingsView({
   const [persistTabs, setPersistTabs] = useState(prefs.persistTabs);
   const [maxHistory, setMaxHistory] = useState(prefs.maxHistoryItems);
 
-  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>(AiService.getStatus());
-  const [apiKey, setApiKey] = useState(AiService.getApiKey() || "");
+  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>({ hasKey: false });
+  const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState(AiService.getModel());
   const [showApiKey, setShowApiKey] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -64,14 +64,21 @@ export default function SettingsView({
   }, []);
 
   useEffect(() => {
+    AiService.getApiKey().then((key) => {
+      if (key) setApiKey(key);
+    });
+    AiService.getStatus().then(setGeminiStatus);
+  }, []);
+
+  useEffect(() => {
     saveTheme(themeId);
     onThemeChange?.({ id: themeId });
   }, [themeId, onThemeChange]);
 
-  const handleSaveAiSettings = () => {
-    AiService.setApiKey(apiKey);
+  const handleSaveAiSettings = async () => {
+    await AiService.setApiKey(apiKey);
     AiService.setModel(modelId);
-    setGeminiStatus(AiService.getStatus());
+    setGeminiStatus(await AiService.getStatus());
   };
 
   const updateMessageClass =

@@ -220,9 +220,26 @@ fn read_sql_file(path: String) -> Result<OpenedSqlFile, String> {
 fn write_sql_file(path: String, content: String) -> Result<String, String> {
     let file_path = PathBuf::from(&path);
 
+    let is_sql = file_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("sql"))
+        .unwrap_or(false);
+    if !is_sql {
+        return Err("Only .sql files can be written".to_string());
+    }
+
     if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| format!("Failed to create directory '{}': {}", parent.display(), err))?;
+        if !parent.exists() {
+            // Only auto-create directories under the user's Documents folder
+            let allowed_root =
+                dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
+            if !parent.starts_with(&allowed_root) {
+                return Err("Cannot create directories outside Documents folder".to_string());
+            }
+            std::fs::create_dir_all(parent)
+                .map_err(|err| format!("Failed to create directory '{}': {}", parent.display(), err))?;
+        }
     }
 
     std::fs::write(&file_path, &content)
@@ -235,6 +252,12 @@ fn write_sql_file(path: String, content: String) -> Result<String, String> {
 fn open_folder(path: String) -> Result<(), String> {
     let folder = PathBuf::from(&path);
     if !folder.exists() {
+        // Only auto-create directories under the user's Documents folder
+        let allowed_root =
+            dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
+        if !folder.starts_with(&allowed_root) {
+            return Err("Cannot create directories outside Documents folder".to_string());
+        }
         std::fs::create_dir_all(&folder)
             .map_err(|err| format!("Failed to create folder '{}': {}", path, err))?;
     }
@@ -504,6 +527,19 @@ async fn load_saved_password(connection_name: String) -> Result<Option<String>, 
     Ok(settings::load_password(&connection_name))
 }
 
+#[tauri::command]
+async fn store_api_key(key: String) -> Result<(), String> {
+    if key.is_empty() {
+        return settings::delete_api_key();
+    }
+    settings::store_api_key(&key)
+}
+
+#[tauri::command]
+async fn load_api_key() -> Result<Option<String>, String> {
+    Ok(settings::load_api_key())
+}
+
 #[derive(serde::Serialize)]
 struct AutoConnectResult {
     connected: bool,
@@ -691,10 +727,6 @@ fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), Stri
     Ok(())
 }
 
-#[tauri::command]
-fn write_export_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| e.to_string())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -712,6 +744,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(AppState {
             client: Arc::new(Mutex::new(None)),
             cancel_token: Arc::new(Mutex::new(None)),
@@ -746,7 +779,8 @@ pub fn run() {
             pick_folder_dialog,
             open_folder,
             set_mica_theme,
-            write_export_file,
+            store_api_key,
+            load_api_key,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

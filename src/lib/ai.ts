@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { GoogleGenAI } from "@google/genai";
 import {
   executeTool,
@@ -7,7 +8,6 @@ import {
 } from "./ai-tools";
 import type { GeminiStatus } from "./types";
 
-const GEMINI_API_KEY_STORAGE_KEY = "sqlqs_gemini_api_key";
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
 const MAX_TOOL_TURNS = 8;
@@ -24,12 +24,19 @@ export interface ChatResult {
 }
 
 export const AiService = {
-  setApiKey(key: string) {
-    localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, key);
+  async setApiKey(key: string) {
+    await invoke("store_api_key", { key });
   },
 
-  getApiKey(): string | null {
-    return localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY);
+  async getApiKey(): Promise<string | null> {
+    // Migrate from localStorage if present (pre-keyring versions)
+    const legacy = localStorage.getItem("sqlqs_gemini_api_key");
+    if (legacy) {
+      await invoke("store_api_key", { key: legacy });
+      localStorage.removeItem("sqlqs_gemini_api_key");
+      return legacy;
+    }
+    return invoke<string | null>("load_api_key");
   },
 
   setModel(model: string) {
@@ -40,9 +47,9 @@ export const AiService = {
     return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL;
   },
 
-  getStatus(): GeminiStatus {
+  async getStatus(): Promise<GeminiStatus> {
     return {
-      hasKey: !!this.getApiKey(),
+      hasKey: !!(await this.getApiKey()),
     };
   },
 
@@ -56,8 +63,10 @@ export const AiService = {
   },
 
   buildSystemPrompt(database?: string): string {
+    // Sanitize database name to prevent prompt injection via crafted DB names
+    const dbName = database ? database.replace(/[\r\n]/g, "").slice(0, 128) : "unknown";
     return `You are an expert T-SQL assistant for Microsoft SQL Server.
-Current database: ${database || "unknown"}
+Current database: ${dbName}
 
 You have tools available to inspect the database schema, columns, indexes, foreign keys, object definitions, the user's current query, and the list of databases. Use them when you need information to answer the user's question accurately.
 
@@ -77,7 +86,7 @@ RULES:
     context: ToolExecutionContext,
     signal?: AbortSignal,
   ): Promise<ChatResult> {
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
     if (!apiKey) {
       throw new Error("Gemini API key not configured. Please set it in Settings.");
     }

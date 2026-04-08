@@ -205,7 +205,7 @@ function VirtualGrid({
 
   const exportToCsv = useCallback(async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { invoke } = await import("@tauri-apps/api/core");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
       defaultPath: "query_results.csv",
       filters: [{ name: "CSV", extensions: ["csv"] }],
@@ -216,12 +216,12 @@ function VirtualGrid({
       row.map((cell) => (cell != null ? `"${String(cell).replace(/"/g, '""')}"` : "")).join(","),
     );
     const text = [header, ...rows].join("\n");
-    await invoke("write_export_file", { path: filePath, contents: text });
+    await writeTextFile(filePath, text);
   }, [resultSet.columns, processedRows]);
 
   const exportToJson = useCallback(async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { invoke } = await import("@tauri-apps/api/core");
+    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
       defaultPath: "query_results.json",
       filters: [{ name: "JSON", extensions: ["json"] }],
@@ -234,7 +234,7 @@ function VirtualGrid({
       });
       return obj;
     });
-    await invoke("write_export_file", { path: filePath, contents: JSON.stringify(data, null, 2) });
+    await writeTextFile(filePath, JSON.stringify(data, null, 2));
   }, [resultSet.columns, processedRows]);
 
   const handleExportClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {

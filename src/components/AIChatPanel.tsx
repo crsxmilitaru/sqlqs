@@ -294,11 +294,24 @@ export default function AIChatPanel({
                         h3: ({ children }) => <h3 className="font-semibold text-s mt-1.5 mb-0.5 text-text">{children}</h3>,
                         strong: ({ children }) => <strong className="font-semibold text-text">{children}</strong>,
                         hr: () => <hr className="border-border my-2" />,
-                        a: ({ children, href }) => (
-                          <a href={href} className="text-accent/70 hover:text-accent hover:underline" target="_blank" rel="noreferrer">
-                            {children}
-                          </a>
-                        ),
+                        a: ({ children, href }) => {
+                          let safeHref = href;
+                          try {
+                            const url = new URL(href || "", "https://placeholder");
+                            if (!["http:", "https:", "mailto:"].includes(url.protocol)) {
+                              safeHref = undefined;
+                            }
+                          } catch {
+                            safeHref = undefined;
+                          }
+                          return safeHref ? (
+                            <a href={safeHref} className="text-accent/70 hover:text-accent hover:underline" target="_blank" rel="noreferrer noopener">
+                              {children}
+                            </a>
+                          ) : (
+                            <span className="text-accent/70">{children}</span>
+                          );
+                        },
                       }}
                     >
                       {msg.content}

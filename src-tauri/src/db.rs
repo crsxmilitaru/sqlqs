@@ -7,7 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConnectionConfig {
     pub server: String,
@@ -18,6 +18,21 @@ pub struct ConnectionConfig {
     pub use_windows_auth: bool,
     pub encrypt: bool,
     pub trust_server_certificate: bool,
+}
+
+impl std::fmt::Debug for ConnectionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionConfig")
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("use_windows_auth", &self.use_windows_auth)
+            .field("encrypt", &self.encrypt)
+            .field("trust_server_certificate", &self.trust_server_certificate)
+            .finish()
+    }
 }
 
 impl Default for ConnectionConfig {
@@ -1084,14 +1099,12 @@ pub async fn get_columns(
             ELSE '' END AS full_type, \
          COLUMNPROPERTY(OBJECT_ID('[{db}].[' + c.TABLE_SCHEMA + '].[' + c.TABLE_NAME + ']'), c.COLUMN_NAME, 'IsIdentity') AS is_identity \
          FROM [{db}].INFORMATION_SCHEMA.COLUMNS c \
-         WHERE c.TABLE_SCHEMA = '{sch}' AND c.TABLE_NAME = '{tbl}' \
+         WHERE c.TABLE_SCHEMA = @P1 AND c.TABLE_NAME = @P2 \
          ORDER BY c.ORDINAL_POSITION",
         db = database.replace(']', "]]"),
-        sch = schema.replace('\'', "''"),
-        tbl = table.replace('\'', "''")
     );
     let stream = client
-        .query(&sql, &[])
+        .query(&sql, &[&schema, &table])
         .await
         .map_err(|e| format!("Failed to list columns: {}", e))?;
     let rows = stream
@@ -1132,15 +1145,13 @@ pub async fn get_indexes(
          JOIN [{db}].sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id \
          JOIN [{db}].sys.objects o ON i.object_id = o.object_id \
          JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
-         WHERE s.name = '{sch}' AND o.name = '{tbl}' AND i.name IS NOT NULL \
+         WHERE s.name = @P1 AND o.name = @P2 AND i.name IS NOT NULL \
          GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key \
          ORDER BY i.is_primary_key DESC, i.name",
         db = database.replace(']', "]]"),
-        sch = schema.replace('\'', "''"),
-        tbl = table.replace('\'', "''")
     );
     let stream = client
-        .query(&sql, &[])
+        .query(&sql, &[&schema, &table])
         .await
         .map_err(|e| format!("Failed to get indexes: {}", e))?;
     let rows = stream
@@ -1199,15 +1210,13 @@ pub async fn get_foreign_keys(
          JOIN [{db}].sys.schemas ps ON pt.schema_id = ps.schema_id \
          JOIN [{db}].sys.objects rt ON fk.referenced_object_id = rt.object_id \
          JOIN [{db}].sys.schemas rs ON rt.schema_id = rs.schema_id \
-         WHERE ps.name = '{sch}' AND pt.name = '{tbl}' \
+         WHERE ps.name = @P1 AND pt.name = @P2 \
          GROUP BY fk.name, rs.name, rt.name \
          ORDER BY fk.name",
         db = database.replace(']', "]]"),
-        sch = schema.replace('\'', "''"),
-        tbl = table.replace('\'', "''")
     );
     let stream = client
-        .query(&sql, &[])
+        .query(&sql, &[&schema, &table])
         .await
         .map_err(|e| format!("Failed to get foreign keys: {}", e))?;
     let rows = stream
@@ -1243,8 +1252,6 @@ pub async fn generate_create_script(
     table: &str,
 ) -> Result<String, String> {
     let db = database.replace(']', "]]");
-    let sch = schema.replace('\'', "''");
-    let tbl = table.replace('\'', "''");
 
     let col_sql = format!(
         "SELECT \
@@ -1265,11 +1272,9 @@ pub async fn generate_create_script(
          LEFT JOIN [{db}].sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id \
          JOIN [{db}].sys.objects o ON c.object_id = o.object_id \
          JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
-         WHERE s.name = '{sch}' AND o.name = '{tbl}' \
+         WHERE s.name = @P1 AND o.name = @P2 \
          ORDER BY c.column_id",
         db = db,
-        sch = sch,
-        tbl = tbl
     );
 
     let pk_sql = format!(
@@ -1282,11 +1287,9 @@ pub async fn generate_create_script(
          JOIN [{db}].sys.columns col ON ic.object_id = col.object_id AND ic.column_id = col.column_id \
          JOIN [{db}].sys.objects o ON i.object_id = o.object_id \
          JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
-         WHERE s.name = '{sch}' AND o.name = '{tbl}' AND i.is_primary_key = 1 \
+         WHERE s.name = @P1 AND o.name = @P2 AND i.is_primary_key = 1 \
          ORDER BY ic.key_ordinal",
         db = db,
-        sch = sch,
-        tbl = tbl
     );
 
     let def_sql = format!(
@@ -1297,23 +1300,21 @@ pub async fn generate_create_script(
          JOIN [{db}].sys.columns col ON dc.parent_object_id = col.object_id AND dc.parent_column_id = col.column_id \
          JOIN [{db}].sys.objects o ON dc.parent_object_id = o.object_id \
          JOIN [{db}].sys.schemas s ON o.schema_id = s.schema_id \
-         WHERE s.name = '{sch}' AND o.name = '{tbl}' \
+         WHERE s.name = @P1 AND o.name = @P2 \
          ORDER BY col.column_id",
         db = db,
-        sch = sch,
-        tbl = tbl
     );
 
     let col_rows = {
-        let stream = client.query(&col_sql, &[]).await.map_err(|e| format!("Failed to read columns: {}", e))?;
+        let stream = client.query(&col_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read columns: {}", e))?;
         stream.into_first_result().await.map_err(|e| format!("Failed to parse columns: {}", e))?
     };
     let pk_rows = {
-        let stream = client.query(&pk_sql, &[]).await.map_err(|e| format!("Failed to read primary key: {}", e))?;
+        let stream = client.query(&pk_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read primary key: {}", e))?;
         stream.into_first_result().await.map_err(|e| format!("Failed to parse primary key: {}", e))?
     };
     let def_rows = {
-        let stream = client.query(&def_sql, &[]).await.map_err(|e| format!("Failed to read defaults: {}", e))?;
+        let stream = client.query(&def_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read defaults: {}", e))?;
         stream.into_first_result().await.map_err(|e| format!("Failed to parse defaults: {}", e))?
     };
 

@@ -93,3 +93,29 @@ pub fn load_password(connection_name: &str) -> Option<String> {
         entry.get_password().ok()
     })
 }
+
+const API_KEY_KEYRING_USER: &str = "gemini_api_key";
+
+pub fn store_api_key(key: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, API_KEY_KEYRING_USER)
+        .map_err(|e| format!("Keyring error: {}", e))?;
+    entry
+        .set_password(key)
+        .map_err(|e| format!("Failed to store API key: {}", e))
+}
+
+pub fn load_api_key() -> Option<String> {
+    KEYRING_SERVICES.iter().find_map(|service| {
+        let entry = keyring::Entry::new(service, API_KEY_KEYRING_USER).ok()?;
+        entry.get_password().ok()
+    })
+}
+
+pub fn delete_api_key() -> Result<(), String> {
+    for service in KEYRING_SERVICES {
+        if let Ok(entry) = keyring::Entry::new(service, API_KEY_KEYRING_USER) {
+            let _ = entry.delete_credential();
+        }
+    }
+    Ok(())
+}

@@ -96,7 +96,11 @@ export default function TitleBar({
   onHideSettings,
 }: Props) {
   const isMac = isMacOS();
-  const hasAiKey = AiService.getStatus().hasKey;
+  const [hasAiKey, setHasAiKey] = useState(false);
+
+  useEffect(() => {
+    AiService.getStatus().then((s) => setHasAiKey(s.hasKey));
+  }, [hideAppContent]);
   const objectJumpIndexing = objectJumpIndexStatus?.indexing ?? false;
   const processedDatabaseCount = objectJumpIndexStatus?.processed_database_count ?? 0;
   const databaseCount = objectJumpIndexStatus?.database_count ?? 0;
