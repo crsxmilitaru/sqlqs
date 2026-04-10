@@ -28,7 +28,7 @@ import {
   placeholder as placeholderExt,
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { createEffect, onCleanup, onMount } from "solid-js";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { DatabaseSchemaCatalogEntry } from "../lib/types";
 
@@ -39,7 +39,8 @@ interface Props {
   readOnly?: boolean;
   theme: { id: string };
   currentDatabase?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: MouseEvent) => void;
+  onRef?: (handle: SqlEditorHandle) => void;
 }
 
 export interface SqlEditorHandle {
@@ -119,61 +120,49 @@ async function loadSchemaTableMap(database: string): Promise<SchemaTableMap> {
   return loader;
 }
 
-const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
-  { value, onChange, onExecute, readOnly, theme, currentDatabase, onContextMenu }: Props,
-  ref,
-) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  const schemaRef = useRef<{ database?: string; tables: SchemaTableMap }>({ tables: new Map() });
-  const currentDatabaseRef = useRef(currentDatabase);
+export default function SqlEditor(props: Props) {
+  let containerRef: HTMLDivElement | undefined;
+  let viewRef: EditorView | null = null;
+  let schemaRef: { database?: string; tables: SchemaTableMap } = { tables: new Map() };
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
-  const onChangeRef = useRef(onChange);
-  const onExecuteRef = useRef(onExecute);
-  onChangeRef.current = onChange;
-  onExecuteRef.current = onExecute;
-  currentDatabaseRef.current = currentDatabase;
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      focus() {
-        viewRef.current?.focus();
-      },
-      openCompletion() {
-        const view = viewRef.current;
-        if (!view) return;
-        view.focus();
-        startCompletion(view);
-      },
-      getSelectedText() {
-        const view = viewRef.current;
-        if (!view) return "";
-        const selection = view.state.selection.main;
-        if (selection.from === selection.to) return "";
-        return view.state.doc.sliceString(selection.from, selection.to);
-      },
-      scrollToBottom() {
-        const view = viewRef.current;
-        if (!view) return;
-        const end = view.state.doc.length;
-        view.dispatch({
-          selection: { anchor: end },
-          scrollIntoView: true,
-        });
-      },
-    }),
-    [],
-  );
+  const handle: SqlEditorHandle = {
+    focus() {
+      viewRef?.focus();
+    },
+    openCompletion() {
+      if (!viewRef) return;
+      viewRef.focus();
+      startCompletion(viewRef);
+    },
+    getSelectedText() {
+      if (!viewRef) return "";
+      const selection = viewRef.state.selection.main;
+      if (selection.from === selection.to) return "";
+      return viewRef.state.doc.sliceString(selection.from, selection.to);
+    },
+    scrollToBottom() {
+      if (!viewRef) return;
+      const end = viewRef.state.doc.length;
+      viewRef.dispatch({
+        selection: { anchor: end },
+        scrollIntoView: true,
+      });
+    },
+  };
 
-  const schemaCompletionSource = useCallback(async (context: CompletionContext) => {
-    const database = currentDatabaseRef.current;
+  onMount(() => {
+    props.onRef?.(handle);
+  });
+
+  const schemaCompletionSource = async (context: CompletionContext) => {
+    const database = props.currentDatabase;
     if (!database) {
       return null;
     }
 
-    let { tables } = schemaRef.current;
-    if (schemaRef.current.database !== database) {
+    let { tables } = schemaRef;
+    if (schemaRef.database !== database) {
       if (!context.explicit) {
         return null;
       }
@@ -185,11 +174,11 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         return null;
       }
 
-      if (currentDatabaseRef.current !== database) {
+      if (props.currentDatabase !== database) {
         return null;
       }
 
-      schemaRef.current = { database, tables };
+      schemaRef = { database, tables };
     }
 
     if (tables.size === 0) return null;
@@ -218,10 +207,14 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       options.push({ label: entry.name, type: "type", detail: entry.schema });
     }
     return { from, options };
-  }, []);
+  };
 
-  useEffect(() => {
-    if (!containerRef.current) return;
+  createEffect(() => {
+    const theme = props.theme;
+    const currentDatabase = props.currentDatabase;
+    const readOnly = props.readOnly;
+
+    if (!containerRef) return;
 
     const runExecute = (view: EditorView) => {
       const selection = view.state.selection.main;
@@ -229,7 +222,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         selection.from !== selection.to
           ? view.state.doc.sliceString(selection.from, selection.to)
           : undefined;
-      onExecuteRef.current(selectedSql);
+      props.onExecute(selectedSql);
       return true;
     };
 
@@ -244,7 +237,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        onChangeRef.current(update.state.doc.toString());
+        props.onChange(update.state.doc.toString());
       }
     });
     const placeholderText = readOnly && !currentDatabase
@@ -252,7 +245,7 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       : `-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`;
 
     const state = EditorState.create({
-      doc: value,
+      doc: props.value,
       extensions: [
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -295,49 +288,50 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 
     const view = new EditorView({
       state,
-      parent: containerRef.current,
+      parent: containerRef,
     });
 
-    viewRef.current = view;
+    viewRef = view;
 
-    return () => {
+    onCleanup(() => {
       view.destroy();
-      viewRef.current = null;
-    };
-  }, [currentDatabase, schemaCompletionSource, executeShortcutLabel, readOnly, theme]);
+      viewRef = null;
+    });
+  });
 
-  useEffect(() => {
-    const view = viewRef.current;
-    if (view && view.state.doc.toString() !== value) {
-      view.dispatch({
+  createEffect(() => {
+    const value = props.value;
+    if (viewRef && viewRef.state.doc.toString() !== value) {
+      viewRef.dispatch({
         changes: {
           from: 0,
-          to: view.state.doc.length,
+          to: viewRef.state.doc.length,
           insert: value,
         },
       });
     }
-  }, [value]);
+  });
 
-  useEffect(() => {
+  createEffect(() => {
+    const currentDatabase = props.currentDatabase;
     if (!currentDatabase) return;
     const cached = schemaCatalogCache.get(currentDatabase);
     if (cached) {
-      schemaRef.current = { database: currentDatabase, tables: cached };
+      schemaRef = { database: currentDatabase, tables: cached };
       return;
     }
 
-    schemaRef.current = { database: currentDatabase, tables: new Map() };
+    schemaRef = { database: currentDatabase, tables: new Map() };
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void loadSchemaTableMap(currentDatabase)
         .then((tables) => {
-          if (cancelled || currentDatabaseRef.current !== currentDatabase) {
+          if (cancelled || props.currentDatabase !== currentDatabase) {
             return;
           }
 
-          schemaRef.current = { database: currentDatabase, tables };
+          schemaRef = { database: currentDatabase, tables };
         })
         .catch((err) => {
           if (!cancelled) {
@@ -346,19 +340,18 @@ const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         });
     }, 150);
 
-    return () => {
+    onCleanup(() => {
       cancelled = true;
       window.clearTimeout(timer);
-    };
-  }, [currentDatabase]);
+    });
+  });
 
-  useEffect(() => {
+  createEffect(() => {
+    const currentDatabase = props.currentDatabase;
     if (!currentDatabase) {
-      schemaRef.current = { database: undefined, tables: new Map() };
+      schemaRef = { database: undefined, tables: new Map() };
     }
-  }, [currentDatabase]);
+  });
 
-  return <div ref={containerRef} onContextMenu={onContextMenu} className="h-full min-h-0 w-full relative" />;
-});
-
-export default SqlEditor;
+  return <div ref={containerRef} onContextMenu={props.onContextMenu} class="h-full min-h-0 w-full relative" />;
+}

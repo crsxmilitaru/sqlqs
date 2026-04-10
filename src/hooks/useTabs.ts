@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createSignal, createEffect } from "solid-js";
 import { loadPreferences, loadSavedTabs, saveTabs } from "../lib/settings";
 import { generateTabTitle } from "../lib/sql";
 import type { QueryTab } from "../lib/types";
@@ -17,7 +17,7 @@ function createTab(sql = ""): QueryTab {
 }
 
 export function useTabs() {
-  const [tabs, setTabs] = useState<QueryTab[]>(() => {
+  const [tabs, setTabs] = createSignal<QueryTab[]>((() => {
     const prefs = loadPreferences();
     if (!prefs.persistTabs) return [];
     try {
@@ -33,17 +33,22 @@ export function useTabs() {
     } catch {
       return [];
     }
+  })());
+
+  const [activeTabId, setActiveTabId] = createSignal(tabs()[0]?.id ?? "");
+  let tabsSnapshot = tabs();
+
+  // Keep tabsSnapshot in sync
+  createEffect(() => {
+    tabsSnapshot = tabs();
   });
 
-  const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? "");
-  const tabsRef = useRef<QueryTab[]>(tabs);
-  tabsRef.current = tabs;
-
-  useEffect(() => {
+  createEffect(() => {
+    const currentTabs = tabs();
     const prefs = loadPreferences();
     if (!prefs.persistTabs) return;
     saveTabs(
-      tabs.map((t) => ({
+      currentTabs.map((t) => ({
         title: t.title,
         sql: t.sql,
         userTitle: t.userTitle,
@@ -51,11 +56,11 @@ export function useTabs() {
         pinned: t.pinned,
       })),
     );
-  }, [tabs]);
+  });
 
-  const addTab = useCallback((sql: string = "", title?: string, sourceId?: string, userTitle?: boolean) => {
+  const addTab = (sql: string = "", title?: string, sourceId?: string, userTitle?: boolean) => {
     if (sourceId) {
-      const existing = tabsRef.current.find((t) => t.sourceId === sourceId);
+      const existing = tabsSnapshot.find((t) => t.sourceId === sourceId);
       if (existing) {
         setActiveTabId(existing.id);
         return existing.id;
@@ -85,22 +90,22 @@ export function useTabs() {
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
     return tab.id;
-  }, []);
+  };
 
-  const closeTab = useCallback((tabId: string) => {
+  const closeTab = (tabId: string) => {
     setTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
       if (next.length === 0) {
         setActiveTabId("");
-      } else if (activeTabId === tabId) {
+      } else if (activeTabId() === tabId) {
         const lastTab = next[next.length - 1];
         setActiveTabId(lastTab ? lastTab.id : "");
       }
       return next;
     });
-  }, [activeTabId]);
+  };
 
-  const closeAllTabs = useCallback(() => {
+  const closeAllTabs = () => {
     setTabs((prev) => {
       const pinned = prev.filter((t) => t.pinned);
       if (pinned.length > 0) {
@@ -110,20 +115,20 @@ export function useTabs() {
       setActiveTabId("");
       return [];
     });
-  }, []);
+  };
 
-  const closeOtherTabs = useCallback((tabId: string) => {
+  const closeOtherTabs = (tabId: string) => {
     setTabs((prev) => prev.filter((t) => t.id === tabId || t.pinned));
     setActiveTabId(tabId);
-  }, []);
+  };
 
-  const updateTab = useCallback((tabId: string, updates: Partial<QueryTab>) => {
+  const updateTab = (tabId: string, updates: Partial<QueryTab>) => {
     setTabs((prev) =>
       prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
     );
-  }, []);
+  };
 
-  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
+  const reorderTabs = (fromIndex: number, toIndex: number) => {
     setTabs((prev) => {
       if (fromIndex === toIndex) return prev;
       const next = [...prev];
@@ -131,10 +136,10 @@ export function useTabs() {
       next.splice(toIndex, 0, moved);
       return next;
     });
-  }, []);
+  };
 
-  const duplicateTab = useCallback((tabId: string) => {
-    const tab = tabsRef.current.find((t) => t.id === tabId);
+  const duplicateTab = (tabId: string) => {
+    const tab = tabsSnapshot.find((t) => t.id === tabId);
     if (!tab) return "";
     const newTab = createTab(tab.sql);
     newTab.title = tab.title;
@@ -142,9 +147,9 @@ export function useTabs() {
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
     return newTab.id;
-  }, []);
+  };
 
-  const togglePin = useCallback((tabId: string) => {
+  const togglePin = (tabId: string) => {
     setTabs((prev) => {
       const tabIndex = prev.findIndex((t) => t.id === tabId);
       if (tabIndex === -1) return prev;
@@ -159,7 +164,7 @@ export function useTabs() {
 
       return next;
     });
-  }, []);
+  };
 
   return {
     tabs,

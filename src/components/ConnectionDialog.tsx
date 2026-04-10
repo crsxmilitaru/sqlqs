@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createSignal, onMount } from "solid-js";
 import { isMacOS } from "../lib/platform";
 import type { AppSettings, ConnectionConfig, SavedConnection } from "../lib/types";
 import Dropdown from "./Dropdown";
@@ -10,33 +10,31 @@ interface Props {
   onClose: () => void;
 }
 
-export default function ConnectionDialog({ onConnect, onClose }: Props) {
+export default function ConnectionDialog(props: Props) {
   const supportsWindowsAuth = !isMacOS();
-  const [server, setServer] = useState("localhost");
-  const [database, setDatabase] = useState("");
-  const [username, setUsername] = useState("sa");
-  const [password, setPassword] = useState("");
-  const [useWindowsAuth, setUseWindowsAuth] = useState(false);
-  const [encrypt, setEncrypt] = useState(false);
-  const [trustCert, setTrustCert] = useState(true);
-  const [saveName, setSaveName] = useState("");
-  const [rememberPassword, setRememberPassword] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
-  const [savedConnections, setSavedConnections] = useState<SavedConnection[]>([]);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState("");
-  const [visible, setVisible] = useState(false);
+  const [server, setServer] = createSignal("localhost");
+  const [database, setDatabase] = createSignal("");
+  const [username, setUsername] = createSignal("sa");
+  const [password, setPassword] = createSignal("");
+  const [useWindowsAuth, setUseWindowsAuth] = createSignal(false);
+  const [encrypt, setEncrypt] = createSignal(false);
+  const [trustCert, setTrustCert] = createSignal(true);
+  const [saveName, setSaveName] = createSignal("");
+  const [rememberPassword, setRememberPassword] = createSignal(false);
+  const [keepLoggedIn, setKeepLoggedIn] = createSignal(true);
+  const [savedConnections, setSavedConnections] = createSignal<SavedConnection[]>([]);
+  const [connecting, setConnecting] = createSignal(false);
+  const [error, setError] = createSignal("");
+  const [visible, setVisible] = createSignal(false);
 
-  useEffect(() => {
+  onMount(() => {
     loadSavedConnections();
     requestAnimationFrame(() => setVisible(true));
-  }, []);
 
-  useEffect(() => {
     if (!supportsWindowsAuth) {
       setUseWindowsAuth(false);
     }
-  }, [supportsWindowsAuth]);
+  });
 
   async function loadSavedConnections() {
     try {
@@ -85,30 +83,30 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
     return !winAuth && user.trim() ? `${user.trim()}@${s}` : s;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     setConnecting(true);
     setError("");
 
     const config: ConnectionConfig = {
-      server,
-      database: database || undefined,
-      username: useWindowsAuth ? undefined : username,
-      password: useWindowsAuth ? undefined : password,
-      use_windows_auth: useWindowsAuth,
-      encrypt,
-      trust_server_certificate: trustCert,
+      server: server(),
+      database: database() || undefined,
+      username: useWindowsAuth() ? undefined : username(),
+      password: useWindowsAuth() ? undefined : password(),
+      use_windows_auth: useWindowsAuth(),
+      encrypt: encrypt(),
+      trust_server_certificate: trustCert(),
     };
 
-    const trimmedSaveName = saveName.trim();
-    const generatedSaveName = database.trim()
-      ? `${server.trim()} (${database.trim()})`
-      : server.trim();
-    const effectiveSaveName = keepLoggedIn
+    const trimmedSaveName = saveName().trim();
+    const generatedSaveName = database().trim()
+      ? `${server().trim()} (${database().trim()})`
+      : server().trim();
+    const effectiveSaveName = keepLoggedIn()
       ? (trimmedSaveName || generatedSaveName)
       : (trimmedSaveName || null);
     const effectiveRememberPassword =
-      rememberPassword || (keepLoggedIn && !useWindowsAuth);
+      rememberPassword() || (keepLoggedIn() && !useWindowsAuth());
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -116,12 +114,12 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
         config,
         saveConnection: effectiveSaveName,
         rememberPassword: effectiveRememberPassword,
-        keepLoggedIn,
+        keepLoggedIn: keepLoggedIn(),
       });
-      if (keepLoggedIn && !trimmedSaveName) {
+      if (keepLoggedIn() && !trimmedSaveName) {
         setSaveName(generatedSaveName);
       }
-      onConnect(config);
+      props.onConnect(config);
     } catch (err: any) {
       setError(String(err));
     } finally {
@@ -131,37 +129,37 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
 
   return (
     <div
-      className="dialog-overlay"
-      data-visible={visible}
-      onMouseDown={onClose}
+      class="dialog-overlay"
+      data-visible={visible()}
+      onMouseDown={props.onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="dialog-surface w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl"
+        class="dialog-surface w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
-          <h2 className="text-m font-semibold text-text">Connect to Server</h2>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
+          <h2 class="text-m font-semibold text-text">Connect to Server</h2>
           <Tooltip content="Close" placement="bottom">
             <button
-              onClick={onClose}
-              className="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
+              onClick={props.onClose}
+              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
             >
               &times;
             </button>
           </Tooltip>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
-          {savedConnections.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-s font-medium text-text-muted select-none">Saved Connections</label>
+        <form onSubmit={handleSubmit} class="p-6 flex flex-col gap-4">
+          {savedConnections().length > 0 && (
+            <div class="flex flex-col gap-1.5">
+              <label class="text-s font-medium text-text-muted select-none">Saved Connections</label>
               <Dropdown
-                value={saveName}
-                options={savedConnections.map((c) => ({ value: c.name, label: c.name }))}
+                value={saveName()}
+                options={savedConnections().map((c) => ({ value: c.name, label: c.name }))}
                 onChange={(val) => {
-                  const conn = savedConnections.find((c) => c.name === val);
+                  const conn = savedConnections().find((c) => c.name === val);
                   if (conn) loadConnection(conn);
                 }}
                 placeholder="-- Select --"
@@ -169,112 +167,112 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             </div>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-s font-medium text-text-muted select-none">Server</label>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-s font-medium text-text-muted select-none">Server</label>
             <Input
-              value={server}
-              onChange={(e) => {
-                const val = e.target.value;
+              value={server()}
+              onInput={(e) => {
+                const val = e.currentTarget.value;
                 setServer(val);
-                setSaveName(generateSaveName(val, username, useWindowsAuth));
+                setSaveName(generateSaveName(val, username(), useWindowsAuth()));
               }}
               placeholder="hostname or hostname\instance"
               required
-              autoFocus
+              autofocus
             />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-s font-medium text-text-muted select-none">Database (optional)</label>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-s font-medium text-text-muted select-none">Database (optional)</label>
             <Input
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
+              value={database()}
+              onInput={(e) => setDatabase(e.currentTarget.value)}
               placeholder="master"
             />
           </div>
 
           {supportsWindowsAuth && (
-            <label className="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
+            <label class="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
               <input
                 type="checkbox"
-                checked={useWindowsAuth}
-                onChange={(e) => setUseWindowsAuth(e.target.checked)}
+                checked={useWindowsAuth()}
+                onChange={(e) => setUseWindowsAuth(e.currentTarget.checked)}
               />
               <span>Windows Authentication</span>
             </label>
           )}
 
-          {!useWindowsAuth && (
-            <div className="flex gap-4 mt-0.5">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-s font-medium text-text-muted select-none">Username</label>
+          {!useWindowsAuth() && (
+            <div class="flex gap-4 mt-0.5">
+              <div class="flex-1 flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Username</label>
                 <Input
-                  value={username}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                  value={username()}
+                  onInput={(e) => {
+                    const val = e.currentTarget.value;
                     setUsername(val);
-                    setSaveName(generateSaveName(server, val, useWindowsAuth));
+                    setSaveName(generateSaveName(server(), val, useWindowsAuth()));
                   }}
                 />
               </div>
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-s font-medium text-text-muted select-none">Password</label>
+              <div class="flex-1 flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Password</label>
                 <Input
                   type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  value={password()}
+                  onInput={(e) => setPassword(e.currentTarget.value)}
                 />
               </div>
             </div>
           )}
 
-          <div className="flex gap-6 mt-1.5 mb-1">
-            <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+          <div class="flex gap-6 mt-1.5 mb-1">
+            <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={encrypt}
-                onChange={(e) => setEncrypt(e.target.checked)}
+                checked={encrypt()}
+                onChange={(e) => setEncrypt(e.currentTarget.checked)}
               />
               <span>Encrypt</span>
             </label>
-            <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+            <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={trustCert}
-                onChange={(e) => setTrustCert(e.target.checked)}
+                checked={trustCert()}
+                onChange={(e) => setTrustCert(e.currentTarget.checked)}
               />
               <span>Trust Server Certificate</span>
             </label>
           </div>
 
-          <div className="border-t border-border mt-1 pt-4 flex flex-col gap-3">
-            <div className="flex gap-4 items-start">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-s font-medium text-text-muted select-none">Save as (optional)</label>
+          <div class="border-t border-border mt-1 pt-4 flex flex-col gap-3">
+            <div class="flex gap-4 items-start">
+              <div class="flex-1 flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Save as (optional)</label>
                 <Input
-                  value={saveName}
-                  onChange={(e) => setSaveName(e.target.value)}
+                  value={saveName()}
+                  onInput={(e) => setSaveName(e.currentTarget.value)}
                   placeholder="My Server"
                 />
               </div>
-              <div className="flex flex-col gap-2 mt-[22px]">
-                <label className={`flex items-center gap-2.5 text-m text-text-muted select-none ${keepLoggedIn ? "opacity-50 cursor-default" : "cursor-pointer"}`}>
+              <div class="flex flex-col gap-2 mt-[22px]">
+                <label class={`flex items-center gap-2.5 text-m text-text-muted select-none ${keepLoggedIn() ? "opacity-50 cursor-default" : "cursor-pointer"}`}>
                   <input
                     type="checkbox"
-                    checked={rememberPassword || keepLoggedIn}
-                    disabled={keepLoggedIn}
-                    onChange={(e) => setRememberPassword(e.target.checked)}
+                    checked={rememberPassword() || keepLoggedIn()}
+                    disabled={keepLoggedIn()}
+                    onChange={(e) => setRememberPassword(e.currentTarget.checked)}
                   />
                   <span>Remember password</span>
                 </label>
-                <label className="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+                <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={keepLoggedIn}
+                    checked={keepLoggedIn()}
                     onChange={(e) => {
-                      const next = e.target.checked;
+                      const next = e.currentTarget.checked;
                       setKeepLoggedIn(next);
-                      if (next && !useWindowsAuth) {
+                      if (next && !useWindowsAuth()) {
                         setRememberPassword(true);
                       }
                     }}
@@ -285,26 +283,26 @@ export default function ConnectionDialog({ onConnect, onClose }: Props) {
             </div>
           </div>
 
-          {error && (
-            <div className="text-error text-m bg-error/10 border border-error/30 rounded-lg px-3 py-2 mt-2">
-              {error}
+          {error() && (
+            <div class="text-error text-m bg-error/10 border border-error/30 rounded-lg px-3 py-2 mt-2">
+              {error()}
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-5 border-t border-border mt-1">
+          <div class="flex justify-end gap-3 pt-5 border-t border-border mt-1">
             <button
               type="button"
-              onClick={onClose}
-              className="btn btn-secondary px-6 py-1.5"
+              onClick={props.onClose}
+              class="btn btn-secondary px-6 py-1.5"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={connecting}
-              className="btn btn-primary px-6 py-1.5"
+              disabled={connecting()}
+              class="btn btn-primary px-6 py-1.5"
             >
-              {connecting ? "Connecting..." : "Connect"}
+              {connecting() ? "Connecting..." : "Connect"}
             </button>
           </div>
         </form>

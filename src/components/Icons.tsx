@@ -1,55 +1,55 @@
-export function IconDatabase({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-database fa-fw text-xs ${className || ""}`} />;
+export function IconDatabase(props: { class?: string }) {
+  return <i class={`fa-solid fa-database fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconTable({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-table fa-fw text-xs ${className || ""}`} />;
+export function IconTable(props: { class?: string }) {
+  return <i class={`fa-solid fa-table fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconView({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-table-list fa-fw text-xs ${className || ""}`} />;
+export function IconView(props: { class?: string }) {
+  return <i class={`fa-solid fa-table-list fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconColumn({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-columns fa-fw text-2xs ${className || ""}`} />;
+export function IconColumn(props: { class?: string }) {
+  return <i class={`fa-solid fa-columns fa-fw text-2xs ${props.class || ""}`} />;
 }
 
-export function IconProcedure({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-gears fa-fw text-xs ${className || ""}`} />;
+export function IconProcedure(props: { class?: string }) {
+  return <i class={`fa-solid fa-gears fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconFunction({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-square-root-variable fa-fw text-xs ${className || ""}`} />;
+export function IconFunction(props: { class?: string }) {
+  return <i class={`fa-solid fa-square-root-variable fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconTrigger({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-bolt fa-fw text-xs ${className || ""}`} />;
+export function IconTrigger(props: { class?: string }) {
+  return <i class={`fa-solid fa-bolt fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconType({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-shapes fa-fw text-xs ${className || ""}`} />;
+export function IconType(props: { class?: string }) {
+  return <i class={`fa-solid fa-shapes fa-fw text-xs ${props.class || ""}`} />;
 }
 
-export function IconPlay({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-play fa-fw ${className || ""}`} />;
+export function IconPlay(props: { class?: string }) {
+  return <i class={`fa-solid fa-play fa-fw ${props.class || ""}`} />;
 }
 
-export function IconChevronRight({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-chevron-right fa-fw text-3xs ${className || ""}`} />;
+export function IconChevronRight(props: { class?: string }) {
+  return <i class={`fa-solid fa-chevron-right fa-fw text-3xs ${props.class || ""}`} />;
 }
 
-export function IconCopy({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-copy fa-fw ${className || ""}`} />;
+export function IconCopy(props: { class?: string }) {
+  return <i class={`fa-solid fa-copy fa-fw ${props.class || ""}`} />;
 }
 
-export function IconFormat({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-align-left fa-fw ${className || ""}`} />;
+export function IconFormat(props: { class?: string }) {
+  return <i class={`fa-solid fa-align-left fa-fw ${props.class || ""}`} />;
 }
 
-export function IconSave({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-bookmark fa-fw ${className || ""}`} />;
+export function IconSave(props: { class?: string }) {
+  return <i class={`fa-solid fa-bookmark fa-fw ${props.class || ""}`} />;
 }
 
-export function IconFloppy({ className }: { className?: string }) {
-  return <i className={`fa-solid fa-floppy-disk fa-fw ${className || ""}`} />;
+export function IconFloppy(props: { class?: string }) {
+  return <i class={`fa-solid fa-floppy-disk fa-fw ${props.class || ""}`} />;
 }

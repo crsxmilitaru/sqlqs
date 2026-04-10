@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createSignal, createEffect, onCleanup, Show } from "solid-js";
+import { Portal } from "solid-js/web";
+import type { JSX } from "solid-js";
 
 interface Props {
   content: string;
-  children: React.ReactElement;
+  children: JSX.Element;
   delay?: number;
   placement?: "top" | "bottom" | "left" | "right";
 }
@@ -51,90 +52,66 @@ function computePosition(
   return { top, left };
 }
 
-export default function Tooltip({ content, children, delay = 500, placement = "top" }: Props) {
-  const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState<TooltipPos>({ top: 0, left: 0 });
-  const anchorRef = useRef<HTMLElement | null>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+export default function Tooltip(props: Props) {
+  let wrapperRef: HTMLSpanElement | undefined;
+  let tooltipRef: HTMLDivElement | undefined;
+  const [visible, setVisible] = createSignal(false);
+  const [pos, setPos] = createSignal<TooltipPos>({ top: 0, left: 0 });
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const show = useCallback(() => {
-    timerRef.current = setTimeout(() => {
-      setVisible(true);
-    }, delay);
-  }, [delay]);
+  const delay = () => props.delay ?? 500;
+  const placement = () => props.placement ?? "top";
 
-  const hide = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  function show() {
+    timer = setTimeout(() => setVisible(true), delay());
+  }
+
+  function hide() {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
     }
     setVisible(false);
-  }, []);
+  }
 
-  useEffect(() => {
-    if (!visible || !anchorRef.current || !tooltipRef.current) return;
-    const anchorRect = anchorRef.current.getBoundingClientRect();
-    const tooltipRect = tooltipRef.current.getBoundingClientRect();
-    setPos(computePosition(anchorRect, tooltipRect, placement));
-  }, [visible, placement]);
+  createEffect(() => {
+    if (!visible()) return;
+    const anchor = wrapperRef?.firstElementChild;
+    if (!anchor || !tooltipRef) return;
+    const anchorRect = anchor.getBoundingClientRect();
+    const tooltipRect = tooltipRef.getBoundingClientRect();
+    setPos(computePosition(anchorRect, tooltipRect, placement()));
+  });
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const child = children as React.ReactElement<React.HTMLAttributes<HTMLElement>>;
-
-  const cloned = {
-    ...child,
-    props: {
-      ...child.props,
-      ref: (el: HTMLElement | null) => {
-        anchorRef.current = el;
-        const originalRef = (child as any).ref;
-        if (typeof originalRef === "function") originalRef(el);
-        else if (originalRef && "current" in originalRef) originalRef.current = el;
-      },
-      onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
-        show();
-        child.props.onMouseEnter?.(e);
-      },
-      onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
-        hide();
-        child.props.onMouseLeave?.(e);
-      },
-      onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
-        hide();
-        (child.props as any).onPointerDown?.(e);
-      },
-      onFocus: (e: React.FocusEvent<HTMLElement>) => {
-        show();
-        child.props.onFocus?.(e);
-      },
-      onBlur: (e: React.FocusEvent<HTMLElement>) => {
-        hide();
-        child.props.onBlur?.(e);
-      },
-    },
-  };
+  onCleanup(() => {
+    if (timer) clearTimeout(timer);
+  });
 
   return (
     <>
-      {cloned}
-      {visible &&
-        createPortal(
+      <span
+        ref={wrapperRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onPointerDown={hide}
+        onFocus={show}
+        onBlur={hide}
+        style={{ display: "contents" }}
+      >
+        {props.children}
+      </span>
+      <Show when={visible()}>
+        <Portal mount={document.body}>
           <div
             ref={tooltipRef}
-            className="tooltip"
-            style={{ top: pos.top, left: pos.left }}
+            class="tooltip"
+            style={{ top: `${pos().top}px`, left: `${pos().left}px` }}
             role="tooltip"
           >
-            {content}
-          </div>,
-          document.body
-        )}
+            {props.content}
+          </div>
+        </Portal>
+      </Show>
     </>
   );
 }

@@ -1,27 +1,23 @@
-import { forwardRef } from "react";
+import { splitProps } from "solid-js";
+import type { JSX } from "solid-js";
 
-interface Props extends React.InputHTMLAttributes<HTMLInputElement> {}
+type Props = JSX.InputHTMLAttributes<HTMLInputElement>;
 
-const Input = forwardRef<HTMLInputElement, Props>(
-  ({ className = "", disabled, ...rest }, ref) => {
-    return (
-      <input
-        ref={ref}
-        disabled={disabled}
-        className={`
+export default function Input(props: Props) {
+  const [local, rest] = splitProps(props, ["class", "disabled", "ref"]);
+  return (
+    <input
+      ref={local.ref}
+      disabled={local.disabled}
+      class={`
           flex items-center px-2.5 h-[32px] text-m rounded-md w-full
           bg-white/[0.08] border border-white/10 transition-all
           text-text placeholder-text-muted
           focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
-          ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-white/[0.12] hover:border-white/20"}
-          ${className}
+          ${local.disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-white/[0.12] hover:border-white/20"}
+          ${local.class || ""}
         `}
-        {...rest}
-      />
-    );
-  }
-);
-
-Input.displayName = "Input";
-
-export default Input;
+      {...rest}
+    />
+  );
+}

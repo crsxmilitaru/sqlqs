@@ -1,5 +1,5 @@
 export function joinPath(...segments: string[]): string {
-  return segments
+  const joined = segments
     .filter(Boolean)
     .map((segment, index) => {
       const normalized = segment.replace(/\\/g, "/");
@@ -8,6 +8,11 @@ export function joinPath(...segments: string[]): string {
         : normalized.replace(/^\/+|\/+$/g, "");
     })
     .join("/");
+  // Preserve native backslashes on Windows paths (e.g. C:/Users → C:\Users)
+  if (/^[A-Za-z]:/.test(joined)) {
+    return joined.replace(/\//g, "\\");
+  }
+  return joined;
 }
 
 export function getSavedQueriesDir(documentsPath: string): string {

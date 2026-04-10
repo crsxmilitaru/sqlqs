@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
@@ -602,11 +603,17 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
     drop(lock);
     reset_server_object_index(&state).await;
 
+    let databases = {
+        let mut lock = state.client.lock().await;
+        let client = lock.as_mut().unwrap();
+        db::get_databases(client).await.unwrap_or_default()
+    };
+
     Ok(AutoConnectResult {
         connected: true,
         server: Some(config.server),
         database: config.database,
-        databases: vec![],
+        databases,
     })
 }
 
@@ -698,17 +705,13 @@ async fn get_object_definition(
 #[cfg(target_os = "windows")]
 #[tauri::command]
 fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
-    use tauri::Manager;
     use windows::Win32::Foundation::{BOOL, HWND};
     use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
 
-    let native_window = window.get_webview_window("main")
-        .ok_or("Window not found")?;
-    let hwnd = native_window.hwnd().map_err(|e| e.to_string())?;
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
     let value = BOOL::from(dark);
 
     unsafe {
-        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
         DwmSetWindowAttribute(
             HWND(hwnd.0 as *mut _),
             windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(20),
@@ -719,6 +722,25 @@ fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn minimize_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn maximize_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.is_maximized().unwrap_or(false) {
+        window.unmaximize().map_err(|e| e.to_string())
+    } else {
+        window.maximize().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -745,6 +767,18 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            let window = app.get_webview_window("main").unwrap();
+            
+            // Show window after a small delay to ensure it's rendered
+            let window_clone = window.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                window_clone.show().ok();
+            });
+
+            Ok(())
+        })
         .manage(AppState {
             client: Arc::new(Mutex::new(None)),
             cancel_token: Arc::new(Mutex::new(None)),
@@ -781,6 +815,9 @@ pub fn run() {
             set_mica_theme,
             store_api_key,
             load_api_key,
+            minimize_window,
+            maximize_window,
+            close_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

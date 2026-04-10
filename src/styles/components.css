@@ -130,18 +130,18 @@
 
   /* Tab appear animation */
   .tab-animate-in {
-    animation: tab-slide-in 0.2s var(--ease-out) backwards;
+    animation: tab-slide-in 0.2s var(--ease-entry) backwards;
   }
 
   @keyframes tab-slide-in {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.96);
+      transform: translateX(4px);
     }
 
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: translateX(0);
     }
   }
 
@@ -470,21 +470,27 @@
     overflow: hidden;
     color: var(--color-text);
     font-size: var(--text-m);
-    transition: background var(--duration-normal) var(--ease-in-out), transform var(--duration-fast) ease;
-    animation: tree-node-in var(--duration-normal) var(--ease-in-out) backwards;
+    transition: background 0.18s var(--ease-in-out), opacity 0.18s var(--ease-in-out);
+    animation: tree-node-in 0.2s var(--ease-entry) backwards;
     content-visibility: auto;
     contain-intrinsic-height: auto 28px;
   }
 
+  /* Stagger children for a subtle cascade */
+  .accordion-inner > :nth-child(n) { animation-delay: 0ms; }
+  .accordion-inner > :nth-child(2) { animation-delay: 15ms; }
+  .accordion-inner > :nth-child(3) { animation-delay: 30ms; }
+  .accordion-inner > :nth-child(4) { animation-delay: 45ms; }
+  .accordion-inner > :nth-child(5) { animation-delay: 55ms; }
+  .accordion-inner > :nth-child(n+6) { animation-delay: 60ms; }
+
   @keyframes tree-node-in {
     from {
       opacity: 0;
-      transform: translateY(-4px);
     }
 
     to {
       opacity: 1;
-      transform: translateY(0);
     }
   }
 
@@ -989,17 +995,17 @@
   }
 
   .animate-popover-in {
-    animation: popover-in 0.18s var(--ease-entry) forwards;
+    animation: popover-in 0.15s var(--ease-entry) forwards;
   }
 
   @keyframes popover-in {
     from {
       opacity: 0;
-      transform: scale(0.96) translateY(4px);
+      transform: translateY(3px);
     }
     to {
       opacity: 1;
-      transform: scale(1) translateY(0);
+      transform: translateY(0);
     }
   }
 }

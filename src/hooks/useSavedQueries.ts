@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { createSignal, createEffect } from "solid-js";
 import { getSavedQueriesDir, joinPath } from "../lib/path";
 
 export interface SavedQuery {
@@ -16,10 +16,6 @@ function generateId(): string {
 }
 
 function loadSavedQueries(): SavedQuery[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
   try {
     const raw = localStorage.getItem(SAVED_QUERIES_STORAGE_KEY);
     if (!raw) {
@@ -45,24 +41,21 @@ function loadSavedQueries(): SavedQuery[] {
 }
 
 export function useSavedQueries() {
-  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>(() => loadSavedQueries());
+  const [savedQueries, setSavedQueries] = createSignal<SavedQuery[]>(loadSavedQueries());
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
+  createEffect(() => {
+    const queries = savedQueries();
     try {
-      if (savedQueries.length === 0) {
+      if (queries.length === 0) {
         localStorage.removeItem(SAVED_QUERIES_STORAGE_KEY);
         return;
       }
 
-      localStorage.setItem(SAVED_QUERIES_STORAGE_KEY, JSON.stringify(savedQueries));
+      localStorage.setItem(SAVED_QUERIES_STORAGE_KEY, JSON.stringify(queries));
     } catch { }
-  }, [savedQueries]);
+  });
 
-  const saveQuery = useCallback(async (title: string, sql: string): Promise<SavedQuery | null> => {
+  const saveQuery = async (title: string, sql: string): Promise<SavedQuery | null> => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
 
@@ -93,11 +86,11 @@ export function useSavedQueries() {
       console.error("Failed to save query:", err);
       return null;
     }
-  }, []);
+  };
 
-  const deleteQuery = useCallback(async (id: string): Promise<boolean> => {
+  const deleteQuery = async (id: string): Promise<boolean> => {
     try {
-      const query = savedQueries.find((q) => q.id === id);
+      const query = savedQueries().find((q) => q.id === id);
       if (!query) {
         return false;
       }
@@ -108,9 +101,9 @@ export function useSavedQueries() {
       console.error("Failed to delete saved query:", err);
       return false;
     }
-  }, [savedQueries]);
+  };
 
-  const loadQueryContent = useCallback(async (filePath: string): Promise<string | null> => {
+  const loadQueryContent = async (filePath: string): Promise<string | null> => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const result = await invoke<{ content: string }>("read_sql_file", { path: filePath });
@@ -119,7 +112,7 @@ export function useSavedQueries() {
       console.error("Failed to load query content:", err);
       return null;
     }
-  }, []);
+  };
 
   return {
     savedQueries,

@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-shell";
-import { type MouseEvent, useEffect, useState } from "react";
+import { createSignal, onMount } from "solid-js";
+import type { JSX } from "solid-js";
 import { AiService } from "../lib/ai";
 import {
   DEFAULT_MAX_HISTORY,
@@ -22,7 +23,7 @@ interface Props {
   updateMessage: string | null;
   updateMessageTone: UpdateMessageTone;
   onThemeChange?: (theme: { id: string }) => void;
-  renderLayout?: (sidebar: React.ReactNode, content: React.ReactNode) => React.ReactNode;
+  renderLayout?: (sidebar: JSX.Element, content: JSX.Element) => JSX.Element;
 }
 
 type Tab = "general" | "appearance" | "ai" | "about";
@@ -36,73 +37,64 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 const REPOSITORY_URL = "https://github.com/crsxmilitaru/sqlqs";
 
-export default function SettingsView({
-  onClose,
-  version,
-  onCheckForUpdates,
-  checkingForUpdates,
-  updateMessage,
-  updateMessageTone,
-  onThemeChange,
-  renderLayout,
-}: Props) {
+export default function SettingsView(props: Props) {
   const currentTheme = loadTheme();
   const prefs = loadPreferences();
-  const [activeTab, setActiveTab] = useState<Tab>("general");
-  const [themeId, setThemeId] = useState(currentTheme.id);
-  const [persistTabs, setPersistTabs] = useState(prefs.persistTabs);
-  const [maxHistory, setMaxHistory] = useState(prefs.maxHistoryItems);
+  const [activeTab, setActiveTab] = createSignal<Tab>("general");
+  const [themeId, setThemeId] = createSignal(currentTheme.id);
+  const [persistTabs, setPersistTabs] = createSignal(prefs.persistTabs);
+  const [maxHistory, setMaxHistory] = createSignal(prefs.maxHistoryItems);
 
-  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>({ hasKey: false });
-  const [apiKey, setApiKey] = useState("");
-  const [modelId, setModelId] = useState(AiService.getModel());
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [visible, setVisible] = useState(false);
+  const [geminiStatus, setGeminiStatus] = createSignal<GeminiStatus>({ hasKey: false });
+  const [apiKey, setApiKey] = createSignal("");
+  const [modelId, setModelId] = createSignal(AiService.getModel());
+  const [showApiKey, setShowApiKey] = createSignal(false);
+  const [visible, setVisible] = createSignal(false);
 
-  useEffect(() => {
+  onMount(() => {
     requestAnimationFrame(() => setVisible(true));
-  }, []);
+  });
 
-  useEffect(() => {
+  onMount(() => {
     AiService.getApiKey().then((key) => {
       if (key) setApiKey(key);
     });
     AiService.getStatus().then(setGeminiStatus);
-  }, []);
-
-  useEffect(() => {
-    saveTheme(themeId);
-    onThemeChange?.({ id: themeId });
-  }, [themeId, onThemeChange]);
+  });
 
   const handleSaveAiSettings = async () => {
-    await AiService.setApiKey(apiKey);
-    AiService.setModel(modelId);
+    await AiService.setApiKey(apiKey());
+    AiService.setModel(modelId());
     setGeminiStatus(await AiService.getStatus());
   };
 
-  const updateMessageClass =
-    updateMessageTone === "error"
+  const updateMessageClass = () =>
+    props.updateMessageTone === "error"
       ? "text-error"
-      : updateMessageTone === "success"
+      : props.updateMessageTone === "success"
         ? "text-success"
         : "text-text-muted";
 
-  async function handleOpenRepository(event: MouseEvent<HTMLAnchorElement>) {
+  async function handleOpenRepository(event: MouseEvent) {
     event.preventDefault();
     await open(REPOSITORY_URL);
   }
 
+  function handleThemeChange(newThemeId: string) {
+    setThemeId(newThemeId);
+    saveTheme(newThemeId);
+    props.onThemeChange?.({ id: newThemeId });
+  }
+
   const sidebarNode = (
     <>
-        <div className="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pt-4 pb-4">
+        <div class="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pt-4 pb-4">
             {TABS.map(tab => (
               <button
-                key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`settings-nav-btn ${activeTab === tab.id ? "active" : ""}`}
+                class={`settings-nav-btn ${activeTab() === tab.id ? "active" : ""}`}
               >
-                <i className={tab.icon} />
+                <i class={tab.icon} />
                 {tab.label}
               </button>
             ))}
@@ -111,52 +103,52 @@ export default function SettingsView({
   );
 
   const contentNode = (
-    <div className="max-w-3xl w-full mx-auto flex flex-col pb-10">
-          {activeTab === "general" && (
-            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
-              <h1 className="text-2xl font-semibold text-text mb-8">General</h1>
+    <div class="max-w-3xl w-full mx-auto flex flex-col pb-10">
+          {activeTab() === "general" && (
+            <div class="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 class="text-2xl font-semibold text-text mb-8">General</h1>
 
-                <div className="space-y-5">
-                  <div className="settings-section">
-                    <div className="flex items-center justify-between">
+                <div class="space-y-5">
+                  <div class="settings-section">
+                    <div class="flex items-center justify-between">
                       <div>
-                        <h4 className="text-m font-medium text-text">Restore tabs on startup</h4>
-                        <p className="text-s text-text-muted mt-0.5">Keep your open tabs between app restarts</p>
+                        <h4 class="text-m font-medium text-text">Restore tabs on startup</h4>
+                        <p class="text-s text-text-muted mt-0.5">Keep your open tabs between app restarts</p>
                       </div>
                       <button
                         onClick={() => {
-                          const next = !persistTabs;
+                          const next = !persistTabs();
                           setPersistTabs(next);
                           savePersistTabs(next);
                         }}
-                        className="settings-toggle"
-                        data-checked={persistTabs}
+                        class="settings-toggle"
+                        data-checked={persistTabs()}
                       />
                     </div>
                   </div>
 
-                  <div className="settings-section">
-                    <div className="flex items-center justify-between mb-3">
+                  <div class="settings-section">
+                    <div class="flex items-center justify-between mb-3">
                       <div>
-                        <h4 className="text-m font-medium text-text">History limit</h4>
-                        <p className="text-s text-text-muted mt-0.5">Maximum number of queries to keep in history</p>
+                        <h4 class="text-m font-medium text-text">History limit</h4>
+                        <p class="text-s text-text-muted mt-0.5">Maximum number of queries to keep in history</p>
                       </div>
-                      <span className="text-m font-medium text-accent tabular-nums">{maxHistory}</span>
+                      <span class="text-m font-medium text-accent tabular-nums">{maxHistory()}</span>
                     </div>
                     <input
                       type="range"
                       min={MIN_MAX_HISTORY}
                       max={MAX_MAX_HISTORY}
                       step={10}
-                      value={maxHistory}
-                      onChange={(e) => {
-                        const val = Number.parseInt(e.target.value, 10);
+                      value={maxHistory()}
+                      onInput={(e) => {
+                        const val = Number.parseInt((e.target as HTMLInputElement).value, 10);
                         setMaxHistory(val);
                         saveMaxHistoryItems(val);
                       }}
-                      className="settings-range"
+                      class="settings-range"
                     />
-                    <div className="flex justify-between text-s text-text-muted mt-2">
+                    <div class="flex justify-between text-s text-text-muted mt-2">
                       <span>{MIN_MAX_HISTORY}</span>
                       <span>{DEFAULT_MAX_HISTORY} (default)</span>
                       <span>{MAX_MAX_HISTORY}</span>
@@ -166,32 +158,31 @@ export default function SettingsView({
               </div>
             )}
 
-          {activeTab === "appearance" && (
-            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
-              <h1 className="text-2xl font-semibold text-text mb-8">Appearance</h1>
+          {activeTab() === "appearance" && (
+            <div class="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 class="text-2xl font-semibold text-text mb-8">Appearance</h1>
 
                 <div>
-                  <h4 className="text-s font-medium text-text-muted uppercase tracking-wider mb-3">Theme</h4>
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <h4 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">Theme</h4>
+                  <div class="grid grid-cols-2 gap-2.5">
                     {THEMES.map(theme => (
                       <button
-                        key={theme.id}
-                        onClick={() => setThemeId(theme.id)}
-                        className={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${themeId === theme.id
+                        onClick={() => handleThemeChange(theme.id)}
+                        class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${themeId() === theme.id
                           ? "border-accent bg-accent/8 ring-1 ring-accent/25"
                           : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
                           }`}
                       >
-                        <div className="font-medium text-m flex items-center justify-between">
+                        <div class="font-medium text-m flex items-center justify-between">
                           {theme.name}
-                          {themeId === theme.id && <i className="fa-solid fa-check text-accent text-s" />}
+                          {themeId() === theme.id && <i class="fa-solid fa-check text-accent text-s" />}
                         </div>
-                        <div className="flex h-10 w-full rounded-md overflow-hidden border border-border/50" style={{ backgroundColor: theme.colors["--color-surface-raised"] }}>
-                          <div className="w-10 h-full border-r border-border/30" style={{ backgroundColor: theme.colors["--color-surface"] }} />
-                          <div className="flex-1 p-2 flex flex-col gap-1.5 relative">
-                            <div className="h-1.5 w-1/2 rounded-full" style={{ backgroundColor: theme.colors["--color-surface-active"] }} />
-                            <div className="h-1.5 w-3/4 rounded-full" style={{ backgroundColor: theme.colors["--color-surface-hover"] }} />
-                            <div className="absolute bottom-2 right-2 w-3 h-3 rounded-full" style={{ backgroundColor: theme.colors["--color-accent"] }} />
+                        <div class="flex h-10 w-full rounded-md overflow-hidden border border-border/50" style={{ "background-color": theme.colors["--color-surface-raised"] }}>
+                          <div class="w-10 h-full border-r border-border/30" style={{ "background-color": theme.colors["--color-surface"] }} />
+                          <div class="flex-1 p-2 flex flex-col gap-1.5 relative">
+                            <div class="h-1.5 w-1/2 rounded-full" style={{ "background-color": theme.colors["--color-surface-active"] }} />
+                            <div class="h-1.5 w-3/4 rounded-full" style={{ "background-color": theme.colors["--color-surface-hover"] }} />
+                            <div class="absolute bottom-2 right-2 w-3 h-3 rounded-full" style={{ "background-color": theme.colors["--color-accent"] }} />
                           </div>
                         </div>
                       </button>
@@ -201,75 +192,75 @@ export default function SettingsView({
               </div>
             )}
 
-          {activeTab === "ai" && (
-            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
-              <h1 className="text-2xl font-semibold text-text mb-8">AI Assistant</h1>
-                <div className="space-y-5">
-                  <div className="settings-section">
-                    <div className="flex items-center gap-3 mb-4">
+          {activeTab() === "ai" && (
+            <div class="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 class="text-2xl font-semibold text-text mb-8">AI Assistant</h1>
+                <div class="space-y-5">
+                  <div class="settings-section">
+                    <div class="flex items-center gap-3 mb-4">
                       <div>
-                        <h4 className="text-s font-medium text-text">API Configuration</h4>
-                        <p className="text-s text-text-muted mt-0.5">Google Gemini</p>
+                        <h4 class="text-s font-medium text-text">API Configuration</h4>
+                        <p class="text-s text-text-muted mt-0.5">Google Gemini</p>
                       </div>
-                      <div className="ml-auto">
-                        {geminiStatus.hasKey ? (
-                          <span className="px-2.5 py-1 bg-success/10 text-success text-s font-semibold rounded-full border border-success/20">
+                      <div class="ml-auto">
+                        {geminiStatus().hasKey ? (
+                          <span class="px-2.5 py-1 bg-success/10 text-success text-s font-semibold rounded-full border border-success/20">
                             CONFIGURED
                           </span>
                         ) : (
-                          <span className="px-2.5 py-1 bg-warning/10 text-warning text-s font-semibold rounded-full border border-warning/20">
+                          <span class="px-2.5 py-1 bg-warning/10 text-warning text-s font-semibold rounded-full border border-warning/20">
                             REQUIRED
                           </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="space-y-3.5">
+                    <div class="space-y-3.5">
                       <div>
-                        <label className="text-s font-medium text-text-muted block mb-1.5">
+                        <label class="text-s font-medium text-text-muted block mb-1.5">
                           Gemini Model ID
                         </label>
                         <Input
                           type="text"
-                          value={modelId}
-                          onChange={(e) => setModelId(e.target.value)}
+                          value={modelId()}
+                          onInput={(e) => setModelId((e.target as HTMLInputElement).value)}
                           placeholder="e.g. gemini-3.1-flash-lite-preview"
                         />
                       </div>
                       <div>
-                        <label className="text-s font-medium text-text-muted block mb-1.5">
+                        <label class="text-s font-medium text-text-muted block mb-1.5">
                           Gemini API Key
                         </label>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
+                        <div class="flex gap-2">
+                          <div class="relative flex-1">
                             <Input
-                              type={showApiKey ? "text" : "password"}
-                              value={apiKey}
-                              onChange={(e) => setApiKey(e.target.value)}
+                              type={showApiKey() ? "text" : "password"}
+                              value={apiKey()}
+                              onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
                               placeholder="Paste your API key here..."
-                              className="pr-9"
+                              class="pr-9"
                             />
                             <button
-                              onClick={() => setShowApiKey(!showApiKey)}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                              onClick={() => setShowApiKey(!showApiKey())}
+                              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
                             >
-                              <i className={`fa-solid ${showApiKey ? "fa-eye-slash" : "fa-eye"} text-s`} />
+                              <i class={`fa-solid ${showApiKey() ? "fa-eye-slash" : "fa-eye"} text-s`} />
                             </button>
                           </div>
                           <button
                             onClick={handleSaveAiSettings}
-                            className="btn btn-primary px-4"
+                            class="btn btn-primary px-4"
                           >
                             Save
                           </button>
                         </div>
-                        <p className="text-s text-text-muted mt-2">
+                        <p class="text-s text-text-muted mt-2">
                           Get your API key for free at{" "}
                           <a
                             href="https://aistudio.google.com/app/apikey"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-accent hover:underline"
+                            class="text-accent hover:underline"
                             onClick={(e) => {
                               e.preventDefault();
                               void open("https://aistudio.google.com/app/apikey");
@@ -285,43 +276,43 @@ export default function SettingsView({
               </div>
             )}
 
-          {activeTab === "about" && (
-            <div className="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
-              <h1 className="text-2xl font-semibold text-text mb-8">About</h1>
-                <div className="settings-section mb-5">
-                  <div className="flex items-center gap-4">
-                    <img src="/favicon.png" alt="SQL Query Studio icon" className="h-12 w-12 rounded-lg object-contain drop-shadow-md" />
+          {activeTab() === "about" && (
+            <div class="flex-1 animate-in fade-in duration-[var(--duration-slow)]">
+              <h1 class="text-2xl font-semibold text-text mb-8">About</h1>
+                <div class="settings-section mb-5">
+                  <div class="flex items-center gap-4">
+                    <img src="/favicon.png" alt="SQL Query Studio icon" class="h-12 w-12 rounded-lg object-contain drop-shadow-md" />
                     <div>
-                      <h2 className="text-m font-semibold text-text">SQL Query Studio</h2>
-                      <p className="text-s text-text-muted mt-0.5">A lightweight SQL editor for SQL Server.</p>
+                      <h2 class="text-m font-semibold text-text">SQL Query Studio</h2>
+                      <p class="text-s text-text-muted mt-0.5">A lightweight SQL editor for SQL Server.</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b border-border">
-                    <span className="text-m text-text-muted">Version</span>
-                    <span className="text-m font-medium text-text">{version ?? "unknown"}</span>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between py-2 border-b border-border">
+                    <span class="text-m text-text-muted">Version</span>
+                    <span class="text-m font-medium text-text">{props.version ?? "unknown"}</span>
                   </div>
 
                   <a
                     href={REPOSITORY_URL}
                     onClick={handleOpenRepository}
-                    className="inline-flex items-center gap-2 text-m text-accent transition-colors hover:text-accent-hover font-medium py-1"
+                    class="inline-flex items-center gap-2 text-m text-accent transition-colors hover:text-accent-hover font-medium py-1"
                   >
-                    <i className="fa-brands fa-github text-base opacity-80" />
+                    <i class="fa-brands fa-github text-base opacity-80" />
                     View Source on GitHub
                   </a>
 
-                  <div className="pt-3 mt-2 border-t border-border">
+                  <div class="pt-3 mt-2 border-t border-border">
                     <button
-                      onClick={() => void onCheckForUpdates()}
-                      disabled={checkingForUpdates}
-                      className="btn btn-primary w-full py-2"
+                      onClick={() => void props.onCheckForUpdates()}
+                      disabled={props.checkingForUpdates}
+                      class="btn btn-primary w-full py-2"
                     >
-                      {checkingForUpdates ? "Checking for updates..." : "Check for Updates"}
+                      {props.checkingForUpdates ? "Checking for updates..." : "Check for Updates"}
                     </button>
-                    {updateMessage && <p className={`text-s mt-3 text-center ${updateMessageClass}`}>{updateMessage}</p>}
+                    {props.updateMessage && <p class={`text-s mt-3 text-center ${updateMessageClass()}`}>{props.updateMessage}</p>}
                   </div>
                 </div>
               </div>
@@ -330,16 +321,16 @@ export default function SettingsView({
     </div>
   );
 
-  if (renderLayout) {
-    return renderLayout(sidebarNode, contentNode) as React.ReactElement;
+  if (props.renderLayout) {
+    return props.renderLayout(sidebarNode, contentNode) as JSX.Element;
   }
 
   return (
-    <div className="flex flex-1 w-full h-full bg-surface overflow-hidden animate-in fade-in duration-[var(--duration-slow)]">
-      <div className="w-[260px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
+    <div class="flex flex-1 w-full h-full bg-surface overflow-hidden animate-in fade-in duration-[var(--duration-slow)]">
+      <div class="w-[260px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
         {sidebarNode}
       </div>
-      <div className="flex-1 p-8 md:p-12 overflow-y-auto relative bg-surface-panel">
+      <div class="flex-1 p-8 md:p-12 overflow-y-auto relative bg-surface-panel">
         {contentNode}
       </div>
     </div>

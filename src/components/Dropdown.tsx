@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createSignal, createEffect, createMemo, onCleanup, Show, For } from "solid-js";
+import { Portal } from "solid-js/web";
+import type { JSX } from "solid-js";
 
 interface DropdownOption {
   value: string;
@@ -12,132 +13,134 @@ interface Props {
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
-  className?: string;
+  class?: string;
   filterable?: boolean;
   openUpwards?: boolean;
 }
 
-export default function Dropdown({
-  value,
-  options,
-  onChange,
-  placeholder = "Select...",
-  disabled = false,
-  className = "",
-  filterable = false,
-  openUpwards = false,
-}: Props) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const filterInputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const portalTarget =
-    typeof document !== "undefined"
-      ? ((dropdownRef.current?.closest(".app-shell") as HTMLElement | null) ?? document.body)
-      : null;
+export default function Dropdown(props: Props) {
+  const [isOpen, setIsOpen] = createSignal(false);
+  const [filter, setFilter] = createSignal("");
+  const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
+  const [popupStyle, setPopupStyle] = createSignal<JSX.CSSProperties>({});
+  let dropdownRef: HTMLDivElement | undefined;
+  let buttonRef: HTMLButtonElement | undefined;
+  let filterInputRef: HTMLInputElement | undefined;
+  let listRef: HTMLDivElement | undefined;
+  let itemRefs: (HTMLButtonElement | null)[] = [];
 
-  const selectedOption = useMemo(() => options.find((opt) => opt.value === value), [options, value]);
+  const portalTarget = () => {
+    if (typeof document === "undefined") return null;
+    return (dropdownRef?.closest(".app-shell") as HTMLElement | null) ?? document.body;
+  };
 
-  const filteredOptions = useMemo(() => 
-    filterable && filter
-      ? options.filter(
+  const placeholder = () => props.placeholder ?? "Select...";
+  const disabled = () => props.disabled ?? false;
+  const className = () => props.class ?? "";
+  const filterable = () => props.filterable ?? false;
+  const openUpwards = () => props.openUpwards ?? false;
+
+  const selectedOption = createMemo(() => props.options.find((opt) => opt.value === props.value));
+
+  const filteredOptions = createMemo(() =>
+    filterable() && filter()
+      ? props.options.filter(
         (opt) =>
-          opt.label.toLowerCase().includes(filter.toLowerCase()) ||
-          opt.value.toLowerCase().includes(filter.toLowerCase())
+          opt.label.toLowerCase().includes(filter().toLowerCase()) ||
+          opt.value.toLowerCase().includes(filter().toLowerCase())
       )
-      : options,
-    [filterable, filter, options]
+      : props.options
   );
 
-  const close = useCallback(() => {
+  function close() {
     setIsOpen(false);
     setFilter("");
     setHighlightedIndex(-1);
-  }, []);
+  }
 
-  const updatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    if (openUpwards) {
+  function updatePosition() {
+    if (!buttonRef) return;
+    const rect = buttonRef.getBoundingClientRect();
+    if (openUpwards()) {
       setPopupStyle({
         position: "fixed",
-        left: rect.left,
-        bottom: window.innerHeight - rect.top + 4,
-        width: rect.width,
+        left: `${rect.left}px`,
+        bottom: `${window.innerHeight - rect.top + 4}px`,
+        width: `${rect.width}px`,
       });
     } else {
       setPopupStyle({
         position: "fixed",
-        left: rect.left,
-        top: rect.bottom + 4,
-        width: rect.width,
+        left: `${rect.left}px`,
+        top: `${rect.bottom + 4}px`,
+        width: `${rect.width}px`,
       });
     }
-  }, [openUpwards]);
+  }
 
-  useEffect(() => {
+  // Click outside handler
+  createEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        listRef.current &&
-        !listRef.current.contains(event.target as Node)
+        dropdownRef &&
+        !dropdownRef.contains(event.target as Node) &&
+        listRef &&
+        !listRef.contains(event.target as Node)
       ) {
         close();
       }
     }
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [close]);
 
-  useLayoutEffect(() => {
-    if (!isOpen) return;
+    onCleanup(() => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    });
+  });
+
+  // Position + focus when opened
+  createEffect(() => {
+    if (!isOpen()) return;
 
     updatePosition();
-    if (filterable && filterInputRef.current) {
-      filterInputRef.current.focus();
+    if (filterable() && filterInputRef) {
+      filterInputRef.focus();
     }
 
-    const idx = filteredOptions.findIndex((opt) => opt.value === value);
+    const idx = filteredOptions().findIndex((opt) => opt.value === props.value);
     setHighlightedIndex(idx >= 0 ? idx : 0);
 
     const handleReposition = () => updatePosition();
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
 
-    return () => {
+    onCleanup(() => {
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
-    };
-  }, [filterable, filteredOptions, isOpen, updatePosition, value]);
+    });
+  });
 
-  // scroll highlighted item into view
-  useEffect(() => {
-    if (highlightedIndex >= 0 && itemRefs.current[highlightedIndex]) {
-      itemRefs.current[highlightedIndex]?.scrollIntoView({ block: "nearest" });
+  // Scroll highlighted item into view
+  createEffect(() => {
+    const idx = highlightedIndex();
+    if (idx >= 0 && itemRefs[idx]) {
+      itemRefs[idx]?.scrollIntoView({ block: "nearest" });
     }
-  }, [highlightedIndex]);
+  });
 
-  // reset highlight when filter changes
-  useEffect(() => {
-    setHighlightedIndex(filteredOptions.length > 0 ? 0 : -1);
-  }, [filter]);
+  // Reset highlight when filter changes
+  createEffect(() => {
+    filter(); // track dependency
+    setHighlightedIndex(filteredOptions().length > 0 ? 0 : -1);
+  });
 
-  const handleSelect = (optionValue: string) => {
-    onChange(optionValue);
+  function handleSelect(optionValue: string) {
+    props.onChange(optionValue);
     close();
-  };
+  }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isOpen) {
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!isOpen()) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         setIsOpen(true);
@@ -149,19 +152,19 @@ export default function Dropdown({
       case "ArrowDown":
         e.preventDefault();
         setHighlightedIndex((prev) =>
-          prev < filteredOptions.length - 1 ? prev + 1 : 0
+          prev < filteredOptions().length - 1 ? prev + 1 : 0
         );
         break;
       case "ArrowUp":
         e.preventDefault();
         setHighlightedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredOptions.length - 1
+          prev > 0 ? prev - 1 : filteredOptions().length - 1
         );
         break;
       case "Enter":
         e.preventDefault();
-        if (highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
-          handleSelect(filteredOptions[highlightedIndex].value);
+        if (highlightedIndex() >= 0 && filteredOptions()[highlightedIndex()]) {
+          handleSelect(filteredOptions()[highlightedIndex()].value);
         }
         break;
       case "Escape":
@@ -172,101 +175,105 @@ export default function Dropdown({
         close();
         break;
     }
-  };
+  }
 
   return (
     <div
       ref={dropdownRef}
-      className={`relative ${className}`}
+      class={`relative ${className()}`}
       onKeyDown={handleKeyDown}
     >
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`
+        onClick={() => !disabled() && setIsOpen(!isOpen())}
+        disabled={disabled()}
+        class={`
           dropdown-trigger
           flex items-center justify-between gap-2 px-2.5 h-[32px] text-m rounded-md w-full
           transition-all
           text-text placeholder-text-muted
           focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
-          ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+          ${disabled() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
         `}
       >
         <span
-          className={`truncate ${selectedOption ? "text-text" : "text-text-muted"}`}
+          class={`truncate ${selectedOption() ? "text-text" : "text-text-muted"}`}
         >
-          {selectedOption ? selectedOption.label : placeholder}
+          {selectedOption() ? selectedOption()!.label : placeholder()}
         </span>
         <i
-          className={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${isOpen
-              ? openUpwards
+          class={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${isOpen()
+              ? openUpwards()
                 ? ""
                 : "rotate-180"
-              : openUpwards
+              : openUpwards()
                 ? "rotate-180"
                 : ""
             }`}
         />
       </button>
 
-      {isOpen && portalTarget &&
-        createPortal(
+      <Show when={isOpen() && portalTarget()}>
+        <Portal mount={portalTarget()!}>
           <div
             ref={listRef}
-            style={popupStyle}
-            className="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
+            style={popupStyle()}
+            class="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
             role="listbox"
           >
-            {filterable && (
-              <div className="px-2 pb-2 pt-1 flex-shrink-0 border-b border-border/5">
-                <div className="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-all">
-                  <i className="fa-solid fa-magnifying-glass text-3xs opacity-40" />
+            <Show when={filterable()}>
+              <div class="px-2 pb-2 pt-1 flex-shrink-0 border-b border-border/5">
+                <div class="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-all">
+                  <i class="fa-solid fa-magnifying-glass text-3xs opacity-40" />
                   <input
                     ref={filterInputRef}
                     type="text"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
+                    value={filter()}
+                    onInput={(e) => setFilter(e.currentTarget.value)}
                     placeholder="Search databases..."
-                    className="w-full bg-transparent text-m text-text caret-accent placeholder:text-text-muted/60 outline-none"
+                    class="w-full bg-transparent text-m text-text caret-accent placeholder:text-text-muted/60 outline-none"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={handleKeyDown}
                   />
                 </div>
               </div>
-            )}
-            <div className="flex-1 overflow-y-auto">
-              {filteredOptions.length > 0 ? (
-                filteredOptions.map((option, index) => (
-                  <button
-                    key={option.value}
-                    ref={(el) => {
-                      itemRefs.current[index] = el;
-                    }}
-                    type="button"
-                    role="option"
-                    aria-selected={option.value === value}
-                    onClick={() => handleSelect(option.value)}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    className={`
-                      dropdown-option w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
-                      ${index === highlightedIndex ? "dropdown-option--active" : ""}
-                      ${option.value === value ? "dropdown-option--selected" : ""}
-                    `}
-                  >
-                    {option.label}
-                  </button>
-                ))
-              ) : (
-                <div className="px-2.5 py-2 text-sm text-text-muted">
-                  No results
-                </div>
-              )}
+            </Show>
+            <div class="flex-1 overflow-y-auto">
+              <Show
+                when={filteredOptions().length > 0}
+                fallback={
+                  <div class="px-2.5 py-2 text-sm text-text-muted">
+                    No results
+                  </div>
+                }
+              >
+                <For each={filteredOptions()}>
+                  {(option, index) => (
+                    <button
+                      ref={(el) => {
+                        itemRefs[index()] = el;
+                      }}
+                      type="button"
+                      role="option"
+                      aria-selected={option.value === props.value}
+                      onClick={() => handleSelect(option.value)}
+                      onMouseEnter={() => setHighlightedIndex(index())}
+                      class={`
+                        dropdown-option w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
+                        ${index() === highlightedIndex() ? "dropdown-option--active" : ""}
+                        ${option.value === props.value ? "dropdown-option--selected" : ""}
+                      `}
+                    >
+                      {option.label}
+                    </button>
+                  )}
+                </For>
+              </Show>
             </div>
-          </div>,
-          portalTarget
-        )}
+          </div>
+        </Portal>
+      </Show>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryResult, ResultSet } from "../lib/types";
 import ColumnSelector from "./ColumnSelector";
@@ -110,48 +110,80 @@ function buildInsertSql(
   return `-- Insert row into ${tableName}\nINSERT INTO ${tableName} (${colNames})\nVALUES (${valList});`;
 }
 
-function VirtualGrid({
-  resultSet,
-  onContextMenu,
-  selectedRowIndex,
-}: {
+function ErrorSection(props: { error: string }) {
+  const [copied, setCopied] = createSignal(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(props.error);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy error:", err);
+    }
+  };
+
+  return (
+    <div class="p-4 h-full overflow-auto bg-surface flex flex-col gap-3">
+      <div class="flex items-center justify-between">
+        <span class="text-s font-semibold text-error/80 flex items-center gap-2">
+          <i class="fa-solid fa-circle-exclamation" />
+          Query Error
+        </span>
+        <button
+          onClick={handleCopy}
+          class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied() ? "text-success border-success/30 bg-success/5" : ""
+            }`}
+        >
+          <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
+          <span>{copied() ? "Copied!" : "Copy Error"}</span>
+        </button>
+      </div>
+      <div class="text-error text-m font-mono whitespace-pre-wrap leading-relaxed select-text p-4 bg-error/5 border border-error/10 rounded-lg">
+        {props.error}
+      </div>
+    </div>
+  );
+}
+
+function VirtualGrid(props: {
   resultSet: ResultSet;
-  onContextMenu: (e: React.MouseEvent, ri: number) => void;
+  onContextMenu: (e: MouseEvent, ri: number) => void;
   selectedRowIndex: number | null;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
+  let containerRef: HTMLDivElement | undefined;
+  let columnSelectorButtonRef: HTMLButtonElement | undefined;
+  const [scrollTop, setScrollTop] = createSignal(0);
+  const [containerHeight, setContainerHeight] = createSignal(0);
 
-  const [sortConfig, setSortConfig] = useState<{ colIndex: number; direction: "asc" | "desc" } | null>(null);
-  const [filters, setFilters] = useState<Record<number, string>>({});
-  const [showFilters, setShowFilters] = useState(false);
-  const [hiddenColumnIndices, setHiddenColumnIndices] = useState<Set<number>>(new Set());
-  const [isColumnSelectorOpen, setIsColumnSelectorOpen] = useState(false);
-  const [exportMenuPos, setExportMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const columnSelectorButtonRef = useRef<HTMLButtonElement>(null);
+  const [sortConfig, setSortConfig] = createSignal<{ colIndex: number; direction: "asc" | "desc" } | null>(null);
+  const [filters, setFilters] = createSignal<Record<number, string>>({});
+  const [showFilters, setShowFilters] = createSignal(false);
+  const [hiddenColumnIndices, setHiddenColumnIndices] = createSignal<Set<number>>(new Set());
+  const [isColumnSelectorOpen, setIsColumnSelectorOpen] = createSignal(false);
+  const [exportMenuPos, setExportMenuPos] = createSignal<{ x: number; y: number } | null>(null);
+  const [copied, setCopied] = createSignal(false);
 
-  const visibleColIndices = useMemo(() => {
-    return resultSet.columns
-      .map((col, i) => (hiddenColumnIndices.has(i) ? -1 : i))
+  const visibleColIndices = createMemo(() => {
+    return props.resultSet.columns
+      .map((_col, i) => (hiddenColumnIndices().has(i) ? -1 : i))
       .filter((i) => i !== -1);
-  }, [resultSet.columns, hiddenColumnIndices]);
+  });
 
-  useEffect(() => {
+  createEffect(() => {
+    const _rs = props.resultSet;
     setSortConfig(null);
     setFilters({});
     setShowFilters(false);
     setScrollTop(0);
-    if (containerRef.current) {
-      containerRef.current.scrollTop = 0;
+    if (containerRef) {
+      containerRef.scrollTop = 0;
     }
-  }, [resultSet]);
+  });
 
-  const processedRows = useMemo(() => {
-    let result = resultSet.rows.map((row, i) => ({ row, originalIndex: i }));
+  const processedRows = createMemo(() => {
+    let result = props.resultSet.rows.map((row, i) => ({ row, originalIndex: i }));
 
-    const activeFilters = Object.entries(filters).filter(([_, val]) => val.trim() !== "");
+    const activeFilters = Object.entries(filters()).filter(([_, val]) => val.trim() !== "");
     if (activeFilters.length > 0) {
       result = result.filter(({ row }) => {
         return activeFilters.every(([colIdxStr, filterText]) => {
@@ -163,8 +195,9 @@ function VirtualGrid({
       });
     }
 
-    if (sortConfig) {
-      const { colIndex, direction } = sortConfig;
+    const sc = sortConfig();
+    if (sc) {
+      const { colIndex, direction } = sc;
       result.sort((a, b) => {
         const valA = a.row[colIndex];
         const valB = b.row[colIndex];
@@ -186,11 +219,11 @@ function VirtualGrid({
     }
 
     return result;
-  }, [resultSet, filters, sortConfig]);
+  });
 
-  const copyToClipboard = useCallback(async () => {
-    const header = resultSet.columns.map((col) => col.name).join("\t");
-    const rows = processedRows.map(({ row }) =>
+  const copyToClipboard = async () => {
+    const header = props.resultSet.columns.map((col) => col.name).join("\t");
+    const rows = processedRows().map(({ row }) =>
       row.map((cell) => (cell != null ? String(cell) : "NULL")).join("\t"),
     );
     const text = [header, ...rows].join("\n");
@@ -201,9 +234,9 @@ function VirtualGrid({
     } catch (err) {
       console.error("Failed to copy:", err);
     }
-  }, [resultSet.columns, processedRows]);
+  };
 
-  const exportToCsv = useCallback(async () => {
+  const exportToCsv = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
@@ -211,15 +244,15 @@ function VirtualGrid({
       filters: [{ name: "CSV", extensions: ["csv"] }],
     });
     if (!filePath) return;
-    const header = resultSet.columns.map((col) => `"${col.name.replace(/"/g, '""')}"`).join(",");
-    const rows = processedRows.map(({ row }) =>
+    const header = props.resultSet.columns.map((col) => `"${col.name.replace(/"/g, '""')}"`).join(",");
+    const rows = processedRows().map(({ row }) =>
       row.map((cell) => (cell != null ? `"${String(cell).replace(/"/g, '""')}"` : "")).join(","),
     );
     const text = [header, ...rows].join("\n");
     await writeTextFile(filePath, text);
-  }, [resultSet.columns, processedRows]);
+  };
 
-  const exportToJson = useCallback(async () => {
+  const exportToJson = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
@@ -227,20 +260,20 @@ function VirtualGrid({
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!filePath) return;
-    const data = processedRows.map(({ row }) => {
+    const data = processedRows().map(({ row }) => {
       const obj: Record<string, any> = {};
-      resultSet.columns.forEach((col, i) => {
+      props.resultSet.columns.forEach((col, i) => {
         obj[col.name] = row[i];
       });
       return obj;
     });
     await writeTextFile(filePath, JSON.stringify(data, null, 2));
-  }, [resultSet.columns, processedRows]);
+  };
 
-  const handleExportClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
+  const handleExportClick = (e: MouseEvent) => {
+    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
     setExportMenuPos({ x: rect.left, y: rect.bottom + 4 });
-  }, []);
+  };
 
   const rowHeight = 28;
   const buffer = 10;
@@ -248,66 +281,65 @@ function VirtualGrid({
   const cellPadding = 24;
   const minColWidth = 40;
 
-  const autoWidths = useMemo(() => {
-    const sampleSize = Math.min(resultSet.rows.length, 100);
-    return resultSet.columns.map((col, ci) => {
+  const autoWidths = createMemo(() => {
+    const sampleSize = Math.min(props.resultSet.rows.length, 100);
+    return props.resultSet.columns.map((col, ci) => {
       let maxLen = col.name.length + (col.type_name ? col.type_name.length + 4 : 0);
       for (let ri = 0; ri < sampleSize; ri++) {
-        const cell = resultSet.rows[ri][ci];
+        const cell = props.resultSet.rows[ri][ci];
         const len = cell != null ? String(cell).length : 4;
         if (len > maxLen) maxLen = len;
       }
       return Math.min(maxLen * charWidth + cellPadding, 600);
     });
-  }, [resultSet]);
+  });
 
-  const [colOverrides, setColOverrides] = useState<Record<number, number>>({});
-  const colWidths = useMemo(
-    () => autoWidths.map((w, i) => colOverrides[i] ?? w),
-    [autoWidths, colOverrides],
+  const [colOverrides, setColOverrides] = createSignal<Record<number, number>>({});
+  const colWidths = createMemo(
+    () => autoWidths().map((w, i) => colOverrides()[i] ?? w),
   );
 
-  const dragRef = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
+  let dragRef: { colIndex: number; startX: number; startWidth: number } | null = null;
 
-  useEffect(() => {
+  onMount(() => {
     const onMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      const delta = e.clientX - dragRef.current.startX;
-      const newWidth = Math.max(minColWidth, dragRef.current.startWidth + delta);
-      setColOverrides((prev) => ({ ...prev, [dragRef.current!.colIndex]: newWidth }));
+      if (!dragRef) return;
+      const delta = e.clientX - dragRef.startX;
+      const newWidth = Math.max(minColWidth, dragRef.startWidth + delta);
+      setColOverrides((prev) => ({ ...prev, [dragRef!.colIndex]: newWidth }));
     };
     const onMouseUp = () => {
-      if (!dragRef.current) return;
-      dragRef.current = null;
+      if (!dragRef) return;
+      dragRef = null;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-    return () => {
+    onCleanup(() => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
+    });
+  });
 
-  const startResize = useCallback((e: React.MouseEvent, colIndex: number) => {
+  const startResize = (e: MouseEvent, colIndex: number) => {
     e.preventDefault();
-    dragRef.current = { colIndex, startX: e.clientX, startWidth: colWidths[colIndex] };
+    dragRef = { colIndex, startX: e.clientX, startWidth: colWidths()[colIndex] };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [colWidths]);
+  };
 
-  useEffect(() => {
-    if (!containerRef.current) return;
+  onMount(() => {
+    if (!containerRef) return;
     const observer = new ResizeObserver((entries) => {
       if (entries[0]) setContainerHeight(entries[0].contentRect.height);
     });
-    observer.observe(containerRef.current);
-    setContainerHeight(containerRef.current.clientHeight);
-    return () => observer.disconnect();
-  }, []);
+    observer.observe(containerRef);
+    setContainerHeight(containerRef.clientHeight);
+    onCleanup(() => observer.disconnect());
+  });
 
-  const handleSort = useCallback((colIndex: number) => {
+  const handleSort = (colIndex: number) => {
     setSortConfig((prev) => {
       if (prev?.colIndex === colIndex) {
         if (prev.direction === "asc") return { colIndex, direction: "desc" };
@@ -315,9 +347,9 @@ function VirtualGrid({
       }
       return { colIndex, direction: "asc" };
     });
-  }, []);
+  };
 
-  const toggleColumnVisibility = useCallback((index: number) => {
+  const toggleColumnVisibility = (index: number) => {
     setHiddenColumnIndices((prev) => {
       const next = new Set(prev);
       if (next.has(index)) {
@@ -327,228 +359,232 @@ function VirtualGrid({
       }
       return next;
     });
-  }, []);
+  };
 
-  const toggleAllColumns = useCallback(
-    (showAll: boolean) => {
-      if (showAll) {
-        setHiddenColumnIndices(new Set(resultSet.columns.map((_, i) => i)));
-      } else {
-        setHiddenColumnIndices(new Set());
-      }
-    },
-    [resultSet.columns],
+  const toggleAllColumns = (showAll: boolean) => {
+    if (showAll) {
+      setHiddenColumnIndices(new Set(props.resultSet.columns.map((_, i) => i)));
+    } else {
+      setHiddenColumnIndices(new Set());
+    }
+  };
+
+  const startIndex = () => Math.max(0, Math.floor(scrollTop() / rowHeight) - buffer);
+  const endIndex = () => Math.min(
+    processedRows().length,
+    Math.ceil((scrollTop() + containerHeight()) / rowHeight) + buffer,
   );
 
-  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
-  const endIndex = Math.min(
-    processedRows.length,
-    Math.ceil((scrollTop + containerHeight) / rowHeight) + buffer,
-  );
-
-  const visibleRows = processedRows.slice(startIndex, endIndex);
+  const visibleRows = () => processedRows().slice(startIndex(), endIndex());
 
   return (
-    <div className="flex flex-col h-full min-h-[180px] gap-2">
-      {resultSet.columns.length > 0 && (
-        <div className="flex items-center justify-end px-1 gap-2">
-          <div className="flex items-center gap-2">
+    <div class="flex flex-col h-full min-h-[180px] gap-2">
+      <Show when={props.resultSet.columns.length > 0}>
+        <div class="flex items-center justify-end px-1 gap-2">
+          <div class="flex items-center gap-2">
             <button
               onClick={copyToClipboard}
-              className={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${copied ? "text-success border-success/30 bg-success/5" : ""
+              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${copied() ? "text-success border-success/30 bg-success/5" : ""
                 }`}
               title="Copy table to clipboard"
             >
-              <i className={`fa-solid ${copied ? "fa-check" : "fa-copy"} text-[10px]`} />
-              <span className="text-[11px] font-medium">{copied ? "Copied!" : "Copy"}</span>
+              <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-[10px]`} />
+              <span class="text-[11px] font-medium">{copied() ? "Copied!" : "Copy"}</span>
             </button>
             <button
               onClick={handleExportClick}
-              className={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${exportMenuPos ? "bg-surface-active text-text" : ""
+              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${exportMenuPos() ? "bg-surface-active text-text" : ""
                 }`}
               title="Export results"
             >
-              <i className="fa-solid fa-download text-[10px]" />
-              <span className="text-[11px] font-medium hidden xs:block">Export</span>
+              <i class="fa-solid fa-download text-[10px]" />
+              <span class="text-[11px] font-medium hidden xs:block">Export</span>
               <i
-                className={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${exportMenuPos ? "rotate-180" : ""
+                class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${exportMenuPos() ? "rotate-180" : ""
                   }`}
               />
             </button>
-            {exportMenuPos && (
-              <ContextMenu
-                x={exportMenuPos.x}
-                y={exportMenuPos.y}
-                items={[
-                  {
-                    id: "export-csv",
-                    label: "Export to CSV",
-                    icon: <i className="fa-solid fa-file-csv" />,
-                    onClick: exportToCsv,
-                  },
-                  {
-                    id: "export-json",
-                    label: "Export to JSON",
-                    icon: <i className="fa-solid fa-file-code" />,
-                    onClick: exportToJson,
-                  },
-                ]}
-                onClose={() => setExportMenuPos(null)}
-              />
-            )}
+            <Show when={exportMenuPos()}>
+              {(pos) => (
+                <ContextMenu
+                  x={pos().x}
+                  y={pos().y}
+                  items={[
+                    {
+                      id: "export-csv",
+                      label: "Export to CSV",
+                      icon: <i class="fa-solid fa-file-csv" />,
+                      onClick: exportToCsv,
+                    },
+                    {
+                      id: "export-json",
+                      label: "Export to JSON",
+                      icon: <i class="fa-solid fa-file-code" />,
+                      onClick: exportToJson,
+                    },
+                  ]}
+                  onClose={() => setExportMenuPos(null)}
+                />
+              )}
+            </Show>
 
-            <div className="toolbar-sep" />
+            <div class="toolbar-sep" />
 
-            <div className="relative">
+            <div class="relative">
               <button
                 ref={columnSelectorButtonRef}
-                onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen)}
-                className={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${isColumnSelectorOpen ? "bg-surface-active text-text" : ""
+                onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen())}
+                class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${isColumnSelectorOpen() ? "bg-surface-active text-text" : ""
                   }`}
                 title="Column visibility"
               >
-                <i className="fa-solid fa-table-columns text-[10px]" />
-                <span className="text-[11px] font-medium">Columns</span>
-                {hiddenColumnIndices.size > 0 && (
-                  <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full bg-accent text-white text-[9px] font-bold">
-                    {hiddenColumnIndices.size}
+                <i class="fa-solid fa-table-columns text-[10px]" />
+                <span class="text-[11px] font-medium">Columns</span>
+                <Show when={hiddenColumnIndices().size > 0}>
+                  <span class="flex items-center justify-center w-3.5 h-3.5 rounded-full bg-accent text-white text-[9px] font-bold">
+                    {hiddenColumnIndices().size}
                   </span>
-                )}
+                </Show>
                 <i
-                  className={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${isColumnSelectorOpen ? "rotate-180" : ""
+                  class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${isColumnSelectorOpen() ? "rotate-180" : ""
                     }`}
                 />
               </button>
-              {isColumnSelectorOpen && (
+              <Show when={isColumnSelectorOpen()}>
                 <ColumnSelector
-                  columns={resultSet.columns}
-                  hiddenColumnIndices={hiddenColumnIndices}
+                  columns={props.resultSet.columns}
+                  hiddenColumnIndices={hiddenColumnIndices()}
                   onToggle={toggleColumnVisibility}
                   onToggleAll={toggleAllColumns}
-                  anchorRef={columnSelectorButtonRef}
+                  anchorRef={columnSelectorButtonRef!}
                   onClose={() => setIsColumnSelectorOpen(false)}
                 />
-              )}
+              </Show>
             </div>
           </div>
         </div>
-      )}
+      </Show>
       <div
         ref={containerRef}
-        className="results-table-container overflow-auto rounded-lg border border-border/20 flex-1"
+        class="results-table-container overflow-auto rounded-lg border border-border/20 flex-1"
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >
-        <table className="results-table" style={{ tableLayout: "fixed" }}>
+        <table class="results-table" style={{ "table-layout": "fixed" }}>
           <colgroup>
-            <col style={{ width: 28 }} />
-            {visibleColIndices.map((ci) => (
-              <col key={ci} style={{ width: colWidths[ci] }} />
-            ))}
+            <col style={{ width: "28px" }} />
+            <For each={visibleColIndices()}>
+              {(ci) => (
+                <col style={{ width: `${colWidths()[ci]}px` }} />
+              )}
+            </For>
           </colgroup>
           <thead>
             <tr>
-              <th className="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
-                <div className="flex flex-col items-center justify-center h-full min-h-[24px]">
+              <th class="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
+                <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
                   <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className={`p-1 rounded hover:bg-surface-hover transition-colors ${Object.values(filters).some((v) => v.trim())
+                    onClick={() => setShowFilters(!showFilters())}
+                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${Object.values(filters()).some((v) => v.trim())
                       ? "text-accent"
                       : "text-text-muted/60"
                       }`}
                     title="Toggle filters"
                   >
-                    <i className="fa-solid fa-filter text-[10px]" />
+                    <i class="fa-solid fa-filter text-[10px]" />
                   </button>
-                  {showFilters && (
-                    <div className="mt-2 text-[10px] text-text-muted/40 font-normal">#</div>
-                  )}
+                  <Show when={showFilters()}>
+                    <div class="mt-2 text-[10px] text-text-muted/40 font-normal">#</div>
+                  </Show>
                 </div>
               </th>
-              {visibleColIndices.map((i) => {
-                const col = resultSet.columns[i];
-                return (
-                  <th
-                    key={i}
-                    className="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top"
-                  >
-                    <div
-                      className="flex items-center justify-between gap-3 cursor-pointer select-none hover:text-text transition-colors"
-                      onClick={() => handleSort(i)}
+              <For each={visibleColIndices()}>
+                {(i) => {
+                  const col = props.resultSet.columns[i];
+                  return (
+                    <th
+                      class="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top"
                     >
-                      <span className="truncate">{col.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
-                          {col.type_name}
-                        </span>
-                        {sortConfig?.colIndex === i ? (
-                          <i
-                            className={`fa-solid ${sortConfig.direction === "asc" ? "fa-sort-up mt-1" : "fa-sort-down mb-1"
-                              } text-accent text-[10px] w-2 flex justify-center`}
+                      <div
+                        class="flex items-center justify-between gap-3 cursor-pointer select-none hover:text-text transition-colors"
+                        onClick={() => handleSort(i)}
+                      >
+                        <span class="truncate">{col.name}</span>
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
+                            {col.type_name}
+                          </span>
+                          <Show when={sortConfig()?.colIndex === i} fallback={
+                            <i class="fa-solid fa-sort text-text-muted/20 hover:text-text-muted/50 text-[10px] w-2 flex justify-center" />
+                          }>
+                            <i
+                              class={`fa-solid ${sortConfig()!.direction === "asc" ? "fa-sort-up mt-1" : "fa-sort-down mb-1"
+                                } text-accent text-[10px] w-2 flex justify-center`}
+                            />
+                          </Show>
+                        </div>
+                      </div>
+                      <Show when={showFilters()}>
+                        <div class="mt-1.5 mb-0.5">
+                          <input
+                            type="text"
+                            class="w-full bg-surface border border-border/40 rounded px-1.5 py-0.5 text-xs text-text outline-none focus:border-accent font-normal"
+                            placeholder="Filter..."
+                            value={filters()[i] || ""}
+                            onInput={(e) => setFilters((prev) => ({ ...prev, [i]: (e.target as HTMLInputElement).value }))}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                           />
-                        ) : (
-                          <i className="fa-solid fa-sort text-text-muted/20 hover:text-text-muted/50 text-[10px] w-2 flex justify-center" />
-                        )}
-                      </div>
-                    </div>
-                    {showFilters && (
-                      <div className="mt-1.5 mb-0.5">
-                        <input
-                          type="text"
-                          className="w-full bg-surface border border-border/40 rounded px-1.5 py-0.5 text-xs text-text outline-none focus:border-accent font-normal"
-                          placeholder="Filter..."
-                          value={filters[i] || ""}
-                          onChange={(e) => setFilters((prev) => ({ ...prev, [i]: e.target.value }))}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                    )}
-                    <div
-                      className="col-resizer"
-                      onMouseDown={(e) => startResize(e, i)}
-                    />
-                  </th>
-                );
-              })}
+                        </div>
+                      </Show>
+                      <div
+                        class="col-resizer"
+                        onMouseDown={(e) => startResize(e, i)}
+                      />
+                    </th>
+                  );
+                }}
+              </For>
             </tr>
           </thead>
           <tbody>
-            <tr style={{ height: startIndex * rowHeight }}>
-              <td colSpan={visibleColIndices.length + 1} style={{ padding: 0, border: 0, background: 'transparent' }} />
+            <tr style={{ height: `${startIndex() * rowHeight}px` }}>
+              <td colSpan={visibleColIndices().length + 1} style={{ padding: "0", border: "0", background: "transparent" }} />
             </tr>
-            {visibleRows.map(({ row, originalIndex }, i) => {
-              const visualIndex = startIndex + i;
-              return (
-                <tr
-                  key={originalIndex}
-                  className={originalIndex === selectedRowIndex ? "selected" : ""}
-                  style={{ height: rowHeight }}
-                  onContextMenu={(e) => onContextMenu(e, originalIndex)}
-                >
-                  <td className="text-center px-0 text-text-muted/60 border-r border-border/10">
-                    {visualIndex + 1}
-                  </td>
-                  {visibleColIndices.map((ci) => {
-                    const cell = row[ci];
-                    return (
-                      <td
-                        key={ci}
-                        title={cell != null ? String(cell) : "NULL"}
-                        className="border-r border-border/5"
-                      >
-                        {cell != null ? (
-                          String(cell)
-                        ) : (
-                          <span className="text-text-muted/40 italic">NULL</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-            <tr style={{ height: Math.max(0, (processedRows.length - endIndex) * rowHeight) }}>
-              <td colSpan={visibleColIndices.length + 1} style={{ padding: 0, border: 0, background: 'transparent' }} />
+            <For each={visibleRows()}>
+              {({ row, originalIndex }, i) => {
+                const visualIndex = () => startIndex() + i();
+                return (
+                  <tr
+                    class={originalIndex === props.selectedRowIndex ? "selected" : ""}
+                    style={{ height: `${rowHeight}px` }}
+                    onContextMenu={(e) => props.onContextMenu(e, originalIndex)}
+                  >
+                    <td class="text-center px-0 text-text-muted/60 border-r border-border/10">
+                      {visualIndex() + 1}
+                    </td>
+                    <For each={visibleColIndices()}>
+                      {(ci) => {
+                        const cell = row[ci];
+                        return (
+                          <td
+                            title={cell != null ? String(cell) : "NULL"}
+                            class="border-r border-border/5"
+                          >
+                            {cell != null ? (
+                              String(cell)
+                            ) : (
+                              <span class="text-text-muted/40 italic">NULL</span>
+                            )}
+                          </td>
+                        );
+                      }}
+                    </For>
+                  </tr>
+                );
+              }}
+            </For>
+            <tr style={{ height: `${Math.max(0, (processedRows().length - endIndex()) * rowHeight)}px` }}>
+              <td colSpan={visibleColIndices().length + 1} style={{ padding: "0", border: "0", background: "transparent" }} />
             </tr>
           </tbody>
         </table>
@@ -557,191 +593,172 @@ function VirtualGrid({
   );
 }
 
-export default function ResultsGrid({
-  result,
-  error,
-  isExecuting,
-  sourceSql,
-  onGenerateSql,
-}: Props) {
-  const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
-  const tableName = useMemo(() => extractTableName(sourceSql), [sourceSql]);
+export default function ResultsGrid(props: Props) {
+  const [rowContextMenu, setRowContextMenu] = createSignal<RowContextMenuState | null>(null);
+  const tableName = createMemo(() => extractTableName(props.sourceSql));
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, ri: number, rsi: number) => {
-      e.preventDefault();
-      setRowContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, resultSetIndex: rsi });
-    },
-    [],
-  );
-
-  if (isExecuting) {
-    return (
-      <div className="h-full bg-surface">
-        <EmptyState
-          icon={<div className="mb-5 h-8 w-8 rounded-full border-[3px] border-accent/20 border-t-accent animate-spin" />}
-          title={<span className="animate-pulse">Executing query...</span>}
-        />
-      </div>
-    );
-  }
-
-  if (error) {
-    const [copied, setCopied] = useState(false);
-    const handleCopy = async () => {
-      try {
-        await navigator.clipboard.writeText(error);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (err) {
-        console.error("Failed to copy error:", err);
-      }
-    };
-
-    return (
-      <div className="p-4 h-full overflow-auto bg-surface flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-s font-semibold text-error/80 flex items-center gap-2">
-            <i className="fa-solid fa-circle-exclamation" />
-            Query Error
-          </span>
-          <button
-            onClick={handleCopy}
-            className={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied ? "text-success border-success/30 bg-success/5" : ""
-              }`}
-          >
-            <i className={`fa-solid ${copied ? "fa-check" : "fa-copy"}`} />
-            <span>{copied ? "Copied!" : "Copy Error"}</span>
-          </button>
-        </div>
-        <div className="text-error text-m font-mono whitespace-pre-wrap leading-relaxed select-text p-4 bg-error/5 border border-error/10 rounded-lg">
-          {error}
-        </div>
-      </div>
-    );
-  }
-
-  if (!result) {
-    return (
-      <div className="h-full bg-surface">
-        <EmptyState
-          icon={null}
-          description={
-            <>
-              Press <kbd className="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">F5</kbd>
-              or <kbd className="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">{executeShortcutLabel}</kbd> to execute
-            </>
-          }
-        />
-      </div>
-    );
-  }
-
-  const hasResults = result.result_sets.length > 0;
-
-  const currentResultSet =
-    rowContextMenu && result.result_sets[rowContextMenu.resultSetIndex]
-      ? result.result_sets[rowContextMenu.resultSetIndex]
-      : null;
-  const selectedRow =
-    currentResultSet && rowContextMenu ? currentResultSet.rows[rowContextMenu.rowIndex] : null;
-  const canGenerateRowSql = !!tableName && !!selectedRow && !!onGenerateSql;
-
-  const contextMenuItems: ContextMenuItem[] = [
-    {
-      id: "copy-row",
-      label: "Copy",
-      icon: <i className="fa-solid fa-copy" />,
-      onClick: () => {
-        if (!selectedRow) return;
-        const text = selectedRow.map((v) => (v === null ? "NULL" : String(v))).join("\t");
-        navigator.clipboard.writeText(text);
-      },
-    },
-    { id: "sep-copy", separator: true },
-    {
-      id: "edit-row",
-      label: "Edit Row",
-      icon: <i className="fa-solid fa-pen-to-square" />,
-      disabled: !canGenerateRowSql,
-      onClick: () => {
-        if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)
-          return;
-        onGenerateSql(buildUpdateSql(tableName, currentResultSet.columns, selectedRow));
-      },
-    },
-    {
-      id: "duplicate-row",
-      label: "Duplicate Row",
-      icon: <i className="fa-solid fa-clone" />,
-      disabled: !canGenerateRowSql,
-      onClick: () => {
-        if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)
-          return;
-        onGenerateSql(buildInsertSql(tableName, currentResultSet.columns, selectedRow));
-      },
-    },
-    {
-      id: "delete-row",
-      label: "Delete Row",
-      icon: <i className="fa-solid fa-trash-can" />,
-      disabled: !canGenerateRowSql,
-      onClick: () => {
-        if (!canGenerateRowSql || !selectedRow || !tableName || !onGenerateSql || !currentResultSet)
-          return;
-        onGenerateSql(buildDeleteSql(tableName, currentResultSet.columns, selectedRow));
-      },
-    },
-  ];
-
-  if (!tableName) {
-    contextMenuItems.push({ id: "sep1", separator: true });
-    contextMenuItems.push({
-      id: "hint-text",
-      label: "Run a single-table SELECT for row actions",
-      disabled: true,
-    });
-  }
+  const handleContextMenu = (e: MouseEvent, ri: number, rsi: number) => {
+    e.preventDefault();
+    setRowContextMenu({ x: e.clientX, y: e.clientY, rowIndex: ri, resultSetIndex: rsi });
+  };
 
   return (
-    <div className="flex flex-col h-full overflow-auto p-3 gap-3">
-      {hasResults ? (
-        result.result_sets.map((rs, i) => (
-          <VirtualGrid
-            key={i}
-            resultSet={rs}
-            selectedRowIndex={rowContextMenu?.resultSetIndex === i ? rowContextMenu.rowIndex : null}
-            onContextMenu={(e, ri) => handleContextMenu(e, ri, i)}
-          />
-        ))
-      ) : (
-        <div className="p-4 text-text-muted text-m font-sans">
-          <p className="text-success font-semibold flex items-center gap-2 mb-2">
-            <i className="fa-solid fa-check-circle" />
-            Query executed successfully.
-          </p>
-          <div className="space-y-1.5 opacity-80">
-            {result.rows_affected > 0 && (
-              <p>{result.rows_affected} row(s) affected.</p>
-            )}
-            <p className="text-s">Execution time: {result.elapsed_ms}ms</p>
-            {result.messages.map((msg, i) => (
-              <p key={i} className="text-s bg-surface-hover p-2 rounded-md border border-border/10">
-                {msg}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
-      {rowContextMenu && (
-        <ContextMenu
-          x={rowContextMenu.x}
-          y={rowContextMenu.y}
-          items={contextMenuItems}
-          onClose={() => setRowContextMenu(null)}
+    <Show when={!props.isExecuting} fallback={
+      <div class="h-full bg-surface">
+        <EmptyState
+          icon={<div class="mb-5 h-8 w-8 rounded-full border-[3px] border-accent/20 border-t-accent animate-spin" />}
+          title={<span class="animate-pulse">Executing query...</span>}
         />
-      )}
-    </div>
+      </div>
+    }>
+      <Show when={!props.error} fallback={
+        <ErrorSection error={props.error!} />
+      }>
+        <Show when={props.result} fallback={
+          <div class="h-full bg-surface">
+            <EmptyState
+              icon={null}
+              description={
+                <>
+                  Press <kbd class="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">F5</kbd>
+                  or <kbd class="px-1.5 py-0.5 rounded-md bg-surface-header border border-border/50 text-xs font-mono font-medium text-text mx-1">{executeShortcutLabel}</kbd> to execute
+                </>
+              }
+            />
+          </div>
+        }>
+          {(result) => {
+            const hasResults = () => result().result_sets.length > 0;
+
+            const currentResultSet = () => {
+              const menu = rowContextMenu();
+              return menu && result().result_sets[menu.resultSetIndex]
+                ? result().result_sets[menu.resultSetIndex]
+                : null;
+            };
+            const selectedRow = () => {
+              const rs = currentResultSet();
+              const menu = rowContextMenu();
+              return rs && menu ? rs.rows[menu.rowIndex] : null;
+            };
+            const canGenerateRowSql = () => !!tableName() && !!selectedRow() && !!props.onGenerateSql;
+
+            const contextMenuItems = (): ContextMenuItem[] => {
+              const items: ContextMenuItem[] = [
+                {
+                  id: "copy-row",
+                  label: "Copy",
+                  icon: <i class="fa-solid fa-copy" />,
+                  onClick: () => {
+                    const row = selectedRow();
+                    if (!row) return;
+                    const text = row.map((v) => (v === null ? "NULL" : String(v))).join("\t");
+                    navigator.clipboard.writeText(text);
+                  },
+                },
+                { id: "sep-copy", separator: true },
+                {
+                  id: "edit-row",
+                  label: "Edit Row",
+                  icon: <i class="fa-solid fa-pen-to-square" />,
+                  disabled: !canGenerateRowSql(),
+                  onClick: () => {
+                    const row = selectedRow();
+                    const tn = tableName();
+                    const rs = currentResultSet();
+                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
+                    props.onGenerateSql(buildUpdateSql(tn, rs.columns, row));
+                  },
+                },
+                {
+                  id: "duplicate-row",
+                  label: "Duplicate Row",
+                  icon: <i class="fa-solid fa-clone" />,
+                  disabled: !canGenerateRowSql(),
+                  onClick: () => {
+                    const row = selectedRow();
+                    const tn = tableName();
+                    const rs = currentResultSet();
+                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
+                    props.onGenerateSql(buildInsertSql(tn, rs.columns, row));
+                  },
+                },
+                {
+                  id: "delete-row",
+                  label: "Delete Row",
+                  icon: <i class="fa-solid fa-trash-can" />,
+                  disabled: !canGenerateRowSql(),
+                  onClick: () => {
+                    const row = selectedRow();
+                    const tn = tableName();
+                    const rs = currentResultSet();
+                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
+                    props.onGenerateSql(buildDeleteSql(tn, rs.columns, row));
+                  },
+                },
+              ];
+
+              if (!tableName()) {
+                items.push({ id: "sep1", separator: true });
+                items.push({
+                  id: "hint-text",
+                  label: "Run a single-table SELECT for row actions",
+                  disabled: true,
+                });
+              }
+
+              return items;
+            };
+
+            return (
+              <div class="flex flex-col h-full overflow-auto p-3 gap-3">
+                <Show when={hasResults()} fallback={
+                  <div class="p-4 text-text-muted text-m font-sans">
+                    <p class="text-success font-semibold flex items-center gap-2 mb-2">
+                      <i class="fa-solid fa-check-circle" />
+                      Query executed successfully.
+                    </p>
+                    <div class="space-y-1.5 opacity-80">
+                      <Show when={result().rows_affected > 0}>
+                        <p>{result().rows_affected} row(s) affected.</p>
+                      </Show>
+                      <p class="text-s">Execution time: {result().elapsed_ms}ms</p>
+                      <For each={result().messages}>
+                        {(msg) => (
+                          <p class="text-s bg-surface-hover p-2 rounded-md border border-border/10">
+                            {msg}
+                          </p>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                }>
+                  <For each={result().result_sets}>
+                    {(rs, i) => (
+                      <VirtualGrid
+                        resultSet={rs}
+                        selectedRowIndex={rowContextMenu()?.resultSetIndex === i() ? rowContextMenu()!.rowIndex : null}
+                        onContextMenu={(e, ri) => handleContextMenu(e, ri, i())}
+                      />
+                    )}
+                  </For>
+                </Show>
+                <Show when={rowContextMenu()}>
+                  {(menu) => (
+                    <ContextMenu
+                      x={menu().x}
+                      y={menu().y}
+                      items={contextMenuItems()}
+                      onClose={() => setRowContextMenu(null)}
+                    />
+                  )}
+                </Show>
+              </div>
+            );
+          }}
+        </Show>
+      </Show>
+    </Show>
   );
 }

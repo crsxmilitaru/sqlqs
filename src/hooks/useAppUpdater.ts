@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { createSignal, onMount } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -30,27 +30,24 @@ const INVALID_UPDATER_SIGNATURE_MESSAGE =
 const NO_RELEASE_METADATA_MESSAGE = "No published update metadata found yet.";
 
 export function useAppUpdater() {
-  const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
+  const [appVersion, setAppVersion] = createSignal<string | null>(null);
+  const [updateStatus, setUpdateStatus] = createSignal<UpdateStatus>({
     checking: false,
     message: null,
     tone: "info",
   });
-  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
-  const isCheckingRef = useRef(false);
+  const [updateAvailable, setUpdateAvailable] = createSignal<Update | null>(null);
+  let isChecking = false;
 
-  useEffect(() => {
-    async function loadVersion() {
-      try {
-        setAppVersion(await getVersion());
-      } catch {
-        setAppVersion(null);
-      }
+  onMount(async () => {
+    try {
+      setAppVersion(await getVersion());
+    } catch {
+      setAppVersion(null);
     }
-    void loadVersion();
-  }, []);
+  });
 
-  const formatUpdaterError = useCallback((error: unknown): UpdaterErrorDetails => {
+  const formatUpdaterError = (error: unknown): UpdaterErrorDetails => {
     const message = String(error);
     const normalized = message.toLowerCase();
 
@@ -87,14 +84,14 @@ export function useAppUpdater() {
       configurationIssue: false,
       tone: "error",
     };
-  }, []);
+  };
 
-  const checkForUpdates = useCallback(async (manual: boolean): Promise<UpdateCheckResult> => {
-    if (isCheckingRef.current) {
+  const checkForUpdates = async (manual: boolean): Promise<UpdateCheckResult> => {
+    if (isChecking) {
       return "skipped";
     }
 
-    isCheckingRef.current = true;
+    isChecking = true;
     setUpdateStatus({
       checking: true,
       message: manual ? "Checking for updates..." : null,
@@ -129,11 +126,11 @@ export function useAppUpdater() {
       });
       return configurationIssue ? "configuration-error" : "error";
     } finally {
-      isCheckingRef.current = false;
+      isChecking = false;
     }
-  }, [formatUpdaterError]);
+  };
 
-  const installUpdate = useCallback(async (update: Update) => {
+  const installUpdate = async (update: Update) => {
     setUpdateAvailable(null);
     setUpdateStatus({
       checking: true,
@@ -166,16 +163,16 @@ export function useAppUpdater() {
         tone,
       });
     }
-  }, [formatUpdaterError]);
+  };
 
-  const cancelUpdate = useCallback((update: Update) => {
+  const cancelUpdate = (update: Update) => {
     setUpdateAvailable(null);
     setUpdateStatus({
       checking: false,
       message: `Update ${update.version} is available.`,
       tone: "info",
     });
-  }, []);
+  };
 
   return {
     appVersion,

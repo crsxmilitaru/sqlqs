@@ -26,13 +26,13 @@ export function buildObjectExplorerMenuItems({
       {
         id: "exec",
         label: "Execute",
-        icon: <i className="fa-solid fa-play" />,
+        icon: <i class="fa-solid fa-play" />,
         onClick: () => onSelectSql(`EXEC ${fullName}`, true),
       },
       {
         id: "script-alter",
         label: "Script ALTER",
-        icon: <i className="fa-solid fa-pen" />,
+        icon: <i class="fa-solid fa-pen" />,
         onClick: async () => {
           try {
             const def: string = await invoke("get_object_definition", { database, schema, name: table });
@@ -48,7 +48,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "get-last-modified",
         label: "Get Last Modified",
-        icon: <i className="fa-solid fa-clock-rotate-left" />,
+        icon: <i class="fa-solid fa-clock-rotate-left" />,
         onClick: () =>
           onSelectSql(
             `SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`,
@@ -59,7 +59,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "copy-name",
         label: "Copy Name",
-        icon: <i className="fa-solid fa-copy" />,
+        icon: <i class="fa-solid fa-copy" />,
         onClick: () => navigator.clipboard.writeText(fullName),
       },
     ];
@@ -70,13 +70,13 @@ export function buildObjectExplorerMenuItems({
       {
         id: "script-select",
         label: "Script SELECT",
-        icon: <i className="fa-solid fa-file-code" />,
+        icon: <i class="fa-solid fa-file-code" />,
         onClick: () => onSelectSql(`SELECT ${fullName}()`, true),
       },
       {
         id: "script-alter",
         label: "Script ALTER",
-        icon: <i className="fa-solid fa-pen" />,
+        icon: <i class="fa-solid fa-pen" />,
         onClick: async () => {
           try {
             const def: string = await invoke("get_object_definition", { database, schema, name: table });
@@ -92,7 +92,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "get-last-modified",
         label: "Get Last Modified",
-        icon: <i className="fa-solid fa-clock-rotate-left" />,
+        icon: <i class="fa-solid fa-clock-rotate-left" />,
         onClick: () =>
           onSelectSql(
             `SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`,
@@ -103,7 +103,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "copy-name",
         label: "Copy Name",
-        icon: <i className="fa-solid fa-copy" />,
+        icon: <i class="fa-solid fa-copy" />,
         onClick: () => navigator.clipboard.writeText(fullName),
       },
     ];
@@ -114,7 +114,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "view-definition",
         label: "View Definition",
-        icon: <i className="fa-solid fa-file-code" />,
+        icon: <i class="fa-solid fa-file-code" />,
         onClick: async () => {
           try {
             const def: string = await invoke("get_object_definition", { database, schema, name: table });
@@ -129,7 +129,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "script-alter",
         label: "Script ALTER",
-        icon: <i className="fa-solid fa-pen" />,
+        icon: <i class="fa-solid fa-pen" />,
         onClick: async () => {
           try {
             const def: string = await invoke("get_object_definition", { database, schema, name: table });
@@ -145,7 +145,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "trigger-details",
         label: "Trigger Details",
-        icon: <i className="fa-solid fa-circle-info" />,
+        icon: <i class="fa-solid fa-circle-info" />,
         onClick: () =>
           onSelectSql(
             `SELECT\n\tt.name AS [Trigger],\n\tOBJECT_NAME(t.parent_id) AS [ParentTable],\n\tSCHEMA_NAME(o.schema_id) AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM [${database}].sys.triggers t\nJOIN [${database}].sys.objects o ON t.object_id = o.object_id\nWHERE t.object_id = OBJECT_ID('${fullName}')`,
@@ -155,7 +155,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "enable-trigger",
         label: "Script ENABLE",
-        icon: <i className="fa-solid fa-toggle-on" />,
+        icon: <i class="fa-solid fa-toggle-on" />,
         onClick: () =>
           onSelectSql(
             `DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM [${database}].sys.triggers WHERE object_id = OBJECT_ID('${fullName}')));\nEXEC('ENABLE TRIGGER [${schema}].[${table}] ON [${schema}].' + QUOTENAME(@parent))`,
@@ -164,7 +164,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "disable-trigger",
         label: "Script DISABLE",
-        icon: <i className="fa-solid fa-toggle-off" />,
+        icon: <i class="fa-solid fa-toggle-off" />,
         onClick: () =>
           onSelectSql(
             `DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM [${database}].sys.triggers WHERE object_id = OBJECT_ID('${fullName}')));\nEXEC('DISABLE TRIGGER [${schema}].[${table}] ON [${schema}].' + QUOTENAME(@parent))`,
@@ -173,7 +173,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "get-last-modified",
         label: "Get Last Modified",
-        icon: <i className="fa-solid fa-clock-rotate-left" />,
+        icon: <i class="fa-solid fa-clock-rotate-left" />,
         onClick: () =>
           onSelectSql(
             `SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`,
@@ -184,7 +184,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "copy-name",
         label: "Copy Name",
-        icon: <i className="fa-solid fa-copy" />,
+        icon: <i class="fa-solid fa-copy" />,
         onClick: () => navigator.clipboard.writeText(fullName),
       },
     ];
@@ -195,7 +195,7 @@ export function buildObjectExplorerMenuItems({
       {
         id: "view-definition",
         label: "View Definition",
-        icon: <i className="fa-solid fa-file-code" />,
+        icon: <i class="fa-solid fa-file-code" />,
         onClick: () =>
           onSelectSql(
             `SELECT\n\tt.name AS [TypeName],\n\tSCHEMA_NAME(t.schema_id) AS [Schema],\n\tTYPE_NAME(t.system_type_id) AS [BaseType],\n\tt.max_length AS [MaxLength],\n\tt.precision AS [Precision],\n\tt.scale AS [Scale],\n\tt.is_nullable AS [IsNullable],\n\tt.is_table_type AS [IsTableType]\nFROM [${database}].sys.types t\nWHERE t.name = '${table}'\n\tAND SCHEMA_NAME(t.schema_id) = '${schema}'`,
@@ -205,14 +205,14 @@ export function buildObjectExplorerMenuItems({
       {
         id: "script-drop",
         label: "Script DROP",
-        icon: <i className="fa-solid fa-trash" />,
+        icon: <i class="fa-solid fa-trash" />,
         onClick: () => onSelectSql(`DROP TYPE ${fullName}`),
       },
       { id: "sep-type-1", separator: true },
       {
         id: "copy-name",
         label: "Copy Name",
-        icon: <i className="fa-solid fa-copy" />,
+        icon: <i class="fa-solid fa-copy" />,
         onClick: () => navigator.clipboard.writeText(fullName),
       },
     ];
@@ -222,18 +222,18 @@ export function buildObjectExplorerMenuItems({
     {
       id: "select",
       label: "Select",
-      icon: <i className="fa-solid fa-check-double" />,
+      icon: <i class="fa-solid fa-check-double" />,
       children: [
         {
           id: "select-top-100",
           label: "Select Top 100",
-          icon: <i className="fa-solid fa-arrow-up-wide-short" />,
+          icon: <i class="fa-solid fa-arrow-up-wide-short" />,
           onClick: () => onSelectSql(`SELECT TOP 100 * FROM ${fullName}`, true),
         },
         {
           id: "select-bottom-100",
           label: "Select Bottom 100",
-          icon: <i className="fa-solid fa-arrow-down-wide-short" />,
+          icon: <i class="fa-solid fa-arrow-down-wide-short" />,
           onClick: () =>
             onSelectSql(
               `SELECT * FROM (\n  SELECT TOP 100 * FROM ${fullName} ORDER BY 1 DESC\n) t ORDER BY 1 ASC`,
@@ -243,13 +243,13 @@ export function buildObjectExplorerMenuItems({
         {
           id: "select-all",
           label: "Select All Rows",
-          icon: <i className="fa-solid fa-table" />,
+          icon: <i class="fa-solid fa-table" />,
           onClick: () => onSelectSql(`SELECT * FROM ${fullName}`, true),
         },
         {
           id: "select-count",
           label: "Count Rows",
-          icon: <i className="fa-solid fa-calculator" />,
+          icon: <i class="fa-solid fa-calculator" />,
           onClick: () => onSelectSql(`SELECT COUNT(*) AS [TotalRows] FROM ${fullName}`, true),
         },
       ],
@@ -257,12 +257,12 @@ export function buildObjectExplorerMenuItems({
     {
       id: "script",
       label: "Script",
-      icon: <i className="fa-solid fa-code" />,
+      icon: <i class="fa-solid fa-code" />,
       children: [
         {
           id: "script-create",
           label: "Create Table",
-          icon: <i className="fa-solid fa-plus" />,
+          icon: <i class="fa-solid fa-plus" />,
           onClick: async () => {
             if (objectType === "VIEW") {
               try {
@@ -291,7 +291,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-alter",
           label: "Alter Table",
-          icon: <i className="fa-solid fa-pen" />,
+          icon: <i class="fa-solid fa-pen" />,
           onClick: async () => {
             if (objectType === "VIEW") {
               try {
@@ -311,7 +311,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-drop",
           label: "Drop Object",
-          icon: <i className="fa-solid fa-trash" />,
+          icon: <i class="fa-solid fa-trash" />,
           onClick: () => {
             const kind = objectType === "VIEW" ? "VIEW" : "TABLE";
             onSelectSql(
@@ -323,7 +323,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-select",
           label: "Select Rows",
-          icon: <i className="fa-solid fa-magnifying-glass" />,
+          icon: <i class="fa-solid fa-magnifying-glass" />,
           onClick: async () => {
             try {
               const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
@@ -337,7 +337,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-insert",
           label: "Insert Values",
-          icon: <i className="fa-solid fa-circle-plus" />,
+          icon: <i class="fa-solid fa-circle-plus" />,
           onClick: async () => {
             try {
               const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
@@ -355,7 +355,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-update",
           label: "Update Rows",
-          icon: <i className="fa-solid fa-pen-to-square" />,
+          icon: <i class="fa-solid fa-pen-to-square" />,
           onClick: async () => {
             try {
               const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
@@ -372,7 +372,7 @@ export function buildObjectExplorerMenuItems({
         {
           id: "script-delete",
           label: "Delete Rows",
-          icon: <i className="fa-solid fa-xmark" />,
+          icon: <i class="fa-solid fa-xmark" />,
           onClick: async () => {
             try {
               const cols: ColumnInfo[] = await invoke("get_columns", { database, schema, table });
@@ -391,7 +391,7 @@ export function buildObjectExplorerMenuItems({
     {
       id: "get-last-modified",
       label: "Get Last Modified",
-      icon: <i className="fa-solid fa-clock-rotate-left" />,
+      icon: <i class="fa-solid fa-clock-rotate-left" />,
       onClick: () =>
         onSelectSql(
           `SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM [${database}].sys.objects\nWHERE object_id = OBJECT_ID('${fullName}')`,
@@ -402,7 +402,7 @@ export function buildObjectExplorerMenuItems({
     {
       id: "copy-name",
       label: "Copy Name",
-      icon: <i className="fa-solid fa-copy" />,
+      icon: <i class="fa-solid fa-copy" />,
       onClick: () => navigator.clipboard.writeText(fullName),
     },
   ];

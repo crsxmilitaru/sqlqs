@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createSignal, onMount, onCleanup } from "solid-js";
 
 interface Props {
   version: string;
@@ -7,53 +7,52 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function UpdateDialog({ version, currentVersion, onInstall, onCancel }: Props) {
-  const [visible, setVisible] = useState(false);
+export default function UpdateDialog(props: Props) {
+  const [visible, setVisible] = createSignal(false);
 
-  useEffect(() => {
+  onMount(() => {
     requestAnimationFrame(() => setVisible(true));
-  }, []);
+  });
 
-  useEffect(() => {
+  onMount(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onCancel();
+        props.onCancel();
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   return (
     <div
-      className="dialog-overlay"
-      data-visible={visible}
-      onMouseDown={onCancel}
+      class="dialog-overlay"
+      data-visible={visible()}
+      onMouseDown={props.onCancel}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="dialog-surface w-[460px] max-w-[94vw] p-6 shadow-2xl"
+        class="dialog-surface w-[460px] max-w-[94vw] p-6 shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="mb-6 flex items-start gap-4">
-          <div className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-            <i className="fa-solid fa-circle-arrow-up text-lg" />
+        <div class="mb-6 flex items-start gap-4">
+          <div class="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+            <i class="fa-solid fa-circle-arrow-up text-lg" />
           </div>
           <div>
-            <h2 className="mb-1 text-lg font-semibold text-text">Update available</h2>
-            <p className="text-sm text-text-muted">
-              Version {version} is ready to install. You are currently running {currentVersion}.
+            <h2 class="mb-1 text-lg font-semibold text-text">Update available</h2>
+            <p class="text-sm text-text-muted">
+              Version {props.version} is ready to install. You are currently running {props.currentVersion}.
             </p>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-border pt-4">
-          <button onClick={onCancel} className="btn btn-secondary px-5 py-1.5">
+        <div class="flex justify-end gap-3 border-t border-border pt-4">
+          <button onClick={props.onCancel} class="btn btn-secondary px-5 py-1.5">
             Later
           </button>
-          <button onClick={onInstall} className="btn btn-primary px-5 py-1.5">
+          <button onClick={props.onInstall} class="btn btn-primary px-5 py-1.5">
             Install update
           </button>
         </div>
