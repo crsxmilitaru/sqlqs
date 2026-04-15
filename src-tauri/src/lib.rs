@@ -1,10 +1,11 @@
 mod db;
 mod settings;
+mod sql_gen;
 
 use db::{
     CachedServerObjectIndex, ColumnInfo, ConnectionConfig, DatabaseObject,
-    DatabaseSchemaCatalogEntry, QueryResult, ServerObjectIndexStatus,
-    ServerObjectSearchResponse, SqlClient,
+    DatabaseSchemaCatalogEntry, QueryResult, ServerObjectIndexStatus, ServerObjectSearchResponse,
+    SqlClient,
 };
 use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
@@ -233,13 +234,13 @@ fn write_sql_file(path: String, content: String) -> Result<String, String> {
     if let Some(parent) = file_path.parent() {
         if !parent.exists() {
             // Only auto-create directories under the user's Documents folder
-            let allowed_root =
-                dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
+            let allowed_root = dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
             if !parent.starts_with(&allowed_root) {
                 return Err("Cannot create directories outside Documents folder".to_string());
             }
-            std::fs::create_dir_all(parent)
-                .map_err(|err| format!("Failed to create directory '{}': {}", parent.display(), err))?;
+            std::fs::create_dir_all(parent).map_err(|err| {
+                format!("Failed to create directory '{}': {}", parent.display(), err)
+            })?;
         }
     }
 
@@ -254,8 +255,7 @@ fn open_folder(path: String) -> Result<(), String> {
     let folder = PathBuf::from(&path);
     if !folder.exists() {
         // Only auto-create directories under the user's Documents folder
-        let allowed_root =
-            dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
+        let allowed_root = dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
         if !folder.starts_with(&allowed_root) {
             return Err("Cannot create directories outside Documents folder".to_string());
         }
@@ -592,7 +592,11 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 
     // Cache resolved port for faster reconnects
     if resolved_port != saved.cached_port {
-        if let Some(conn) = settings.connections.iter_mut().find(|c| c.name == last_name) {
+        if let Some(conn) = settings
+            .connections
+            .iter_mut()
+            .find(|c| c.name == last_name)
+        {
             conn.cached_port = resolved_port;
             settings::save_settings(&settings).ok();
         }
@@ -749,6 +753,249 @@ fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), Stri
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// SQL generation commands (logic moved from TypeScript)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn extract_table_name(sql: String) -> Option<String> {
+    sql_gen::extract_table_name(&sql)
+}
+
+#[tauri::command]
+fn build_row_sql(
+    operation: String,
+    source_sql: String,
+    columns: Vec<sql_gen::ColumnDef>,
+    row: Vec<serde_json::Value>,
+    primary_key_columns: Option<Vec<String>>,
+) -> Result<String, String> {
+    let table_name = sql_gen::extract_table_name(&source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let primary_key_columns = primary_key_columns.unwrap_or_default();
+
+    match operation.as_str() {
+        "update" => sql_gen::build_update_sql(&table_name, &columns, &row, &primary_key_columns),
+        "delete" => sql_gen::build_delete_sql(&table_name, &columns, &row, &primary_key_columns),
+        "insert" => Ok(sql_gen::build_insert_sql(&table_name, &columns, &row)),
+        _ => return Err(format!("Unknown operation: {}", operation)),
+    }
+}
+
+#[tauri::command]
+async fn get_table_identity_columns(
+    state: State<'_, AppState>,
+    source_sql: String,
+) -> Result<Vec<String>, String> {
+    let table_name = sql_gen::extract_table_name(&source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_identity_columns(client, &table_name).await
+}
+
+#[tauri::command]
+async fn get_primary_key_columns(
+    state: State<'_, AppState>,
+    source_sql: String,
+) -> Result<Vec<String>, String> {
+    let table_name = sql_gen::extract_table_name(&source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_primary_key_columns(client, &table_name).await
+}
+
+#[tauri::command]
+async fn get_table_column_metadata(
+    state: State<'_, AppState>,
+    source_sql: String,
+) -> Result<Vec<ColumnInfo>, String> {
+    let table_name = sql_gen::extract_table_name(&source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_table_column_metadata(client, &table_name).await
+}
+
+#[tauri::command]
+fn build_row_update_with_edits(
+    source_sql: String,
+    columns: Vec<sql_gen::ColumnDef>,
+    old_row: Vec<serde_json::Value>,
+    new_row: Vec<serde_json::Value>,
+    primary_key_columns: Vec<String>,
+) -> Result<String, String> {
+    let table_name = sql_gen::extract_table_name(&source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    sql_gen::build_update_sql_with_edits(
+        &table_name,
+        &columns,
+        &old_row,
+        &new_row,
+        &primary_key_columns,
+    )
+}
+
+#[tauri::command]
+fn export_results_csv(
+    path: String,
+    columns: Vec<sql_gen::ColumnDef>,
+    rows: Vec<Vec<serde_json::Value>>,
+) -> Result<(), String> {
+    sql_gen::export_csv(&path, &columns, &rows)
+}
+
+#[tauri::command]
+fn export_results_json(
+    path: String,
+    columns: Vec<sql_gen::ColumnDef>,
+    rows: Vec<Vec<serde_json::Value>>,
+) -> Result<(), String> {
+    sql_gen::export_json(&path, &columns, &rows)
+}
+
+#[derive(serde::Serialize)]
+struct ObjectScriptResult {
+    sql: String,
+}
+
+#[tauri::command]
+async fn generate_object_script(
+    state: State<'_, AppState>,
+    database: String,
+    schema: String,
+    name: String,
+    object_type: String,
+    action: String,
+) -> Result<ObjectScriptResult, String> {
+    // Try static generation first (no DB access needed)
+    if let Some(sql) =
+        sql_gen::generate_object_script_static(&database, &schema, &name, &object_type, &action)
+    {
+        return Ok(ObjectScriptResult { sql });
+    }
+
+    // Actions that need column metadata
+    let needs_columns = matches!(
+        action.as_str(),
+        "script_select_columns" | "script_insert" | "script_update" | "script_delete"
+    );
+    let needs_columns_for_create = action == "script_create" && object_type == "VIEW";
+
+    if needs_columns || needs_columns_for_create {
+        let columns_result = {
+            let mut lock = state.client.lock().await;
+            let client = lock
+                .as_mut()
+                .ok_or("Not connected to a server".to_string())?;
+            db::get_columns(client, &database, &schema, &name).await
+        };
+        match columns_result {
+            Ok(columns) => {
+                let sql = sql_gen::generate_object_script_with_columns(
+                    &database,
+                    &schema,
+                    &name,
+                    &object_type,
+                    &action,
+                    &columns,
+                );
+                return Ok(ObjectScriptResult { sql });
+            }
+            Err(_) => {
+                let sql = sql_gen::generate_object_script_definition_fallback(
+                    &database,
+                    &schema,
+                    &name,
+                    &object_type,
+                    &action,
+                );
+                return Ok(ObjectScriptResult { sql });
+            }
+        }
+    }
+
+    // Actions that need CREATE script (table)
+    if action == "script_create" && object_type == "TABLE" {
+        let script_result = {
+            let mut lock = state.client.lock().await;
+            let client = lock
+                .as_mut()
+                .ok_or("Not connected to a server".to_string())?;
+            db::generate_create_script(client, &database, &schema, &name).await
+        };
+        match script_result {
+            Ok(sql) => return Ok(ObjectScriptResult { sql }),
+            Err(_) => {
+                let sql = sql_gen::generate_object_script_definition_fallback(
+                    &database,
+                    &schema,
+                    &name,
+                    &object_type,
+                    &action,
+                );
+                return Ok(ObjectScriptResult { sql });
+            }
+        }
+    }
+
+    // Actions that need object definition (alter, view_definition, jump for procs/funcs/triggers)
+    let needs_definition = matches!(action.as_str(), "script_alter" | "view_definition" | "jump")
+        && matches!(
+            object_type.as_str(),
+            "PROCEDURE" | "FUNCTION" | "TRIGGER" | "VIEW"
+        );
+
+    if needs_definition {
+        let def_result = {
+            let mut lock = state.client.lock().await;
+            let client = lock
+                .as_mut()
+                .ok_or("Not connected to a server".to_string())?;
+            db::get_object_definition(client, &database, &schema, &name).await
+        };
+        match def_result {
+            Ok(definition) => {
+                let sql = sql_gen::generate_object_script_with_definition(
+                    &database,
+                    &schema,
+                    &name,
+                    &object_type,
+                    &action,
+                    &definition,
+                );
+                return Ok(ObjectScriptResult { sql });
+            }
+            Err(_) => {
+                let sql = sql_gen::generate_object_script_definition_fallback(
+                    &database,
+                    &schema,
+                    &name,
+                    &object_type,
+                    &action,
+                );
+                return Ok(ObjectScriptResult { sql });
+            }
+        }
+    }
+
+    // Fallback
+    let sql = sql_gen::generate_object_script_definition_fallback(
+        &database,
+        &schema,
+        &name,
+        &object_type,
+        &action,
+    );
+    Ok(ObjectScriptResult { sql })
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -769,7 +1016,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-            
+
             // Show window after a small delay to ensure it's rendered
             let window_clone = window.clone();
             tauri::async_runtime::spawn(async move {
@@ -818,6 +1065,15 @@ pub fn run() {
             minimize_window,
             maximize_window,
             close_window,
+            extract_table_name,
+            build_row_sql,
+            build_row_update_with_edits,
+            get_table_identity_columns,
+            get_primary_key_columns,
+            get_table_column_metadata,
+            export_results_csv,
+            export_results_json,
+            generate_object_script,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -88,75 +88,20 @@ async function buildJumpSelection(
   object: DatabaseObject,
 ): Promise<ObjectJumpSelection> {
   const objectName = `${object.schema_name}.${object.name}`;
-  const fullName = `[${database}].[${object.schema_name}].[${object.name}]`;
-  const baseSelection = {
+  const result = await invoke<{ sql: string }>("generate_object_script", {
+    database,
+    schema: object.schema_name,
+    name: object.name,
+    objectType: object.object_type,
+    action: "jump",
+  });
+  return {
     database,
     title: objectName,
     sourceId: `object:${database}:${object.schema_name}:${object.name}:${object.object_type}`,
     preserveTitle: true,
+    sql: result.sql,
   };
-
-  switch (object.object_type) {
-    case "TABLE":
-    case "VIEW":
-      return {
-        ...baseSelection,
-        sql: `SELECT TOP 100 * FROM ${fullName}`,
-      };
-    case "PROCEDURE":
-    case "FUNCTION":
-    case "TRIGGER":
-      try {
-        const definition: string = await invoke("get_object_definition", {
-          database,
-          schema: object.schema_name,
-          name: object.name,
-        });
-        return {
-          ...baseSelection,
-          sql: `SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n${definition}\nGO`,
-        };
-      } catch {
-        if (object.object_type === "PROCEDURE") {
-          return {
-            ...baseSelection,
-            sql: `EXEC ${fullName}`,
-          };
-        }
-        if (object.object_type === "FUNCTION") {
-          return {
-            ...baseSelection,
-            sql: `SELECT ${fullName}()`,
-          };
-        }
-        return {
-          ...baseSelection,
-          sql: `-- Could not retrieve definition for [${object.schema_name}].[${object.name}]\n-- The object may be encrypted or not accessible.`,
-        };
-      }
-    case "TYPE":
-      return {
-        ...baseSelection,
-        sql:
-          `SELECT\n` +
-          `\tt.name AS [TypeName],\n` +
-          `\tSCHEMA_NAME(t.schema_id) AS [Schema],\n` +
-          `\tTYPE_NAME(t.system_type_id) AS [BaseType],\n` +
-          `\tt.max_length AS [MaxLength],\n` +
-          `\tt.precision AS [Precision],\n` +
-          `\tt.scale AS [Scale],\n` +
-          `\tt.is_nullable AS [IsNullable],\n` +
-          `\tt.is_table_type AS [IsTableType]\n` +
-          `FROM [${database}].sys.types t\n` +
-          `WHERE t.name = '${object.name}'\n` +
-          `\tAND SCHEMA_NAME(t.schema_id) = '${object.schema_name}'`,
-      };
-    default:
-      return {
-        ...baseSelection,
-        sql: `SELECT * FROM ${fullName}`,
-      };
-  }
 }
 
 export default function ObjectJumpPalette(props: Props) {

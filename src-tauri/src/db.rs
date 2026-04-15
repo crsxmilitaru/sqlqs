@@ -69,6 +69,7 @@ pub struct ColumnInfo {
     pub name: String,
     pub type_name: String,
     pub is_identity: bool,
+    pub is_nullable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,7 +196,11 @@ impl CachedServerObjectIndex {
         self.database_count = database_count;
     }
 
-    pub fn add_database_objects(&mut self, database: String, database_objects: Vec<DatabaseObject>) {
+    pub fn add_database_objects(
+        &mut self,
+        database: String,
+        database_objects: Vec<DatabaseObject>,
+    ) {
         self.objects.extend(
             database_objects
                 .into_iter()
@@ -429,15 +434,13 @@ pub async fn connect(
 
     #[cfg(windows)]
     {
-        let is_local =
-            host.eq_ignore_ascii_case("localhost") || host == "." || host == "127.0.0.1";
+        let is_local = host.eq_ignore_ascii_case("localhost") || host == "." || host == "127.0.0.1";
         if is_local {
             let pipe_name = match &instance {
                 Some(inst) => format!(r"\\.\pipe\MSSQL${}\sql\query", inst),
                 None => r"\\.\pipe\sql\query".to_string(),
             };
-            if let Ok(pipe) =
-                tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name)
+            if let Ok(pipe) = tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name)
             {
                 let stream = TransportStream::NamedPipe(pipe);
                 let mut client = Client::connect(tib_config, stream.compat_write())
@@ -456,8 +459,7 @@ pub async fn connect(
                 let stream = TransportStream::Tcp(tcp);
                 let mut direct_config = tib_config.clone();
                 direct_config.port(cached);
-                if let Ok(mut client) =
-                    Client::connect(direct_config, stream.compat_write()).await
+                if let Ok(mut client) = Client::connect(direct_config, stream.compat_write()).await
                 {
                     init_session(&mut client).await?;
                     return Ok((client, Some(cached)));
@@ -533,9 +535,7 @@ fn split_batches(sql: &str) -> Vec<String> {
 
         let trimmed = line.trim();
 
-        let is_go = if trimmed.len() >= 2
-            && trimmed[..2].eq_ignore_ascii_case("go")
-        {
+        let is_go = if trimmed.len() >= 2 && trimmed[..2].eq_ignore_ascii_case("go") {
             let after_go = trimmed[2..].trim();
             after_go.is_empty() || after_go.bytes().all(|b| b.is_ascii_digit())
         } else {
@@ -544,11 +544,7 @@ fn split_batches(sql: &str) -> Vec<String> {
 
         if is_go {
             if !current_batch.trim().is_empty() {
-                let repeat: usize = trimmed[2..]
-                    .trim()
-                    .parse()
-                    .unwrap_or(1)
-                    .max(1);
+                let repeat: usize = trimmed[2..].trim().parse().unwrap_or(1).max(1);
                 for _ in 0..repeat {
                     batches.push(current_batch.clone());
                 }
@@ -654,6 +650,7 @@ async fn execute_single_batch(client: &mut SqlClient, sql: &str) -> Result<Batch
                         name: c.name().to_string(),
                         type_name: format!("{:?}", c.column_type()),
                         is_identity: false,
+                        is_nullable: true,
                     })
                     .collect();
             }
@@ -773,6 +770,12 @@ fn extract_row(row: &Row, col_count: usize) -> Vec<serde_json::Value> {
                 serde_json::Value::String(val.format("%Y-%m-%d").to_string())
             } else if let Some(val) = row.try_get::<chrono::NaiveTime, _>(i).ok().flatten() {
                 serde_json::Value::String(val.format("%H:%M:%S%.3f").to_string())
+            } else if let Some(val) = row.try_get::<&[u8], _>(i).ok().flatten() {
+                let hex = val
+                    .iter()
+                    .map(|byte| format!("{:02X}", byte))
+                    .collect::<String>();
+                serde_json::Value::String(format!("0x{}", hex))
             } else if let Some(val) = row
                 .try_get::<tiberius::numeric::Decimal, _>(i)
                 .ok()
@@ -799,6 +802,57 @@ pub async fn get_databases(client: &mut SqlClient) -> Result<Vec<String>, String
         .await
         .map_err(|e| format!("Failed to read databases: {}", e))?;
 
+    Ok(rows
+        .iter()
+        .filter_map(|r| r.try_get::<&str, _>(0).ok().flatten().map(String::from))
+        .collect())
+}
+
+/// Returns the names of identity columns for a given table (resolved from OBJECT_ID).
+pub async fn get_identity_columns(
+    client: &mut SqlClient,
+    table_name: &str,
+) -> Result<Vec<String>, String> {
+    let sql = format!(
+        "SELECT c.name FROM sys.columns c WHERE c.object_id = OBJECT_ID('{}') AND c.is_identity = 1",
+        table_name.replace('\'', "''")
+    );
+    let stream = client
+        .query(sql.as_str(), &[])
+        .await
+        .map_err(|e| format!("Failed to query identity columns: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read identity columns: {}", e))?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| r.try_get::<&str, _>(0).ok().flatten().map(String::from))
+        .collect())
+}
+
+/// Returns the names of primary key columns for a given table (resolved from OBJECT_ID).
+pub async fn get_primary_key_columns(
+    client: &mut SqlClient,
+    table_name: &str,
+) -> Result<Vec<String>, String> {
+    let sql = format!(
+        "SELECT c.name \
+         FROM sys.indexes i \
+         JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
+         JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id \
+         WHERE i.object_id = OBJECT_ID('{}') AND i.is_primary_key = 1 \
+         ORDER BY ic.key_ordinal",
+        table_name.replace('\'', "''")
+    );
+    let stream = client
+        .query(sql.as_str(), &[])
+        .await
+        .map_err(|e| format!("Failed to query primary key columns: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read primary key columns: {}", e))?;
     Ok(rows
         .iter()
         .filter_map(|r| r.try_get::<&str, _>(0).ok().flatten().map(String::from))
@@ -1097,7 +1151,8 @@ pub async fn get_columns(
                 ELSE CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) END + ')' \
             WHEN c.DATA_TYPE IN ('decimal','numeric') THEN '(' + CAST(c.NUMERIC_PRECISION AS VARCHAR) + ',' + CAST(c.NUMERIC_SCALE AS VARCHAR) + ')' \
             ELSE '' END AS full_type, \
-         COLUMNPROPERTY(OBJECT_ID('[{db}].[' + c.TABLE_SCHEMA + '].[' + c.TABLE_NAME + ']'), c.COLUMN_NAME, 'IsIdentity') AS is_identity \
+         COLUMNPROPERTY(OBJECT_ID('[{db}].[' + c.TABLE_SCHEMA + '].[' + c.TABLE_NAME + ']'), c.COLUMN_NAME, 'IsIdentity') AS is_identity, \
+         CASE WHEN c.IS_NULLABLE = 'YES' THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS is_nullable \
          FROM [{db}].INFORMATION_SCHEMA.COLUMNS c \
          WHERE c.TABLE_SCHEMA = @P1 AND c.TABLE_NAME = @P2 \
          ORDER BY c.ORDINAL_POSITION",
@@ -1118,10 +1173,62 @@ pub async fn get_columns(
             let name = r.try_get::<&str, _>(0).ok().flatten()?;
             let type_name = r.try_get::<&str, _>(1).ok().flatten()?;
             let is_identity = r.try_get::<i32, _>(2).ok().flatten().unwrap_or(0) == 1;
+            let is_nullable = r.try_get::<bool, _>(3).ok().flatten().unwrap_or(true);
             Some(ColumnInfo {
                 name: name.to_string(),
                 type_name: type_name.to_string(),
                 is_identity,
+                is_nullable,
+            })
+        })
+        .collect())
+}
+
+/// Retrieves table column metadata using a table name resolved from OBJECT_ID.
+pub async fn get_table_column_metadata(
+    client: &mut SqlClient,
+    table_name: &str,
+) -> Result<Vec<ColumnInfo>, String> {
+    let sql = format!(
+        "SELECT \
+            c.name, \
+            tp.name + CASE \
+                WHEN tp.name IN ('varchar','char','binary','varbinary') THEN '(' + \
+                    CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length AS VARCHAR(10)) END + ')' \
+                WHEN tp.name IN ('nvarchar','nchar') THEN '(' + \
+                    CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length / 2 AS VARCHAR(10)) END + ')' \
+                WHEN tp.name IN ('decimal','numeric') THEN '(' + CAST(c.precision AS VARCHAR(10)) + ',' + CAST(c.scale AS VARCHAR(10)) + ')' \
+                WHEN tp.name IN ('datetime2','datetimeoffset','time') THEN '(' + CAST(c.scale AS VARCHAR(10)) + ')' \
+                ELSE '' END AS full_type, \
+            c.is_identity, \
+            c.is_nullable \
+         FROM sys.columns c \
+         JOIN sys.types tp ON c.user_type_id = tp.user_type_id \
+         WHERE c.object_id = OBJECT_ID('{}') \
+         ORDER BY c.column_id",
+        table_name.replace('\'', "''")
+    );
+    let stream = client
+        .query(sql.as_str(), &[])
+        .await
+        .map_err(|e| format!("Failed to query table column metadata: {}", e))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Failed to read table column metadata: {}", e))?;
+
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let name = r.try_get::<&str, _>(0).ok().flatten()?;
+            let type_name = r.try_get::<&str, _>(1).ok().flatten()?;
+            let is_identity = r.try_get::<bool, _>(2).ok().flatten().unwrap_or(false);
+            let is_nullable = r.try_get::<bool, _>(3).ok().flatten().unwrap_or(true);
+            Some(ColumnInfo {
+                name: name.to_string(),
+                type_name: type_name.to_string(),
+                is_identity,
+                is_nullable,
             })
         })
         .collect())
@@ -1306,16 +1413,34 @@ pub async fn generate_create_script(
     );
 
     let col_rows = {
-        let stream = client.query(&col_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read columns: {}", e))?;
-        stream.into_first_result().await.map_err(|e| format!("Failed to parse columns: {}", e))?
+        let stream = client
+            .query(&col_sql, &[&schema, &table])
+            .await
+            .map_err(|e| format!("Failed to read columns: {}", e))?;
+        stream
+            .into_first_result()
+            .await
+            .map_err(|e| format!("Failed to parse columns: {}", e))?
     };
     let pk_rows = {
-        let stream = client.query(&pk_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read primary key: {}", e))?;
-        stream.into_first_result().await.map_err(|e| format!("Failed to parse primary key: {}", e))?
+        let stream = client
+            .query(&pk_sql, &[&schema, &table])
+            .await
+            .map_err(|e| format!("Failed to read primary key: {}", e))?;
+        stream
+            .into_first_result()
+            .await
+            .map_err(|e| format!("Failed to parse primary key: {}", e))?
     };
     let def_rows = {
-        let stream = client.query(&def_sql, &[&schema, &table]).await.map_err(|e| format!("Failed to read defaults: {}", e))?;
-        stream.into_first_result().await.map_err(|e| format!("Failed to parse defaults: {}", e))?
+        let stream = client
+            .query(&def_sql, &[&schema, &table])
+            .await
+            .map_err(|e| format!("Failed to read defaults: {}", e))?;
+        stream
+            .into_first_result()
+            .await
+            .map_err(|e| format!("Failed to parse defaults: {}", e))?
     };
 
     let mut col_defs: Vec<String> = Vec::new();
@@ -1382,7 +1507,10 @@ pub async fn generate_create_script(
 
         let null_str = if is_nullable { " NULL" } else { " NOT NULL" };
 
-        col_defs.push(format!("\t[{}] {}{}{}", name, type_str, identity_str, null_str));
+        col_defs.push(format!(
+            "\t[{}] {}{}{}",
+            name, type_str, identity_str, null_str
+        ));
     }
 
     let on_primary = if has_lob {
@@ -1419,7 +1547,9 @@ pub async fn generate_create_script(
             WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, \
             IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) \
             ON [PRIMARY]\nGO\n",
-            sch_escaped, tbl_escaped, pk_cols.join(",\n")
+            sch_escaped,
+            tbl_escaped,
+            pk_cols.join(",\n")
         ));
     }
 

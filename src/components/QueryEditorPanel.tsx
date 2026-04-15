@@ -323,6 +323,7 @@ export default function QueryEditorPanel(props: Props) {
                   isExecuting={activeTab()!.isExecuting}
                   sourceSql={activeTab()!.sql}
                   onGenerateSql={handleGeneratedRowSql}
+                  onReExecute={() => handleExecute()}
                 />
               </div>
             )}

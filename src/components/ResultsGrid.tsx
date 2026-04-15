@@ -1,9 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { QueryResult, ResultSet } from "../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import EmptyState from "./EmptyState";
+import RowActionsDialog, { type RowActionMode } from "./RowActionsDialog";
 
 interface Props {
   result?: QueryResult;
@@ -11,6 +13,13 @@ interface Props {
   isExecuting: boolean;
   sourceSql?: string;
   onGenerateSql?: (sql: string) => void;
+  onReExecute?: () => void;
+}
+
+interface RowActionDialogState {
+  mode: RowActionMode;
+  rowIndex: number;
+  resultSetIndex: number;
 }
 
 interface RowContextMenuState {
@@ -20,95 +29,6 @@ interface RowContextMenuState {
   resultSetIndex: number;
 }
 
-function stripComments(sql: string): string {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--.*$/gm, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractTableName(sql?: string): string | null {
-  if (!sql) return null;
-  const normalized = stripComments(sql);
-  if (!normalized) return null;
-
-  const fromMatch = normalized.match(/\bfrom\s+([a-zA-Z0-9_.\[\]"]+)/i);
-  if (fromMatch?.[1]) return fromMatch[1].replace(/[;,]+$/, "");
-
-  const updateMatch = normalized.match(/\bupdate\s+([a-zA-Z0-9_.\[\]"]+)/i);
-  if (updateMatch?.[1]) return updateMatch[1].replace(/[;,]+$/, "");
-
-  return null;
-}
-
-function quoteIdentifier(name: string): string {
-  return `[${name.replace(/]/g, "]]")}]`;
-}
-
-function sqlLiteral(value: unknown): string {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
-  if (typeof value === "boolean") return value ? "1" : "0";
-
-  const text =
-    typeof value === "string"
-      ? value
-      : (() => {
-        try {
-          return JSON.stringify(value);
-        } catch {
-          return String(value);
-        }
-      })();
-
-  return `N'${text.replace(/'/g, "''")}'`;
-}
-
-function buildWhereClause(
-  columns: ResultSet["columns"],
-  row: ResultSet["rows"][number],
-): string {
-  const predicates = columns.map((c, i) => {
-    const col = quoteIdentifier(c.name);
-    const val = row[i];
-    return val === null ? `${col} IS NULL` : `${col} = ${sqlLiteral(val)}`;
-  });
-  return predicates.length > 0 ? predicates.join("\n  AND ") : "1 = 0";
-}
-
-function buildUpdateSql(
-  tableName: string,
-  columns: ResultSet["columns"],
-  row: ResultSet["rows"][number],
-): string {
-  const setClause = columns
-    .map((c, i) => `  ${quoteIdentifier(c.name)} = ${sqlLiteral(row[i])}`)
-    .join(",\n");
-  const whereClause = buildWhereClause(columns, row);
-
-  return `-- Update row in ${tableName}\nUPDATE ${tableName}\nSET\n${setClause}\nWHERE\n  ${whereClause};`;
-}
-
-function buildDeleteSql(
-  tableName: string,
-  columns: ResultSet["columns"],
-  row: ResultSet["rows"][number],
-): string {
-  const whereClause = buildWhereClause(columns, row);
-
-  return `-- Delete row from ${tableName}\nDELETE FROM ${tableName}\nWHERE\n  ${whereClause};`;
-}
-
-function buildInsertSql(
-  tableName: string,
-  columns: ResultSet["columns"],
-  row: ResultSet["rows"][number],
-): string {
-  const colNames = columns.map((c) => quoteIdentifier(c.name)).join(", ");
-  const valList = row.map((v) => sqlLiteral(v)).join(", ");
-  return `-- Insert row into ${tableName}\nINSERT INTO ${tableName} (${colNames})\nVALUES (${valList});`;
-}
 
 function ErrorSection(props: { error: string }) {
   const [copied, setCopied] = createSignal(false);
@@ -148,6 +68,7 @@ function ErrorSection(props: { error: string }) {
 function VirtualGrid(props: {
   resultSet: ResultSet;
   onContextMenu: (e: MouseEvent, ri: number) => void;
+  onRowDoubleClick?: (ri: number) => void;
   selectedRowIndex: number | null;
 }) {
   let containerRef: HTMLDivElement | undefined;
@@ -238,36 +159,30 @@ function VirtualGrid(props: {
 
   const exportToCsv = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
       defaultPath: "query_results.csv",
       filters: [{ name: "CSV", extensions: ["csv"] }],
     });
     if (!filePath) return;
-    const header = props.resultSet.columns.map((col) => `"${col.name.replace(/"/g, '""')}"`).join(",");
-    const rows = processedRows().map(({ row }) =>
-      row.map((cell) => (cell != null ? `"${String(cell).replace(/"/g, '""')}"` : "")).join(","),
-    );
-    const text = [header, ...rows].join("\n");
-    await writeTextFile(filePath, text);
+    await invoke("export_results_csv", {
+      path: filePath,
+      columns: props.resultSet.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
+      rows: processedRows().map(({ row }) => row),
+    });
   };
 
   const exportToJson = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = await save({
       defaultPath: "query_results.json",
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!filePath) return;
-    const data = processedRows().map(({ row }) => {
-      const obj: Record<string, any> = {};
-      props.resultSet.columns.forEach((col, i) => {
-        obj[col.name] = row[i];
-      });
-      return obj;
+    await invoke("export_results_json", {
+      path: filePath,
+      columns: props.resultSet.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
+      rows: processedRows().map(({ row }) => row),
     });
-    await writeTextFile(filePath, JSON.stringify(data, null, 2));
   };
 
   const handleExportClick = (e: MouseEvent) => {
@@ -365,7 +280,7 @@ function VirtualGrid(props: {
     if (showAll) {
       setHiddenColumnIndices(new Set(props.resultSet.columns.map((_, i) => i)));
     } else {
-      setHiddenColumnIndices(new Set());
+      setHiddenColumnIndices(new Set<number>());
     }
   };
 
@@ -558,6 +473,7 @@ function VirtualGrid(props: {
                     class={originalIndex === props.selectedRowIndex ? "selected" : ""}
                     style={{ height: `${rowHeight}px` }}
                     onContextMenu={(e) => props.onContextMenu(e, originalIndex)}
+                    onDblClick={() => props.onRowDoubleClick?.(originalIndex)}
                   >
                     <td class="text-center px-0 text-text-muted/60 border-r border-border/10">
                       {visualIndex() + 1}
@@ -595,8 +511,18 @@ function VirtualGrid(props: {
 
 export default function ResultsGrid(props: Props) {
   const [rowContextMenu, setRowContextMenu] = createSignal<RowContextMenuState | null>(null);
-  const tableName = createMemo(() => extractTableName(props.sourceSql));
+  const [tableName, setTableName] = createSignal<string | null>(null);
+  const [actionDialog, setActionDialog] = createSignal<RowActionDialogState | null>(null);
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
+
+  createEffect(() => {
+    const sql = props.sourceSql;
+    if (!sql) {
+      setTableName(null);
+      return;
+    }
+    invoke<string | null>("extract_table_name", { sql }).then(setTableName).catch(() => setTableName(null));
+  });
 
   const handleContextMenu = (e: MouseEvent, ri: number, rsi: number) => {
     e.preventDefault();
@@ -642,7 +568,22 @@ export default function ResultsGrid(props: Props) {
               const menu = rowContextMenu();
               return rs && menu ? rs.rows[menu.rowIndex] : null;
             };
-            const canGenerateRowSql = () => !!tableName() && !!selectedRow() && !!props.onGenerateSql;
+            const openActionDialog = (mode: RowActionMode) => {
+              const menu = rowContextMenu();
+              if (!menu) return;
+              setActionDialog({ mode, rowIndex: menu.rowIndex, resultSetIndex: menu.resultSetIndex });
+            };
+
+            const openActionDialogForRow = (
+              mode: RowActionMode,
+              rowIndex: number,
+              resultSetIndex: number,
+            ) => {
+              setRowContextMenu(null);
+              setActionDialog({ mode, rowIndex, resultSetIndex });
+            };
+
+            const canDoRowActions = () => !!tableName() && !!props.sourceSql;
 
             const contextMenuItems = (): ContextMenuItem[] => {
               const items: ContextMenuItem[] = [
@@ -662,40 +603,22 @@ export default function ResultsGrid(props: Props) {
                   id: "edit-row",
                   label: "Edit Row",
                   icon: <i class="fa-solid fa-pen-to-square" />,
-                  disabled: !canGenerateRowSql(),
-                  onClick: () => {
-                    const row = selectedRow();
-                    const tn = tableName();
-                    const rs = currentResultSet();
-                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
-                    props.onGenerateSql(buildUpdateSql(tn, rs.columns, row));
-                  },
+                  disabled: !canDoRowActions(),
+                  onClick: () => openActionDialog("edit"),
                 },
                 {
                   id: "duplicate-row",
                   label: "Duplicate Row",
                   icon: <i class="fa-solid fa-clone" />,
-                  disabled: !canGenerateRowSql(),
-                  onClick: () => {
-                    const row = selectedRow();
-                    const tn = tableName();
-                    const rs = currentResultSet();
-                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
-                    props.onGenerateSql(buildInsertSql(tn, rs.columns, row));
-                  },
+                  disabled: !canDoRowActions(),
+                  onClick: () => openActionDialog("duplicate"),
                 },
                 {
                   id: "delete-row",
                   label: "Delete Row",
                   icon: <i class="fa-solid fa-trash-can" />,
-                  disabled: !canGenerateRowSql(),
-                  onClick: () => {
-                    const row = selectedRow();
-                    const tn = tableName();
-                    const rs = currentResultSet();
-                    if (!canGenerateRowSql() || !row || !tn || !props.onGenerateSql || !rs) return;
-                    props.onGenerateSql(buildDeleteSql(tn, rs.columns, row));
-                  },
+                  disabled: !canDoRowActions(),
+                  onClick: () => openActionDialog("delete"),
                 },
               ];
 
@@ -740,6 +663,10 @@ export default function ResultsGrid(props: Props) {
                         resultSet={rs}
                         selectedRowIndex={rowContextMenu()?.resultSetIndex === i() ? rowContextMenu()!.rowIndex : null}
                         onContextMenu={(e, ri) => handleContextMenu(e, ri, i())}
+                        onRowDoubleClick={(ri) => {
+                          if (!canDoRowActions()) return;
+                          openActionDialogForRow("edit", ri, i());
+                        }}
                       />
                     )}
                   </For>
@@ -753,6 +680,27 @@ export default function ResultsGrid(props: Props) {
                       onClose={() => setRowContextMenu(null)}
                     />
                   )}
+                </Show>
+                <Show when={actionDialog()}>
+                  {(dialog) => {
+                    const rs = () => result().result_sets[dialog().resultSetIndex];
+                    const row = () => rs()?.rows[dialog().rowIndex];
+                    return (
+                      <Show when={rs() && row()}>
+                        <RowActionsDialog
+                          mode={dialog().mode}
+                          columns={rs()!.columns}
+                          row={row()!}
+                          sourceSql={props.sourceSql!}
+                          onClose={() => setActionDialog(null)}
+                          onSuccess={() => {
+                            setActionDialog(null);
+                            props.onReExecute?.();
+                          }}
+                        />
+                      </Show>
+                    );
+                  }}
                 </Show>
               </div>
             );

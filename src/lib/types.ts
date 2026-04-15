@@ -25,6 +25,7 @@ export interface ColumnInfo {
   name: string;
   type_name: string;
   is_identity: boolean;
+  is_nullable: boolean;
 }
 
 export interface DatabaseObject {
