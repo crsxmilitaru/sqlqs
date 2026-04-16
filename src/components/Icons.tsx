@@ -53,3 +53,7 @@ export function IconSave(props: { class?: string }) {
 export function IconFloppy(props: { class?: string }) {
   return <i class={`fa-solid fa-floppy-disk fa-fw ${props.class || ""}`} />;
 }
+
+export function IconSearch(props: { class?: string }) {
+  return <i class={`fa-solid fa-magnifying-glass fa-fw ${props.class || ""}`} />;
+}

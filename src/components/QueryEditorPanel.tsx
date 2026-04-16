@@ -3,7 +3,7 @@ import type { QueryTab } from "../lib/types";
 import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Dropdown from "./Dropdown";
-import { IconCopy, IconFloppy, IconFormat, IconPlay, IconSave } from "./Icons";
+import { IconCopy, IconFloppy, IconFormat, IconPlay, IconSave, IconSearch } from "./Icons";
 import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "./Tooltip";
@@ -50,6 +50,7 @@ export default function QueryEditorPanel(props: Props) {
   );
 
   const [queryCopied, setQueryCopied] = createSignal(false);
+  const [searchOpen, setSearchOpen] = createSignal(false);
   const [editorContextMenu, setEditorContextMenu] = createSignal<{
     visible: boolean;
     x: number;
@@ -248,6 +249,16 @@ export default function QueryEditorPanel(props: Props) {
                   </Tooltip>
                 )}
 
+                <Tooltip content="Find" placement="bottom">
+                  <button
+                    onClick={() => editorRef?.openSearch()}
+                    disabled={!activeTab()!.sql.trim()}
+                    class={`btn btn-secondary ${searchOpen() ? "btn-toggled" : ""}`}
+                  >
+                    <IconSearch class="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+
                 <div class="flex-1" />
               </div>
 
@@ -261,6 +272,7 @@ export default function QueryEditorPanel(props: Props) {
                   theme={props.theme}
                   currentDatabase={props.currentDatabase}
                   onContextMenu={handleEditorContextMenu}
+                  onSearchPanelChange={setSearchOpen}
                 />
                 {!hasDatabaseSelected() && (
                   <div class="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">

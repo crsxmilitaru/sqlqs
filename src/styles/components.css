@@ -745,8 +745,17 @@
     background: var(--color-surface-hover);
   }
 
+  .btn-toggled:not(:disabled) {
+    background: color-mix(in srgb, var(--color-accent), transparent 82%);
+    border-color: color-mix(in srgb, var(--color-accent), transparent 55%);
+    color: var(--color-accent);
+  }
 
-
+  .btn-toggled:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-accent), transparent 72%);
+    border-color: color-mix(in srgb, var(--color-accent), transparent 40%);
+    color: var(--color-accent);
+  }
 
 
   /* ─── Toolbar separator ─── */

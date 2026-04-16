@@ -16,7 +16,7 @@ import {
   foldKeymap,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { closeSearchPanel, highlightSelectionMatches, openSearchPanel, search, searchKeymap } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import {
@@ -28,7 +28,7 @@ import {
   placeholder as placeholderExt,
 } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-import { createEffect, onCleanup, onMount } from "solid-js";
+import { createEffect, onCleanup, onMount, untrack } from "solid-js";
 import { getModifierKeyLabel } from "../lib/platform";
 import type { DatabaseSchemaCatalogEntry } from "../lib/types";
 
@@ -41,11 +41,13 @@ interface Props {
   currentDatabase?: string;
   onContextMenu?: (e: MouseEvent) => void;
   onRef?: (handle: SqlEditorHandle) => void;
+  onSearchPanelChange?: (open: boolean) => void;
 }
 
 export interface SqlEditorHandle {
   focus: () => void;
   openCompletion: () => void;
+  openSearch: () => void;
   getSelectedText: () => string;
   scrollToBottom: () => void;
 }
@@ -134,6 +136,16 @@ export default function SqlEditor(props: Props) {
       if (!viewRef) return;
       viewRef.focus();
       startCompletion(viewRef);
+    },
+    openSearch() {
+      if (!viewRef) return;
+      const panel = viewRef.dom.querySelector(".cm-panel.cm-search");
+      if (panel) {
+        closeSearchPanel(viewRef);
+      } else {
+        viewRef.focus();
+        openSearchPanel(viewRef);
+      }
     },
     getSelectedText() {
       if (!viewRef) return "";
@@ -245,7 +257,7 @@ export default function SqlEditor(props: Props) {
       : `-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`;
 
     const state = EditorState.create({
-      doc: props.value,
+      doc: untrack(() => props.value),
       extensions: [
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -265,6 +277,7 @@ export default function SqlEditor(props: Props) {
         EditorState.languageData.of(() => [
           { autocomplete: schemaCompletionSource },
         ]),
+        search(),
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         ...(theme.id === "light" || theme.id === "soft-light" ? [] : [oneDark]),
@@ -320,9 +333,22 @@ export default function SqlEditor(props: Props) {
           if (!(node instanceof HTMLElement)) return;
           if (node.classList.contains("cm-panel") && node.classList.contains("cm-search")) {
             enhanceSearchPanel(node);
+            props.onSearchPanelChange?.(true);
           } else {
             const nested = node.querySelector?.(".cm-panel.cm-search");
-            if (nested instanceof HTMLElement) enhanceSearchPanel(nested);
+            if (nested instanceof HTMLElement) {
+              enhanceSearchPanel(nested);
+              props.onSearchPanelChange?.(true);
+            }
+          }
+        });
+        mutation.removedNodes.forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (
+            (node.classList.contains("cm-panel") && node.classList.contains("cm-search")) ||
+            node.querySelector?.(".cm-panel.cm-search")
+          ) {
+            props.onSearchPanelChange?.(false);
           }
         });
       }

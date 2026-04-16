@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, For } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For } from "solid-js";
 import { AiService } from "../lib/ai";
 import { isMacOS } from "../lib/platform";
 import type { QueryTab, ServerObjectIndexStatus } from "../lib/types";
@@ -96,6 +96,7 @@ export default function TitleBar(props: Props) {
   } | null>(null);
   let renameInputRef: HTMLInputElement | undefined;
   let tabBarRef: HTMLDivElement | undefined;
+  let cleanupTabBarWheelListener: (() => void) | undefined;
 
   // Pointer-based drag-and-drop state
   const [dragTabId, setDragTabId] = createSignal<string | null>(null);
@@ -172,6 +173,28 @@ export default function TitleBar(props: Props) {
       void getCurrentAppWindow();
     }
   });
+
+  onCleanup(() => {
+    cleanupTabBarWheelListener?.();
+  });
+
+  function setTabBarRef(el: HTMLDivElement) {
+    cleanupTabBarWheelListener?.();
+    tabBarRef = el;
+
+    const handleTabBarWheel = (event: WheelEvent) => {
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      tabBarRef?.scrollBy({ left: delta });
+    };
+
+    el.addEventListener("wheel", handleTabBarWheel, { passive: true });
+    cleanupTabBarWheelListener = () => {
+      el.removeEventListener("wheel", handleTabBarWheel);
+      if (tabBarRef === el) {
+        tabBarRef = undefined;
+      }
+    };
+  }
 
   function handleTabContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
@@ -486,15 +509,9 @@ export default function TitleBar(props: Props) {
             {props.tabs.length > 0 && (
               <>
                 <div
-                  ref={tabBarRef}
+                  ref={setTabBarRef}
                   on:mousedown={(e: MouseEvent) => {
                     if (e.button === 1) e.preventDefault();
-                  }}
-                  onWheel={(e) => {
-                    if (tabBarRef) {
-                      e.preventDefault();
-                      tabBarRef.scrollLeft += e.deltaY;
-                    }
                   }}
                   class="flex overflow-x-auto tab-bar min-w-0"
                 >

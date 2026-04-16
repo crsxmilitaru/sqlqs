@@ -79,16 +79,16 @@ export default function App() {
   const [objectJumpIndexStatus, setObjectJumpIndexStatus] = createSignal<ServerObjectIndexStatus>(
     EMPTY_OBJECT_INDEX_STATUS,
   );
-  const [aiChatOpen, setAiChatOpen] = createSignal(() => {
-    return localStorage.getItem("sqlqs_ai_chat_open") === "true";
+  const [aiChatOpen, setAiChatOpen] = createSignal(
+    localStorage.getItem("sqlqs_ai_chat_open") === "true",
+  );
+
+  createEffect(() => {
+    localStorage.setItem("sqlqs_ai_chat_open", String(aiChatOpen()));
   });
 
   function handleToggleAiChat() {
-    setAiChatOpen((prev) => {
-      const next = !prev;
-      localStorage.setItem("sqlqs_ai_chat_open", String(next));
-      return next;
-    });
+    setAiChatOpen((prev) => !prev);
   }
 
   // Show window after first render
