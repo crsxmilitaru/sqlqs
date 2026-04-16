@@ -151,3 +151,269 @@
   font-family: var(--font-mono) !important;
   color: inherit !important;
 }
+
+/* ─── CodeMirror search/replace panel ─── */
+
+.cm-panels {
+  background-color: var(--color-surface-raised) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+.cm-panels.cm-panels-top {
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.cm-panels.cm-panels-bottom {
+  border-top: 1px solid var(--color-border) !important;
+}
+
+.cm-panel.cm-search {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: var(--spacing-m) !important;
+  padding: var(--spacing-m) var(--spacing-l) !important;
+  padding-right: 32px !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-s) !important;
+  background-color: var(--color-surface-raised) !important;
+  position: relative !important;
+}
+
+.cm-panel.cm-search br {
+  flex-basis: 100% !important;
+  width: 100% !important;
+  height: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+}
+
+.cm-panel.cm-search::before {
+  content: "" !important;
+  flex-basis: 100% !important;
+  width: 100% !important;
+  height: 0 !important;
+  order: 1 !important;
+}
+
+.cm-panel.cm-search input[name="replace"],
+.cm-panel.cm-search button[name="replace"],
+.cm-panel.cm-search button[name="replaceAll"] {
+  order: 2 !important;
+}
+
+.cm-panel.cm-search button.cm-search-toggle-replace {
+  order: -1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--color-text-muted) !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-shadow: none !important;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease !important;
+}
+
+.cm-panel.cm-search button.cm-search-toggle-replace:hover {
+  background-color: var(--color-surface-hover) !important;
+  border-color: transparent !important;
+  color: var(--color-text) !important;
+}
+
+.cm-panel.cm-search button.cm-search-toggle-replace svg {
+  width: 12px !important;
+  height: 12px !important;
+  display: block !important;
+  transition: transform var(--duration-normal) var(--ease-in-out) !important;
+}
+
+.cm-panel.cm-search[data-replace-open="true"] button.cm-search-toggle-replace svg {
+  transform: rotate(90deg) !important;
+}
+
+.cm-panel.cm-search[data-replace-open="false"]::before,
+.cm-panel.cm-search[data-replace-open="false"] input[name="replace"],
+.cm-panel.cm-search[data-replace-open="false"] button[name="replace"],
+.cm-panel.cm-search[data-replace-open="false"] button[name="replaceAll"] {
+  display: none !important;
+}
+
+.cm-panel.cm-search input,
+.cm-panel.cm-search input[type="checkbox"] + * {
+  font-family: var(--font-sans) !important;
+}
+
+.cm-panel.cm-search input[type="text"],
+.cm-panel.cm-search input:not([type]) {
+  height: 30px !important;
+  min-width: 200px !important;
+  padding: 0 10px !important;
+  background-color: var(--color-overlay-sm) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-overlay-sm) !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: var(--text-m) !important;
+  outline: none !important;
+  transition: background-color var(--duration-normal) var(--ease-in-out), border-color var(--duration-normal) var(--ease-in-out), box-shadow var(--duration-normal) var(--ease-in-out) !important;
+}
+
+.cm-panel.cm-search input[type="text"]::placeholder,
+.cm-panel.cm-search input:not([type])::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.cm-panel.cm-search input[type="text"]:hover,
+.cm-panel.cm-search input:not([type]):hover {
+  background-color: var(--color-overlay-md) !important;
+  border-color: var(--color-overlay-md) !important;
+}
+
+.cm-panel.cm-search input[type="text"]:focus,
+.cm-panel.cm-search input:not([type]):focus {
+  border-color: color-mix(in srgb, var(--color-accent), transparent 60%) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent), transparent 80%) !important;
+}
+
+.cm-panel.cm-search button {
+  font-family: var(--font-sans) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 30px !important;
+  padding: 0 12px !important;
+  background: var(--color-surface-hover) !important;
+  background-image: none !important;
+  color: var(--color-text-muted) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: var(--text-s) !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  text-transform: capitalize !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-shadow: none !important;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease !important;
+}
+
+.cm-panel.cm-search button:hover {
+  background-color: var(--color-surface-active) !important;
+  border-color: rgba(161, 161, 170, 0.4) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-panel.cm-search button:active {
+  background-color: var(--color-surface-hover) !important;
+  transform: scale(0.97) !important;
+  filter: brightness(0.9) !important;
+}
+
+.cm-panel.cm-search button[name="next"] {
+  background: var(--color-accent) !important;
+  background-image: none !important;
+  color: var(--color-accent-text) !important;
+  border-color: var(--color-accent) !important;
+}
+
+.cm-panel.cm-search button[name="next"]:hover {
+  background: var(--color-accent-hover) !important;
+  background-image: none !important;
+  color: var(--color-accent-text) !important;
+  border-color: var(--color-accent-hover) !important;
+}
+
+.cm-panel.cm-search button[name="close"] {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  color: var(--color-text-muted) !important;
+  font-size: var(--text-l) !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.cm-panel.cm-search button[name="close"]:hover {
+  background-color: var(--color-surface-hover) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-panel.cm-search label {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: var(--spacing-s) !important;
+  color: var(--color-text-muted) !important;
+  font-size: var(--text-s) !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  text-transform: capitalize !important;
+}
+
+.cm-panel.cm-search label:hover {
+  color: var(--color-text) !important;
+}
+
+.cm-panel.cm-search input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  margin: 0 !important;
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 3px !important;
+  cursor: pointer !important;
+  position: relative !important;
+  transition: background-color var(--duration-fast) ease, border-color var(--duration-fast) ease !important;
+}
+
+.cm-panel.cm-search input[type="checkbox"]:hover {
+  border-color: color-mix(in srgb, var(--color-border), white 25%) !important;
+}
+
+.cm-panel.cm-search input[type="checkbox"]:checked {
+  background-color: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+}
+
+.cm-panel.cm-search input[type="checkbox"]:checked::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 3px !important;
+  top: 0px !important;
+  width: 5px !important;
+  height: 9px !important;
+  border: solid var(--color-accent-text) !important;
+  border-width: 0 2px 2px 0 !important;
+  transform: rotate(45deg) !important;
+}
+
+.cm-searchMatch {
+  background-color: color-mix(in srgb, var(--color-warning), transparent 70%) !important;
+  outline: 1px solid color-mix(in srgb, var(--color-warning), transparent 40%) !important;
+  border-radius: 2px !important;
+}
+
+.cm-searchMatch-selected {
+  background-color: color-mix(in srgb, var(--color-accent), transparent 50%) !important;
+  outline: 1px solid var(--color-accent) !important;
+}

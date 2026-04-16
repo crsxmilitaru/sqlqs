@@ -293,7 +293,44 @@ export default function SqlEditor(props: Props) {
 
     viewRef = view;
 
+    const enhanceSearchPanel = (panel: HTMLElement) => {
+      if (panel.dataset.enhanced === "true") return;
+      panel.dataset.enhanced = "true";
+      panel.setAttribute("data-replace-open", "false");
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "cm-search-toggle-replace";
+      toggle.setAttribute("aria-label", "Toggle replace");
+      toggle.setAttribute("title", "Toggle replace");
+      toggle.innerHTML =
+        '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M4.5 3 7.5 6 4.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        const isOpen = panel.getAttribute("data-replace-open") === "true";
+        panel.setAttribute("data-replace-open", isOpen ? "false" : "true");
+      });
+
+      panel.insertBefore(toggle, panel.firstChild);
+    };
+
+    const panelObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (node.classList.contains("cm-panel") && node.classList.contains("cm-search")) {
+            enhanceSearchPanel(node);
+          } else {
+            const nested = node.querySelector?.(".cm-panel.cm-search");
+            if (nested instanceof HTMLElement) enhanceSearchPanel(nested);
+          }
+        });
+      }
+    });
+    panelObserver.observe(containerRef, { childList: true, subtree: true });
+
     onCleanup(() => {
+      panelObserver.disconnect();
       view.destroy();
       viewRef = null;
     });
