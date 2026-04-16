@@ -51,6 +51,7 @@ export default function App() {
     reorderTabs,
     duplicateTab,
     togglePin,
+    promoteTab,
   } = useTabs();
 
   const {
@@ -169,6 +170,7 @@ export default function App() {
     database,
     sourceId,
     preserveTitle,
+    temporary,
   }: {
     sql: string;
     execute?: boolean;
@@ -176,12 +178,13 @@ export default function App() {
     database?: string;
     sourceId?: string;
     preserveTitle?: boolean;
+    temporary?: boolean;
   }) {
     if (database && database !== currentDatabase()) {
       changeDatabase(database);
     }
 
-    const tabId = addTab(sql, title, sourceId, preserveTitle);
+    const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
     if (execute) {
       setTimeout(() => handleExecute(tabId, sql), 0);
     }
@@ -245,6 +248,7 @@ export default function App() {
     if (!tab || !tab.sql.trim()) return;
 
     await saveQuery(tab.title, tab.sql);
+    promoteTab(tabId);
     updateTab(tabId, { savedSql: tab.sql });
   }
 
@@ -269,6 +273,7 @@ export default function App() {
       await invoke<string>("write_sql_file", { path: filePath, content: tab.sql });
 
       localStorage.setItem(LAST_SQL_EXPORT_FOLDER_STORAGE_KEY, folderPath);
+      promoteTab(tabId);
       updateTab(tabId, { savedSql: tab.sql });
     } catch (error) {
       console.error("Failed to save SQL file to chosen folder:", error);
@@ -278,7 +283,7 @@ export default function App() {
   async function handleLoadSavedQuery(filePath: string, title: string) {
     const content = await loadQueryContent(filePath);
     if (content) {
-      addTab(content, title, `saved:${filePath}`, true);
+      addTab(content, title, `saved:${filePath}`, true, { temporary: true });
     }
   }
 
@@ -522,6 +527,7 @@ export default function App() {
         onTabReorder={reorderTabs}
         onTabDuplicate={duplicateTab}
         onTabTogglePin={togglePin}
+        onTabPromote={promoteTab}
         onTabSave={handleTabSave}
         aiChatOpen={aiChatOpen()}
         onToggleAiChat={handleToggleAiChat}

@@ -5,14 +5,23 @@ import type { QueryTab } from "../lib/types";
 
 let tabCounter = 1;
 
-function createTab(sql = ""): QueryTab {
-  const id = `tab-${tabCounter++}`;
+function normalizeSql(sql = "") {
+  return sql.replace(/\r\n/g, "\n");
+}
+
+function isTemporarySource(sourceId?: string) {
+  return sourceId?.startsWith("history:") || sourceId?.startsWith("saved:");
+}
+
+function createTab(sql = "", temporary?: boolean, id = `tab-${tabCounter++}`): QueryTab {
+  const normalizedSql = normalizeSql(sql);
   return {
     id,
     title: "New Query",
-    sql,
-    savedSql: sql,
+    sql: normalizedSql,
+    savedSql: normalizedSql,
     isExecuting: false,
+    temporary,
   };
 }
 
@@ -48,17 +57,25 @@ export function useTabs() {
     const prefs = loadPreferences();
     if (!prefs.persistTabs) return;
     saveTabs(
-      currentTabs.map((t) => ({
+      currentTabs
+        .filter((t) => !t.temporary)
+        .map((t) => ({
         title: t.title,
         sql: t.sql,
         userTitle: t.userTitle,
         sourceId: t.sourceId,
         pinned: t.pinned,
-      })),
+        })),
     );
   });
 
-  const addTab = (sql: string = "", title?: string, sourceId?: string, userTitle?: boolean) => {
+  const addTab = (
+    sql: string = "",
+    title?: string,
+    sourceId?: string,
+    userTitle?: boolean,
+    options?: { temporary?: boolean },
+  ) => {
     if (sourceId) {
       const existing = tabsSnapshot.find((t) => t.sourceId === sourceId);
       if (existing) {
@@ -67,8 +84,10 @@ export function useTabs() {
       }
     }
 
-    const normalizedSql = sql.replace(/\r\n/g, "\n");
-    const tab = createTab(normalizedSql);
+    const normalizedSql = normalizeSql(sql);
+    const temporary = options?.temporary ?? isTemporarySource(sourceId);
+    const previewTab = temporary ? tabsSnapshot.find((t) => t.temporary) : undefined;
+    const tab = createTab(normalizedSql, temporary, previewTab?.id);
 
     if (sourceId) {
       tab.sourceId = sourceId;
@@ -87,7 +106,13 @@ export function useTabs() {
       }
     }
 
-    setTabs((prev) => [...prev, tab]);
+    setTabs((prev) => {
+      if (!previewTab) {
+        return [...prev, tab];
+      }
+
+      return prev.map((currentTab) => (currentTab.id === previewTab.id ? tab : currentTab));
+    });
     setActiveTabId(tab.id);
     return tab.id;
   };
@@ -124,7 +149,35 @@ export function useTabs() {
 
   const updateTab = (tabId: string, updates: Partial<QueryTab>) => {
     setTabs((prev) =>
-      prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
+      prev.map((t) => {
+        if (t.id !== tabId) {
+          return t;
+        }
+
+        const nextTab: QueryTab = {
+          ...t,
+          ...updates,
+        };
+
+        if (typeof updates.sql === "string") {
+          nextTab.sql = normalizeSql(updates.sql);
+          if (t.temporary && nextTab.sql !== t.sql) {
+            nextTab.temporary = undefined;
+          }
+        }
+
+        if (typeof updates.savedSql === "string") {
+          nextTab.savedSql = normalizeSql(updates.savedSql);
+        }
+
+        return nextTab;
+      }),
+    );
+  };
+
+  const promoteTab = (tabId: string) => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId && t.temporary ? { ...t, temporary: undefined } : t)),
     );
   };
 
@@ -156,7 +209,7 @@ export function useTabs() {
       const tab = prev[tabIndex];
       const newPinned = !tab.pinned;
       const next = prev.filter((t) => t.id !== tabId);
-      const updatedTab = { ...tab, pinned: newPinned || undefined };
+      const updatedTab = { ...tab, pinned: newPinned || undefined, temporary: undefined };
 
       // Place at the end of pinned section
       const lastPinnedIndex = next.reduce((acc, t, i) => (t.pinned ? i : acc), -1);
@@ -178,5 +231,6 @@ export function useTabs() {
     reorderTabs,
     duplicateTab,
     togglePin,
+    promoteTab,
   };
 }

@@ -85,6 +85,7 @@ export interface QueryTab {
   sourceId?: string;
   userTitle?: boolean;
   pinned?: boolean;
+  temporary?: boolean;
 }
 
 export interface ExecutedQuery {

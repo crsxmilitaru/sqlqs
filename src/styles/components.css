@@ -128,6 +128,10 @@
     color: var(--color-text);
   }
 
+  .tab.temporary .tab-title {
+    font-style: italic;
+  }
+
   /* Tab appear animation */
   .tab-animate-in {
     animation: tab-slide-in 0.2s var(--ease-entry) backwards;

@@ -297,11 +297,11 @@ export default function QueryEditorPanel(props: Props) {
             <div class="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
               <div class="flex items-center gap-2">
                 <span class="text-s text-text-muted font-medium leading-none">Results</span>
-                {(activeTab()!.error || (activeTab()!.result && activeTab()!.result!.result_sets.length > 0)) && (
+                {(activeTab()?.error || (activeTab()?.result?.result_sets.length ?? 0) > 0) && (
                   <span class="text-s text-text-muted opacity-60 ml-0.5 leading-none">
-                    {activeTab()!.error
+                    {activeTab()?.error
                       ? "(Error)"
-                      : `(${activeTab()!.result!.result_sets[0].rows.length} row${activeTab()!.result!.result_sets[0].rows.length !== 1 ? "s" : ""})`}
+                      : `(${activeTab()?.result?.result_sets[0]?.rows.length ?? 0} row${(activeTab()?.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
                   </span>
                 )}
               </div>
@@ -318,10 +318,10 @@ export default function QueryEditorPanel(props: Props) {
             {!resultsCollapsed() && (
               <div class="flex-1 min-h-0">
                 <ResultsGrid
-                  result={activeTab()!.result}
-                  error={activeTab()!.error}
-                  isExecuting={activeTab()!.isExecuting}
-                  sourceSql={activeTab()!.sql}
+                  result={activeTab()?.result}
+                  error={activeTab()?.error}
+                  isExecuting={activeTab()?.isExecuting ?? false}
+                  sourceSql={activeTab()?.sql ?? ""}
                   onGenerateSql={handleGeneratedRowSql}
                   onReExecute={() => handleExecute()}
                 />

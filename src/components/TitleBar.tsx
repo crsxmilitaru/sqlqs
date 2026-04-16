@@ -55,6 +55,7 @@ interface Props {
   onTabReorder: (fromIndex: number, toIndex: number) => void;
   onTabDuplicate: (id: string) => string;
   onTabTogglePin: (id: string) => void;
+  onTabPromote: (id: string) => void;
   onTabSave?: (id: string) => void;
   aiChatOpen: boolean;
   onToggleAiChat: () => void;
@@ -182,6 +183,16 @@ export default function TitleBar(props: Props) {
     });
   }
 
+  function requestSingleTabClose(tabId: string) {
+    const tab = props.tabs.find((t) => t.id === tabId);
+    if (tab?.temporary) {
+      props.onTabClose(tabId);
+      return;
+    }
+
+    setConfirmClose({ type: "single", tabId });
+  }
+
   // --- Pointer-based drag-and-drop ---
 
   function computeDropIndex(clientX: number, draggedTabId: string): number | null {
@@ -274,7 +285,7 @@ export default function TitleBar(props: Props) {
         id: "close",
         label: "Close",
         icon: <i class="fa-solid fa-xmark" />,
-        onClick: () => setConfirmClose({ type: "single", tabId }),
+        onClick: () => requestSingleTabClose(tabId),
       },
       {
         id: "close-others",
@@ -504,16 +515,22 @@ export default function TitleBar(props: Props) {
                           ref={(el) => { if (isActive()) el.scrollIntoView({ block: "nearest", inline: "nearest" }); }}
                           data-tab-index={index()}
                           onPointerDown={(e) => handleTabPointerDown(e, tab.id, index())}
-                          class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text-muted cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""}`}
+                          class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text-muted cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""}`}
                           onClick={() => {
                             if (justDraggedRef) return;
                             props.onTabChange(tab.id);
                           }}
-                          onDblClick={() => handleStartRename(tab)}
+                          onDblClick={() => {
+                            if (tab.temporary) {
+                              props.onTabPromote(tab.id);
+                              return;
+                            }
+                            handleStartRename(tab);
+                          }}
                           on:mousedown={(e: MouseEvent) => {
                             if (e.button === 1) {
                               e.preventDefault();
-                              setConfirmClose({ type: "single", tabId: tab.id });
+                              requestSingleTabClose(tab.id);
                             }
                           }}
                           onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
@@ -534,7 +551,7 @@ export default function TitleBar(props: Props) {
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
-                              <span class="truncate block" data-text={tab.title}>{tab.title}</span>
+                              <span class="tab-title truncate block" data-text={tab.title}>{tab.title}</span>
                             )}
                           </div>
                           <div class="flex items-center justify-center w-5 h-5 flex-shrink-0 relative">
@@ -547,7 +564,7 @@ export default function TitleBar(props: Props) {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setConfirmClose({ type: "single", tabId: tab.id });
+                                requestSingleTabClose(tab.id);
                               }}
                               class={`tab-close-btn relative flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive() ? "active" : ""}`}
                             >
