@@ -720,8 +720,9 @@ async fn get_object_definition(
 #[cfg(target_os = "windows")]
 #[tauri::command]
 fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
-    use windows::Win32::Foundation::{BOOL, HWND};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+    use windows::core::BOOL;
 
     let hwnd = window.hwnd().map_err(|e| e.to_string())?;
     let value = BOOL::from(dark);
