@@ -1,6 +1,11 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { marked } from "marked";
 import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import {
   AiService,
   type ChatAttachment,
   type ChatImageAttachment,
@@ -9,6 +14,7 @@ import {
   type ChatTextAttachment,
 } from "../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../lib/ai-tools";
+import { loadAiNotifications } from "../lib/settings";
 import ToolsPopup from "./ToolsPopup";
 import Tooltip from "./Tooltip";
 
@@ -81,6 +87,11 @@ export interface PendingChatMessage {
   references?: ChatReference[];
   selectedCode?: string;
   resultError?: string;
+}
+
+interface FailedChatRequest {
+  messages: ChatMessage[];
+  context: ToolExecutionContext;
 }
 
 function ToolsUsedBadge(props: { toolsUsed: string[] }) {
@@ -221,6 +232,29 @@ function getFileExtension(fileName: string): string {
   return parts.length > 1 ? parts[parts.length - 1] : "";
 }
 
+async function notifyAiResponse(text: string) {
+  if (!loadAiNotifications()) return;
+  if (typeof document !== "undefined" && document.hasFocus()) return;
+
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+    if (!granted) return;
+
+    const trimmed = text.trim().replace(/```[\s\S]*?```/g, "[code]");
+    const body = trimmed.length > 140 ? `${trimmed.slice(0, 137)}...` : trimmed;
+    sendNotification({
+      title: "SQL Query Studio",
+      body: body || "AI assistant has replied",
+    });
+  } catch {
+    // Notifications are best-effort; ignore platform/permission errors.
+  }
+}
+
 function isTextLikeFile(file: File): boolean {
   return (
     file.type.startsWith("text/") ||
@@ -241,6 +275,7 @@ export default function AIChatPanel(props: Props) {
   const [draftAttachments, setDraftAttachments] = createSignal<ChatAttachment[]>([]);
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [failedRequest, setFailedRequest] = createSignal<FailedChatRequest | null>(null);
   const [applyMenuFor, setApplyMenuFor] = createSignal<number | null>(null);
   const [showTools, setShowTools] = createSignal(false);
   const [lastHandledPendingId, setLastHandledPendingId] = createSignal<number | null>(null);
@@ -373,6 +408,45 @@ export default function AIChatPanel(props: Props) {
     }
   };
 
+  const requestAssistantResponse = async (
+    chatMessages: ChatMessage[],
+    context: ToolExecutionContext,
+  ) => {
+    setError(null);
+    setFailedRequest(null);
+    setIsLoading(true);
+
+    abortRef?.abort();
+    const controller = new AbortController();
+    abortRef = controller;
+
+    try {
+      const { text, toolsUsed } = await AiService.chat(
+        chatMessages,
+        context,
+        controller.signal,
+      );
+
+      if (controller.signal.aborted) return;
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: text,
+        toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
+      };
+      const updated = [...chatMessages, assistantMessage];
+      setMessages(updated);
+      saveMessages(updated);
+      void notifyAiResponse(text);
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      setError(err.message || "Failed to get response");
+      setFailedRequest({ messages: chatMessages, context });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const sendMessage = async (options: {
     content: string;
     references?: ChatReference[];
@@ -391,48 +465,26 @@ export default function AIChatPanel(props: Props) {
       attachments: options.attachments,
     };
     const newMessages = [...messages(), userMessage];
+    const context: ToolExecutionContext = {
+      currentCode: props.currentCode,
+      selectedCode: options.selectedCode,
+      resultError: options.resultError ?? props.currentResultError,
+      currentDatabase: props.currentDatabase,
+    };
+
     setMessages(newMessages);
     saveMessages(newMessages);
     if (options.clearInput) {
       clearComposer();
     }
-    setError(null);
-    setIsLoading(true);
 
-    abortRef?.abort();
-    const controller = new AbortController();
-    abortRef = controller;
+    await requestAssistantResponse(newMessages, context);
+  };
 
-    try {
-      const context: ToolExecutionContext = {
-        currentCode: props.currentCode,
-        selectedCode: options.selectedCode,
-        resultError: options.resultError ?? props.currentResultError,
-        currentDatabase: props.currentDatabase,
-      };
-
-      const { text, toolsUsed } = await AiService.chat(
-        newMessages,
-        context,
-        controller.signal,
-      );
-
-      if (controller.signal.aborted) return;
-
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: text,
-        toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
-      };
-      const updated = [...newMessages, assistantMessage];
-      setMessages(updated);
-      saveMessages(updated);
-    } catch (err: any) {
-      if (err.name === "AbortError") return;
-      setError(err.message || "Failed to get response");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleRetry = async () => {
+    const request = failedRequest();
+    if (!request || isLoading()) return;
+    await requestAssistantResponse(request.messages, request.context);
   };
 
   const handleSendMessage = async () => {
@@ -499,6 +551,7 @@ export default function AIChatPanel(props: Props) {
     saveMessages([]);
     clearComposer();
     setError(null);
+    setFailedRequest(null);
   };
 
   const handleResizeStart = (e: MouseEvent) => {
@@ -549,7 +602,9 @@ export default function AIChatPanel(props: Props) {
           </Show>
 
           <For each={messages()}>
-            {(msg, idx) => (
+            {(msg) => {
+              const msgIndex = () => messages().indexOf(msg);
+              return (
               <div>
                 <div
                   class={`w-full rounded-md px-2.5 py-1.5 select-text ${msg.role === "user"
@@ -577,7 +632,7 @@ export default function AIChatPanel(props: Props) {
                         <div class="relative mt-2">
                           <div class="flex items-center gap-1">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setApplyMenuFor(applyMenuFor() === idx() ? null : idx()); }}
+                              onClick={(e) => { e.stopPropagation(); const i = msgIndex(); setApplyMenuFor(applyMenuFor() === i ? null : i); }}
                               class="btn btn-primary text-s !h-auto !py-2 !flex !items-center !gap-1.5"
                             >
                               <i class="fa-solid fa-code !text-s !w-auto !h-auto !flex-none" />
@@ -585,7 +640,7 @@ export default function AIChatPanel(props: Props) {
                               <i class="fa-solid fa-chevron-down !text-icon-xs !w-auto !h-auto !flex-none ml-1 opacity-60" />
                             </button>
                           </div>
-                          <Show when={applyMenuFor() === idx()}>
+                          <Show when={applyMenuFor() === msgIndex()}>
                             <div class="popup-menu absolute left-0 bottom-full mb-1">
                               <button
                                 onClick={() => handleApplyCode(msg.content, "append")}
@@ -616,7 +671,8 @@ export default function AIChatPanel(props: Props) {
                   </Show>
                 </div>
               </div>
-            )}
+              );
+            }}
           </For>
 
           <Show when={isLoading()}>
@@ -633,9 +689,23 @@ export default function AIChatPanel(props: Props) {
           <Show when={error()}>
             {(err) => (
               <div class="flex justify-center">
-                <div class="bg-error/10 border border-error/20 text-error rounded-md px-2.5 py-1.5 text-s flex items-center gap-1.5 select-text">
-                  <i class="fa-solid fa-circle-exclamation text-s" />
-                  <span>{err()}</span>
+                <div class="bg-error/10 border border-error/20 text-error rounded-md px-2.5 py-1.5 text-s select-text">
+                  <div class="flex items-start gap-1.5">
+                    <i class="fa-solid fa-circle-exclamation text-s mt-0.5" />
+                    <span class="min-w-0 break-words">{err()}</span>
+                  </div>
+                  <Show when={failedRequest()}>
+                    <div class="mt-2 flex justify-end">
+                      <button
+                        onClick={handleRetry}
+                        disabled={isLoading()}
+                        class="flex items-center gap-1.5 rounded-md border border-error/25 bg-error/10 px-2 py-1 text-s font-semibold text-error transition-colors hover:bg-error/15 disabled:opacity-50 disabled:cursor-default cursor-pointer"
+                      >
+                        <i class="fa-solid fa-rotate-right text-icon" />
+                        <span>Try again</span>
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               </div>
             )}

@@ -29,6 +29,7 @@ uuid = { version = "1", features = ["v4"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 dirs = "5"
 tauri-plugin-fs = "2.5.0"
+tauri-plugin-notification = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }

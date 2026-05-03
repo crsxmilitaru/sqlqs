@@ -7,6 +7,7 @@ import {
   loadPreferences,
   MAX_MAX_HISTORY,
   MIN_MAX_HISTORY,
+  saveAiNotifications,
   saveMaxHistoryItems,
   savePersistTabs,
 } from "../lib/settings";
@@ -44,6 +45,7 @@ export default function SettingsView(props: Props) {
   const [themeId, setThemeId] = createSignal(currentTheme.id);
   const [persistTabs, setPersistTabs] = createSignal(prefs.persistTabs);
   const [maxHistory, setMaxHistory] = createSignal(prefs.maxHistoryItems);
+  const [aiNotifications, setAiNotifications] = createSignal(prefs.aiNotifications);
 
   const [geminiStatus, setGeminiStatus] = createSignal<GeminiStatus>({ hasKey: false });
   const [apiKey, setApiKey] = createSignal("");
@@ -270,6 +272,24 @@ export default function SettingsView(props: Props) {
                           </a>
                         </p>
                       </div>
+                    </div>
+                  </div>
+
+                  <div class="settings-section">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <h4 class="text-m font-medium text-text">Notify when AI responds</h4>
+                        <p class="text-s text-text-muted mt-0.5">Show a desktop notification when a chat reply arrives and the window is in the background</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const next = !aiNotifications();
+                          setAiNotifications(next);
+                          saveAiNotifications(next);
+                        }}
+                        class="settings-toggle"
+                        data-checked={aiNotifications()}
+                      />
                     </div>
                   </div>
                 </div>

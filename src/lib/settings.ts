@@ -1,6 +1,7 @@
 const STORAGE_KEY_PERSIST_TABS = "sqlqs_persist_tabs";
 const STORAGE_KEY_MAX_HISTORY = "sqlqs_max_history_items";
 const STORAGE_KEY_SAVED_TABS = "sqlqs_saved_tabs_v1";
+const STORAGE_KEY_AI_NOTIFICATIONS = "sqlqs_ai_notifications";
 
 export const DEFAULT_MAX_HISTORY = 50;
 export const MIN_MAX_HISTORY = 10;
@@ -9,6 +10,7 @@ export const MAX_MAX_HISTORY = 500;
 export interface AppPreferences {
   persistTabs: boolean;
   maxHistoryItems: number;
+  aiNotifications: boolean;
 }
 
 export function loadPreferences(): AppPreferences {
@@ -16,7 +18,17 @@ export function loadPreferences(): AppPreferences {
   return {
     persistTabs: rawPersistTabs === null ? true : rawPersistTabs === "true",
     maxHistoryItems: loadMaxHistoryItems(),
+    aiNotifications: loadAiNotifications(),
   };
+}
+
+export function loadAiNotifications(): boolean {
+  const raw = localStorage.getItem(STORAGE_KEY_AI_NOTIFICATIONS);
+  return raw === null ? true : raw === "true";
+}
+
+export function saveAiNotifications(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_AI_NOTIFICATIONS, String(value));
 }
 
 export function savePersistTabs(value: boolean) {

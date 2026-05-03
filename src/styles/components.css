@@ -50,14 +50,16 @@
 
   .cm-editor {
     height: 100%;
+    min-height: 0;
     font-family: var(--font-mono);
     font-size: var(--text-m);
     background-color: transparent !important;
-    padding: 4px 0;
+    overflow: hidden !important;
   }
 
   .cm-scroller {
     overflow: auto !important;
+    min-height: 0;
   }
 
   .cm-editor * {

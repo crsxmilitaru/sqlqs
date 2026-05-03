@@ -209,7 +209,7 @@ export default function QueryEditorPanel(props: Props) {
   }
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full min-h-0 overflow-hidden">
       {activeTab() && props.connected ? (
         <div class="flex flex-col flex-1 min-h-0">
           <div
