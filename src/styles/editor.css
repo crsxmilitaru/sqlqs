@@ -1,7 +1,7 @@
 /* ─── CodeMirror autocomplete tooltip ─── */
 
 .cm-tooltip.cm-tooltip-autocomplete {
-  background-color: var(--color-surface-raised) !important;
+  background-color: var(--color-surface-panel) !important;
   border: 1px solid var(--color-border) !important;
   border-radius: var(--radius-md) !important;
   padding: var(--spacing-xs) !important;
@@ -24,22 +24,22 @@
   }
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul {
+.cm-tooltip.cm-tooltip-autocomplete>ul {
   max-height: 380px !important;
   scrollbar-width: thin !important;
   scrollbar-color: var(--color-scrollbar) transparent !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
+.cm-tooltip.cm-tooltip-autocomplete>ul::-webkit-scrollbar {
   width: 6px !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb {
+.cm-tooltip.cm-tooltip-autocomplete>ul::-webkit-scrollbar-thumb {
   background: var(--color-scrollbar) !important;
   border-radius: 99px !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+.cm-tooltip.cm-tooltip-autocomplete>ul>li {
   padding: 6px 12px !important;
   border-radius: var(--radius-sm) !important;
   margin: 1px 2px !important;
@@ -52,12 +52,12 @@
   cursor: pointer !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li:hover {
+.cm-tooltip.cm-tooltip-autocomplete>ul>li:hover {
   background-color: var(--color-surface-hover) !important;
   color: var(--color-text) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] {
   background-color: var(--color-accent) !important;
   color: white !important;
 }
@@ -122,7 +122,7 @@
   font-size: var(--text-icon-xs) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionIcon {
+.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] .cm-completionIcon {
   background-color: rgba(255, 255, 255, 0.2) !important;
   color: white !important;
 }
@@ -140,7 +140,7 @@
   font-weight: 700 !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] .cm-completionMatchedText {
   color: white !important;
 }
 
@@ -155,7 +155,7 @@
 /* ─── CodeMirror search/replace panel ─── */
 
 .cm-panels {
-  background-color: var(--color-surface-raised) !important;
+  background-color: var(--color-surface-panel) !important;
   color: var(--color-text) !important;
   border-color: var(--color-border) !important;
 }
@@ -174,11 +174,19 @@
   align-items: center !important;
   gap: var(--spacing-m) !important;
   padding: var(--spacing-m) var(--spacing-l) !important;
+  padding-left: calc(var(--spacing-l) + 24px + var(--spacing-m)) !important;
   padding-right: 32px !important;
   font-family: var(--font-sans) !important;
   font-size: var(--text-s) !important;
-  background-color: var(--color-surface-raised) !important;
+  background-color: var(--color-surface-panel) !important;
   position: relative !important;
+}
+
+/* Reset CodeMirror's default margins */
+.cm-panel.cm-search input,
+.cm-panel.cm-search button,
+.cm-panel.cm-search label {
+  margin: 0 !important;
 }
 
 .cm-panel.cm-search br {
@@ -187,6 +195,12 @@
   height: 0 !important;
   margin: 0 !important;
   border: 0 !important;
+}
+
+.cm-panel.cm-search button:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
 }
 
 .cm-panel.cm-search::before {
@@ -203,8 +217,16 @@
   order: 2 !important;
 }
 
+.cm-panel.cm-search input[name="replace"] {
+  flex: 1 !important;
+  min-width: 250px !important;
+  max-width: 400px !important;
+}
+
 .cm-panel.cm-search button.cm-search-toggle-replace {
-  order: -1 !important;
+  position: absolute !important;
+  left: var(--spacing-l) !important;
+  top: calc(var(--spacing-m) + 3px) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -249,7 +271,7 @@
 }
 
 .cm-panel.cm-search input,
-.cm-panel.cm-search input[type="checkbox"] + * {
+.cm-panel.cm-search input[type="checkbox"]+* {
   font-family: var(--font-sans) !important;
 }
 
@@ -407,6 +429,76 @@
   transform: rotate(45deg) !important;
 }
 
+.cm-search-input-wrapper {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  flex: 1 !important;
+  min-width: 250px !important;
+  max-width: 400px !important;
+}
+
+.cm-search-input-wrapper input[name="search"] {
+  width: 100% !important;
+  padding-right: 80px !important;
+  /* Space for the 3 icons */
+}
+
+.cm-search-input-wrapper label.cm-search-option {
+  position: absolute !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  color: var(--color-text-muted) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option input[type="checkbox"] {
+  display: none !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option:hover {
+  background-color: var(--color-surface-hover) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option:has(input[type="checkbox"]:checked) {
+  background-color: color-mix(in srgb, var(--color-accent), transparent 85%) !important;
+  color: var(--color-accent) !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option span {
+  pointer-events: none !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option .underline {
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option:has(input[name="case"]) {
+  right: 60px !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option:has(input[name="word"]) {
+  right: 36px !important;
+}
+
+.cm-search-input-wrapper label.cm-search-option:has(input[name="re"]) {
+  right: 12px !important;
+}
+
 .cm-searchMatch {
   background-color: color-mix(in srgb, var(--color-warning), transparent 70%) !important;
   outline: 1px solid color-mix(in srgb, var(--color-warning), transparent 40%) !important;
@@ -416,4 +508,59 @@
 .cm-searchMatch-selected {
   background-color: color-mix(in srgb, var(--color-accent), transparent 50%) !important;
   outline: 1px solid var(--color-accent) !important;
+}
+
+/* ─── Minimap Tweaks ─── */
+.cm-minimap-gutter,
+.cm-minimap-gutter canvas,
+.cm-minimap-container {
+  max-width: 70px !important;
+}
+
+/* ─── Lint Diagnostics ─── */
+.cm-diagnostic {
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-s) !important;
+  padding: 4px 8px !important;
+  border-left: 3px solid !important;
+}
+
+.cm-diagnostic-error {
+  border-color: var(--color-error) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-diagnostic-warning {
+  border-color: var(--color-warning) !important;
+  color: var(--color-text) !important;
+}
+
+.cm-tooltip.cm-tooltip-lint {
+  background-color: var(--color-surface-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.cm-lintRange-error {
+  background-image: none !important;
+  text-decoration: wavy underline var(--color-error) !important;
+  text-decoration-skip-ink: none !important;
+  text-underline-offset: 3px !important;
+}
+
+.cm-lintRange-warning {
+  background-image: none !important;
+  text-decoration: wavy underline var(--color-warning) !important;
+  text-decoration-skip-ink: none !important;
+  text-underline-offset: 3px !important;
+}
+
+.cm-lint-marker-error::after {
+  content: "●";
+  color: var(--color-error);
+}
+
+.cm-lint-marker-warning::after {
+  content: "●";
+  color: var(--color-warning);
 }

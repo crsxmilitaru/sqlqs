@@ -463,7 +463,7 @@ export default function TitleBar(props: Props) {
                     <span class="relative flex items-center justify-center">
                       <i class="fa-solid fa-magnifying-glass text-m" />
                       {objectJumpIndexing() && (
-                        <span class="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-surface-raised text-[8px] text-text">
+                        <span class="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-surface-panel text-[8px] text-text">
                           <i class="fa-solid fa-spinner animate-spin" />
                         </span>
                       )}

@@ -12,15 +12,85 @@ const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
 const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
 const MAX_TOOL_TURNS = 8;
 
+export type ChatReference = "editor" | "selected" | "result";
+
+interface ChatAttachmentBase {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: "image" | "text";
+}
+
+export interface ChatImageAttachment extends ChatAttachmentBase {
+  kind: "image";
+  // Absent after a reload — only metadata is persisted in localStorage.
+  dataUrl?: string;
+}
+
+export interface ChatTextAttachment extends ChatAttachmentBase {
+  kind: "text";
+  // Absent after a reload — only metadata is persisted in localStorage.
+  text?: string;
+}
+
+export type ChatAttachment = ChatImageAttachment | ChatTextAttachment;
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   toolsUsed?: string[];
+  references?: ChatReference[];
+  attachments?: ChatAttachment[];
 }
 
 export interface ChatResult {
   text: string;
   toolsUsed: string[];
+}
+
+function serializeMessage(message: ChatMessage): string {
+  if (message.role !== "user" || !message.references?.length) {
+    return message.content;
+  }
+
+  const references = message.references.map((reference) => `(${reference})`).join(" ");
+  return message.content
+    ? `Context references: ${references}\n${message.content}`
+    : `Context references: ${references}`;
+}
+
+function buildMessageParts(message: ChatMessage): any[] {
+  const parts: any[] = [];
+  const text = serializeMessage(message).trim();
+
+  if (text) {
+    parts.push({ text });
+  }
+
+  for (const attachment of message.attachments ?? []) {
+    if (attachment.kind === "image") {
+      if (!attachment.dataUrl) continue;
+      const commaIndex = attachment.dataUrl.indexOf(",");
+      if (commaIndex < 0) continue;
+      const base64Data = attachment.dataUrl.slice(commaIndex + 1);
+      if (!base64Data) continue;
+
+      parts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: attachment.mimeType,
+        },
+      });
+      continue;
+    }
+
+    if (!attachment.text) continue;
+    parts.push({
+      text: `Attached reference file: ${attachment.name}\n\`\`\`text\n${attachment.text}\n\`\`\``,
+    });
+  }
+
+  return parts.length > 0 ? parts : [{ text: "" }];
 }
 
 export const AiService = {
@@ -68,11 +138,14 @@ export const AiService = {
     return `You are an expert T-SQL assistant for Microsoft SQL Server.
 Current database: ${dbName}
 
-You have tools available to inspect the database schema, columns, indexes, foreign keys, object definitions, the user's current query, and the list of databases. Use them when you need information to answer the user's question accurately.
+You have tools available to inspect the database schema, columns, indexes, foreign keys, object definitions, the user's current query, the user's selected editor code, the latest query result error, and the list of databases. Use them when you need information to answer the user's question accurately.
 
 RULES:
 - Help users write, understand, and modify T-SQL queries
 - Use your tools to look up schema information instead of guessing
+- If a user message includes a (selected) reference, treat the selected editor SQL as the primary focus for that turn
+- If a user message includes a (result) reference, treat the latest query result error as the primary focus for that turn
+- Users may attach screenshots or text files in chat; inspect them when relevant
 - Provide clear explanations and suggestions
 - When asked to modify code, provide the complete modified version
 - Use proper T-SQL syntax (square brackets for identifiers, TOP not LIMIT, etc)
@@ -104,7 +177,7 @@ RULES:
 
     const contents: any[] = messages.map((msg) => ({
       role: msg.role === "assistant" ? "model" : "user",
-      parts: [{ text: msg.content }],
+      parts: buildMessageParts(msg),
     }));
 
     const toolsUsed: string[] = [];

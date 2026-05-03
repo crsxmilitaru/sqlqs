@@ -354,7 +354,7 @@ export default function App() {
         event.preventDefault();
         handleOpenSqlFile();
       }
-      if (event.key === ",") {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key === ",") {
         event.preventDefault();
         setIsSettingsOpen((prev) => !prev);
         return;

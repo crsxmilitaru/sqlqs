@@ -5,7 +5,6 @@
   /* Surfaces */
   --color-surface: #0c0c0e;
   --color-surface-panel: #181818;
-  --color-surface-raised: #18181b;
   --color-surface-table: #1D1D1D;
   --color-surface-popover: #1e1e21;
   --color-surface-overlay: rgba(255, 255, 255, 0.05);
@@ -60,7 +59,6 @@
   /* Color Mappings */
   --color-surface: var(--color-surface);
   --color-surface-panel: var(--color-surface-panel);
-  --color-surface-raised: var(--color-surface-raised);
   --color-surface-table: var(--color-surface-table);
   --color-surface-popover: var(--color-surface-popover);
   --color-surface-overlay: var(--color-surface-overlay);

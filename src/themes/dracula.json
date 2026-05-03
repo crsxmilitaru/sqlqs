@@ -4,7 +4,6 @@
   "colors": {
     "--color-surface": "#282a36",
     "--color-surface-panel": "#363848",
-    "--color-surface-raised": "#44475a",
     "--color-surface-table": "#3d3f52",
     "--color-surface-popover": "#282a36",
     "--color-surface-overlay": "rgba(255, 255, 255, 0.1)",

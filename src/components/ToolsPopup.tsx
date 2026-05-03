@@ -34,7 +34,7 @@ export default function ToolsPopup(props: Props) {
   };
 
   return (
-    <div ref={popupRef} class="absolute bottom-full mb-1.5 left-0 w-[240px] bg-surface-raised border border-border/50 rounded-lg animate-popover-in p-1 shadow-md shadow-black/20">
+    <div ref={popupRef} class="absolute bottom-full mb-1.5 left-0 w-[240px] bg-surface-panel border border-border/50 rounded-lg animate-popover-in p-1 shadow-md shadow-black/20">
       <div class="flex flex-col">
         <For each={AI_TOOLS}>
           {(tool) => {

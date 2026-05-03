@@ -13,6 +13,8 @@ export interface AiTool {
 
 export interface ToolExecutionContext {
   currentCode: string;
+  selectedCode?: string;
+  resultError?: string;
   currentDatabase?: string;
 }
 
@@ -94,6 +96,28 @@ export const AI_TOOLS: AiTool[] = [
     label: "Current Editor Query",
     description: "Get the SQL code currently written in the user's query editor tab",
     icon: "fa-solid fa-code",
+    parameters: {
+      type: "OBJECT",
+      properties: {},
+    },
+  },
+  {
+    id: "get_selected_editor_query",
+    name: "get_selected_editor_query",
+    label: "Selected Editor SQL",
+    description: "Get the SQL code currently selected in the user's query editor tab",
+    icon: "fa-solid fa-i-cursor",
+    parameters: {
+      type: "OBJECT",
+      properties: {},
+    },
+  },
+  {
+    id: "get_current_result_error",
+    name: "get_current_result_error",
+    label: "Current Result Error",
+    description: "Get the latest SQL error shown in the query results panel",
+    icon: "fa-solid fa-circle-exclamation",
     parameters: {
       type: "OBJECT",
       properties: {},
@@ -184,6 +208,12 @@ export async function executeTool(
 
     case "get_current_editor_query":
       return context.currentCode || "(Editor is empty)";
+
+    case "get_selected_editor_query":
+      return context.selectedCode || "(No editor selection)";
+
+    case "get_current_result_error":
+      return context.resultError || "(No query error available)";
 
     case "list_databases": {
       const dbs = await invoke<string[]>("get_databases");

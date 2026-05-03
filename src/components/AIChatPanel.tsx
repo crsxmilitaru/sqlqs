@@ -1,6 +1,13 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { marked } from "marked";
-import { AiService, type ChatMessage } from "../lib/ai";
+import {
+  AiService,
+  type ChatAttachment,
+  type ChatImageAttachment,
+  type ChatMessage,
+  type ChatReference,
+  type ChatTextAttachment,
+} from "../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../lib/ai-tools";
 import ToolsPopup from "./ToolsPopup";
 import Tooltip from "./Tooltip";
@@ -8,6 +15,37 @@ import Tooltip from "./Tooltip";
 marked.setOptions({ breaks: true, gfm: true });
 
 const CHAT_STORAGE_KEY = "sqlqs_chat_history";
+const MAX_CHAT_ATTACHMENTS = 4;
+const MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_CHAT_TEXT_ATTACHMENT_BYTES = 256 * 1024;
+const TEXT_FILE_EXTENSIONS = new Set([
+  "txt",
+  "sql",
+  "md",
+  "json",
+  "csv",
+  "tsv",
+  "xml",
+  "yml",
+  "yaml",
+  "log",
+  "ini",
+  "toml",
+  "env",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "css",
+  "scss",
+  "html",
+  "py",
+  "rs",
+  "java",
+  "go",
+  "sh",
+  "ps1",
+]);
 
 function loadMessages(): ChatMessage[] {
   try {
@@ -19,10 +57,31 @@ function loadMessages(): ChatMessage[] {
 }
 
 function saveMessages(msgs: ChatMessage[]) {
-  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(msgs));
+  // Strip heavy payloads (image data URLs, full text bodies) before persisting,
+  // but keep enough metadata so reloaded messages still show an attachment chip.
+  const serializable = msgs.map((message) => {
+    if (!message.attachments?.length) return message;
+    return {
+      ...message,
+      attachments: message.attachments.map((attachment) =>
+        attachment.kind === "image"
+          ? { id: attachment.id, kind: "image" as const, name: attachment.name, mimeType: attachment.mimeType }
+          : { id: attachment.id, kind: "text" as const, name: attachment.name, mimeType: attachment.mimeType },
+      ),
+    };
+  });
+  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(serializable));
 }
 
 export type ApplyMode = "append" | "replace" | "new-tab";
+
+export interface PendingChatMessage {
+  id: number;
+  content: string;
+  references?: ChatReference[];
+  selectedCode?: string;
+  resultError?: string;
+}
 
 function ToolsUsedBadge(props: { toolsUsed: string[] }) {
   return (
@@ -46,20 +105,148 @@ function ToolsUsedBadge(props: { toolsUsed: string[] }) {
 interface Props {
   currentCode: string;
   currentDatabase?: string;
+  currentResultError?: string;
   onApplyCode: (code: string, mode: ApplyMode) => void;
   width: number;
   onWidthChange: (width: number) => void;
+  pendingMessage?: PendingChatMessage | null;
+  onPendingMessageHandled?: (id: number) => void;
+}
+
+function MessageReferenceTags(props: { references: ChatReference[] }) {
+  return (
+    <div class="mb-1 flex items-center gap-1.5 flex-wrap">
+      <For each={props.references}>
+        {(reference) => (
+          <span class="rounded-full border border-border/70 bg-surface-panel/70 px-2 py-0.5 text-3xs font-semibold tracking-wide text-text-muted">
+            ({reference})
+          </span>
+        )}
+      </For>
+    </div>
+  );
+}
+
+function ChatAttachmentGrid(props: {
+  attachments: ChatAttachment[];
+  removable?: boolean;
+  onRemove?: (id: string) => void;
+}) {
+  return (
+    <div class="mb-2 flex flex-wrap gap-2">
+      <For each={props.attachments}>
+        {(attachment) => (
+          <div
+            class={`relative overflow-hidden rounded-lg border border-border/70 bg-surface-panel/60 ${
+              attachment.kind === "image" ? "h-20 w-20" : "flex min-h-20 w-[180px] items-start gap-2 p-3"
+            }`}
+          >
+            <Show
+              when={attachment.kind === "image"}
+              fallback={
+                <>
+                  <div class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-hover text-text-muted">
+                    <i class="fa-solid fa-file-lines text-s" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-s font-medium text-text">{attachment.name}</div>
+                    <Show
+                      when={(attachment as ChatTextAttachment).text}
+                      fallback={
+                        <div class="mt-1 text-3xs italic text-text-muted">
+                          Content not retained after reload
+                        </div>
+                      }
+                    >
+                      <div class="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-3xs text-text-muted">
+                        {(attachment as ChatTextAttachment).text}
+                      </div>
+                    </Show>
+                  </div>
+                </>
+              }
+            >
+              <Show
+                when={(attachment as ChatImageAttachment).dataUrl}
+                fallback={
+                  <div
+                    class="flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-hover text-text-muted"
+                    title={`${attachment.name} — content not retained after reload`}
+                  >
+                    <i class="fa-solid fa-image text-l" />
+                    <span class="px-1 text-[9px] truncate max-w-full">{attachment.name}</span>
+                  </div>
+                }
+              >
+                <img
+                  src={(attachment as ChatImageAttachment).dataUrl}
+                  alt={attachment.name}
+                  class="h-full w-full object-cover"
+                />
+              </Show>
+            </Show>
+            <Show when={props.removable}>
+              <button
+                onClick={() => props.onRemove?.(attachment.id)}
+                class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/80"
+                title="Remove attachment"
+              >
+                <i class="fa-solid fa-xmark text-[10px]" />
+              </button>
+            </Show>
+          </div>
+        )}
+      </For>
+    </div>
+  );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error(`Failed to read ${file.name}`));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function getFileExtension(fileName: string): string {
+  const parts = fileName.toLowerCase().split(".");
+  return parts.length > 1 ? parts[parts.length - 1] : "";
+}
+
+function isTextLikeFile(file: File): boolean {
+  return (
+    file.type.startsWith("text/") ||
+    [
+      "application/json",
+      "application/xml",
+      "application/javascript",
+      "application/typescript",
+      "application/x-sh",
+    ].includes(file.type) ||
+    TEXT_FILE_EXTENSIONS.has(getFileExtension(file.name))
+  );
 }
 
 export default function AIChatPanel(props: Props) {
   const [messages, setMessages] = createSignal<ChatMessage[]>(loadMessages());
   const [input, setInput] = createSignal("");
+  const [draftAttachments, setDraftAttachments] = createSignal<ChatAttachment[]>([]);
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [applyMenuFor, setApplyMenuFor] = createSignal<number | null>(null);
   const [showTools, setShowTools] = createSignal(false);
+  const [lastHandledPendingId, setLastHandledPendingId] = createSignal<number | null>(null);
   let messagesEndRef: HTMLDivElement | undefined;
   let inputRef: HTMLTextAreaElement | undefined;
+  let fileInputRef: HTMLInputElement | undefined;
   let abortRef: AbortController | null = null;
   let toolsButtonRef: HTMLButtonElement | undefined;
 
@@ -107,14 +294,108 @@ export default function AIChatPanel(props: Props) {
     return sqlMatch ? sqlMatch[1].trim() : null;
   };
 
-  const handleSendMessage = async () => {
-    if (!input().trim() || isLoading()) return;
+  const clearComposer = () => {
+    setInput("");
+    setDraftAttachments([]);
+    if (fileInputRef) {
+      fileInputRef.value = "";
+    }
+  };
 
-    const userMessage: ChatMessage = { role: "user", content: input().trim() };
+  const removeDraftAttachment = (id: string) => {
+    setDraftAttachments((attachments) => attachments.filter((attachment) => attachment.id !== id));
+  };
+
+  const addAttachments = async (files: File[]) => {
+    const availableSlots = MAX_CHAT_ATTACHMENTS - draftAttachments().length;
+    if (availableSlots <= 0) {
+      setError(`You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`);
+      return;
+    }
+
+    const nextFiles = files.slice(0, availableSlots);
+    const skipped: string[] = [];
+    const nextAttachments: ChatAttachment[] = [];
+
+    for (const file of nextFiles) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      try {
+        if (file.type.startsWith("image/")) {
+          if (file.size > MAX_CHAT_IMAGE_BYTES) {
+            skipped.push(`${file.name} is larger than 8 MB.`);
+            continue;
+          }
+
+          const dataUrl = await readFileAsDataUrl(file);
+          nextAttachments.push({
+            id,
+            kind: "image",
+            name: file.name,
+            mimeType: file.type,
+            dataUrl,
+          });
+          continue;
+        }
+
+        if (isTextLikeFile(file)) {
+          if (file.size > MAX_CHAT_TEXT_ATTACHMENT_BYTES) {
+            skipped.push(`${file.name} is larger than 256 KB.`);
+            continue;
+          }
+
+          const text = await file.text();
+          nextAttachments.push({
+            id,
+            kind: "text",
+            name: file.name,
+            mimeType: file.type || "text/plain",
+            text,
+          });
+          continue;
+        }
+
+        skipped.push(`${file.name} is not a supported image or text file.`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        skipped.push(`Failed to read ${file.name}: ${message}`);
+      }
+    }
+
+    setDraftAttachments((attachments) => [...attachments, ...nextAttachments]);
+
+    if (files.length > availableSlots) {
+      skipped.push(`Only ${MAX_CHAT_ATTACHMENTS} files can be attached at once.`);
+    }
+
+    if (skipped.length > 0) {
+      setError(skipped.join(" "));
+    }
+  };
+
+  const sendMessage = async (options: {
+    content: string;
+    references?: ChatReference[];
+    selectedCode?: string;
+    resultError?: string;
+    attachments?: ChatAttachment[];
+    clearInput?: boolean;
+  }) => {
+    const hasAttachments = (options.attachments?.length ?? 0) > 0;
+    if ((!options.content.trim() && !hasAttachments) || isLoading()) return;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: options.content,
+      references: options.references,
+      attachments: options.attachments,
+    };
     const newMessages = [...messages(), userMessage];
     setMessages(newMessages);
     saveMessages(newMessages);
-    setInput("");
+    if (options.clearInput) {
+      clearComposer();
+    }
     setError(null);
     setIsLoading(true);
 
@@ -125,6 +406,8 @@ export default function AIChatPanel(props: Props) {
     try {
       const context: ToolExecutionContext = {
         currentCode: props.currentCode,
+        selectedCode: options.selectedCode,
+        resultError: options.resultError ?? props.currentResultError,
         currentDatabase: props.currentDatabase,
       };
 
@@ -152,11 +435,55 @@ export default function AIChatPanel(props: Props) {
     }
   };
 
+  const handleSendMessage = async () => {
+    await sendMessage({
+      content: input(),
+      references: ["editor"],
+      attachments: draftAttachments(),
+      clearInput: true,
+    });
+  };
+
+  createEffect(() => {
+    const pendingMessage = props.pendingMessage;
+    if (!pendingMessage || isLoading()) return;
+    if (lastHandledPendingId() === pendingMessage.id) return;
+
+    setLastHandledPendingId(pendingMessage.id);
+    props.onPendingMessageHandled?.(pendingMessage.id);
+    void sendMessage({
+      content: pendingMessage.content,
+      references: pendingMessage.references ?? (["editor"] as ChatReference[]),
+      selectedCode: pendingMessage.selectedCode,
+      resultError: pendingMessage.resultError,
+    });
+  });
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handlePaste = (e: ClipboardEvent) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const files = items
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file instanceof File);
+
+    if (files.length === 0) return;
+
+    e.preventDefault();
+    void addAttachments(files);
+  };
+
+  const handleFileChange = (e: Event) => {
+    const inputElement = e.currentTarget as HTMLInputElement;
+    const files = Array.from(inputElement.files ?? []);
+    if (files.length === 0) return;
+    void addAttachments(files);
   };
 
   const handleApplyCode = (messageContent: string, mode: ApplyMode) => {
@@ -170,6 +497,7 @@ export default function AIChatPanel(props: Props) {
   const handleClear = () => {
     setMessages([]);
     saveMessages([]);
+    clearComposer();
     setError(null);
   };
 
@@ -230,7 +558,15 @@ export default function AIChatPanel(props: Props) {
                     }`}
                 >
                   <Show when={msg.role === "assistant"} fallback={
-                    <div class="text-s whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
+                    <div>
+                      <Show when={msg.references?.length}>
+                        <MessageReferenceTags references={msg.references!} />
+                      </Show>
+                      <Show when={msg.attachments?.length}>
+                        <ChatAttachmentGrid attachments={msg.attachments!} />
+                      </Show>
+                      <div class="text-s whitespace-pre-wrap break-words leading-relaxed">{msg.content}</div>
+                    </div>
                   }>
                     <div class="text-s leading-relaxed chat-markdown [&>*:first-child]:mt-0">
                       <Show when={msg.toolsUsed}>
@@ -311,44 +647,76 @@ export default function AIChatPanel(props: Props) {
         <div class="border-t border-border p-3 bg-surface-header/30">
           <div class="flex items-start gap-2">
             <div class="flex-1 min-w-0 flex flex-col gap-1.5">
+              <Show when={draftAttachments().length > 0}>
+                <ChatAttachmentGrid
+                  attachments={draftAttachments()}
+                  removable
+                  onRemove={removeDraftAttachment}
+                />
+              </Show>
               <textarea
                 ref={inputRef}
                 value={input()}
                 onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your SQL..."
+                onPaste={handlePaste}
+                placeholder="Ask about your SQL, or paste a reference file..."
                 disabled={isLoading()}
                 rows={1}
                 class="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 overflow-hidden"
                 style={{ height: "38px", "max-height": "150px" }}
               />
               <div class="flex items-center justify-between">
-                <div class="relative">
-                  <Tooltip content="Configure tools">
+                <div class="flex items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    class="hidden"
+                    onChange={handleFileChange}
+                  />
+                  <Tooltip content="Upload reference file">
                     <button
-                      ref={toolsButtonRef}
-                      onClick={() => setShowTools(!showTools())}
-                      class={`flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer ${showTools()
-                          ? "text-accent bg-accent/10"
-                          : "text-text-muted hover:text-text hover:bg-surface-hover"
-                        }`}
+                      onClick={() => fileInputRef?.click()}
+                      disabled={isLoading() || draftAttachments().length >= MAX_CHAT_ATTACHMENTS}
+                      class="flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer text-text-muted hover:text-text hover:bg-surface-hover disabled:opacity-40 disabled:cursor-default"
                     >
-                      <i class="fa-solid fa-wrench text-icon" />
-                      <span>Tools</span>
+                      <i class="fa-solid fa-paperclip text-icon" />
+                      <span>Reference</span>
                     </button>
                   </Tooltip>
-                  <Show when={showTools()}>
-                    <ToolsPopup
-                      anchorRef={toolsButtonRef!}
-                      onClose={() => setShowTools(false)}
-                    />
-                  </Show>
+                  <div class="relative">
+                    <Tooltip content="Configure tools">
+                      <button
+                        ref={toolsButtonRef}
+                        onClick={() => setShowTools(!showTools())}
+                        class={`flex items-center gap-1.5 px-2 py-1 rounded-md text-s transition-colors cursor-pointer ${showTools()
+                            ? "text-accent bg-accent/10"
+                            : "text-text-muted hover:text-text hover:bg-surface-hover"
+                          }`}
+                      >
+                        <i class="fa-solid fa-wrench text-icon" />
+                        <span>Tools</span>
+                      </button>
+                    </Tooltip>
+                    <Show when={showTools()}>
+                      <ToolsPopup
+                        anchorRef={toolsButtonRef!}
+                        onClose={() => setShowTools(false)}
+                      />
+                    </Show>
+                  </div>
                 </div>
+                <Show when={draftAttachments().length > 0}>
+                  <span class="text-3xs text-text-muted">
+                    {draftAttachments().length}/{MAX_CHAT_ATTACHMENTS} file{draftAttachments().length === 1 ? "" : "s"}
+                  </span>
+                </Show>
               </div>
             </div>
             <button
               onClick={handleSendMessage}
-              disabled={!input().trim() || isLoading()}
+              disabled={(!input().trim() && draftAttachments().length === 0) || isLoading()}
               class="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
             >
               <i class="fa-solid fa-paper-plane text-s" />

@@ -868,7 +868,7 @@
     height: 16px;
     border-radius: 9999px;
     background: var(--color-accent);
-    border: 2px solid var(--color-surface-raised);
+    border: 2px solid var(--color-surface-panel);
     cursor: pointer;
     transition: transform 0.1s ease;
   }
@@ -882,7 +882,7 @@
   }
 
   .settings-section {
-    background: color-mix(in srgb, var(--color-surface-raised) 60%, transparent);
+    background: color-mix(in srgb, var(--color-surface-panel) 60%, transparent);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: 16px;
@@ -948,7 +948,7 @@
   }
 
   .dialog-surface {
-    background: var(--color-surface-raised);
+    background: var(--color-surface-panel);
     border: 1px solid var(--color-overlay-sm);
     border-radius: var(--radius-lg);
     transition: all 0.2s var(--ease-in-out);

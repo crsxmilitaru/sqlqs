@@ -35,6 +35,10 @@ struct OpenedSqlFile {
     content: String,
 }
 
+fn same_saved_server(left: &ConnectionConfig, right: &ConnectionConfig) -> bool {
+    left.server.trim().eq_ignore_ascii_case(right.server.trim())
+}
+
 async fn reset_server_object_index(state: &AppState) {
     let token = {
         let mut token_lock = state.server_object_index_token.lock().await;
@@ -338,7 +342,14 @@ async fn connect_to_server(
     let cached_port = save_connection
         .as_ref()
         .and_then(|name| settings.connections.iter().find(|c| &c.name == name))
-        .and_then(|c| c.cached_port);
+        .and_then(|c| c.cached_port)
+        .or_else(|| {
+            settings
+                .connections
+                .iter()
+                .filter(|c| same_saved_server(&c.config, &config))
+                .find_map(|c| c.cached_port)
+        });
 
     let (client, resolved_port) = db::connect(&config, cached_port).await?;
     let mut settings_changed = false;

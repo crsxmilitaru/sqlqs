@@ -14,6 +14,7 @@ interface Props {
   sourceSql?: string;
   onGenerateSql?: (sql: string) => void;
   onReExecute?: () => void;
+  onSendErrorToChat?: (error: string) => void;
 }
 
 interface RowActionDialogState {
@@ -30,7 +31,7 @@ interface RowContextMenuState {
 }
 
 
-function ErrorSection(props: { error: string }) {
+function ErrorSection(props: { error: string; onSendToChat?: (error: string) => void }) {
   const [copied, setCopied] = createSignal(false);
   const handleCopy = async () => {
     try {
@@ -49,14 +50,25 @@ function ErrorSection(props: { error: string }) {
           <i class="fa-solid fa-circle-exclamation" />
           Query Error
         </span>
-        <button
-          onClick={handleCopy}
-          class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied() ? "text-success border-success/30 bg-success/5" : ""
-            }`}
-        >
-          <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
-          <span>{copied() ? "Copied!" : "Copy Error"}</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <Show when={props.onSendToChat}>
+            <button
+              onClick={() => props.onSendToChat?.(props.error)}
+              class="btn btn-secondary h-7 px-3 gap-2"
+            >
+              <i class="fa-solid fa-comment-dots" />
+              <span>Send to Chat</span>
+            </button>
+          </Show>
+          <button
+            onClick={handleCopy}
+            class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied() ? "text-success border-success/30 bg-success/5" : ""
+              }`}
+          >
+            <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
+            <span>{copied() ? "Copied!" : "Copy Error"}</span>
+          </button>
+        </div>
       </div>
       <div class="text-error text-m font-mono whitespace-pre-wrap leading-relaxed select-text p-4 bg-error/5 border border-error/10 rounded-lg">
         {props.error}
@@ -539,7 +551,7 @@ export default function ResultsGrid(props: Props) {
       </div>
     }>
       <Show when={!props.error} fallback={
-        <ErrorSection error={props.error!} />
+        <ErrorSection error={props.error!} onSendToChat={props.onSendErrorToChat} />
       }>
         <Show when={props.result} fallback={
           <div class="h-full bg-surface">

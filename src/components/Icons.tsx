@@ -57,3 +57,7 @@ export function IconFloppy(props: { class?: string }) {
 export function IconSearch(props: { class?: string }) {
   return <i class={`fa-solid fa-magnifying-glass fa-fw ${props.class || ""}`} />;
 }
+
+export function IconWrapText(props: { class?: string }) {
+  return <i class={`fa-solid fa-paragraph fa-fw ${props.class || ""}`} />;
+}

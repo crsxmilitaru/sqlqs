@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import type { QueryTab } from "../lib/types";
-import AIChatPanel, { type ApplyMode } from "./AIChatPanel";
+import AIChatPanel, { type ApplyMode, type PendingChatMessage } from "./AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Dropdown from "./Dropdown";
-import { IconCopy, IconFloppy, IconFormat, IconPlay, IconSave, IconSearch } from "./Icons";
+import { IconCopy, IconFloppy, IconFormat, IconPlay, IconSave, IconSearch, IconWrapText } from "./Icons";
 import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "./Tooltip";
@@ -51,6 +51,8 @@ export default function QueryEditorPanel(props: Props) {
 
   const [queryCopied, setQueryCopied] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
+  const [wrapLines, setWrapLines] = createSignal(false);
+  const [pendingChatMessage, setPendingChatMessage] = createSignal<PendingChatMessage | null>(null);
   const [editorContextMenu, setEditorContextMenu] = createSignal<{
     visible: boolean;
     x: number;
@@ -133,19 +135,53 @@ export default function QueryEditorPanel(props: Props) {
     });
   }
 
+  function handleSendSelectionToChat() {
+    const selectedText = editorRef?.getSelectedText() ?? "";
+    if (!selectedText.trim()) return;
+
+    props.onAiChatOpenChange(true);
+    setPendingChatMessage({
+      id: Date.now(),
+      content: selectedText,
+      references: ["editor", "selected"],
+      selectedCode: selectedText,
+    });
+  }
+
+  function handleSendResultErrorToChat(error: string) {
+    if (!error.trim()) return;
+
+    props.onAiChatOpenChange(true);
+    setPendingChatMessage({
+      id: Date.now(),
+      content: error,
+      references: ["result"],
+      resultError: error,
+    });
+  }
+
   const getEditorContextMenuItems = (): ContextMenuItem[] => {
-    const selectedText = editorRef?.getSelectedText();
+    const selectedText = editorRef?.getSelectedText() ?? "";
+    const hasSelectedText = Boolean(selectedText.trim());
     const tab = activeTab();
     return [
       {
         id: "execute",
-        label: selectedText ? "Execute Selection" : "Execute",
+        label: hasSelectedText ? "Execute Selection" : "Execute",
         icon: <i class="fa-solid fa-play" />,
         shortcut: "F5",
         onClick: () => handleExecute(selectedText),
         disabled: !props.connected || !hasDatabaseSelected() || !tab?.sql.trim() || tab?.isExecuting,
       },
       { id: "sep-1", separator: true },
+      {
+        id: "send-selection-to-chat",
+        label: "Send Selection to Chat",
+        icon: <i class="fa-solid fa-comment-dots" />,
+        onClick: handleSendSelectionToChat,
+        disabled: !hasSelectedText,
+      },
+      { id: "sep-2", separator: true },
       {
         id: "format",
         label: "Format",
@@ -225,6 +261,15 @@ export default function QueryEditorPanel(props: Props) {
                   </button>
                 </Tooltip>
 
+                <Tooltip content={wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"} placement="bottom">
+                  <button
+                    onClick={() => setWrapLines(!wrapLines())}
+                    class={`btn btn-secondary ${wrapLines() ? "bg-[var(--color-surface-active)]" : ""}`}
+                  >
+                    <IconWrapText class="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+
                 {props.onSave && (
                   <Tooltip content="Save SQL" placement="bottom">
                     <button
@@ -264,7 +309,6 @@ export default function QueryEditorPanel(props: Props) {
 
               <div class="relative flex-1 min-w-0 min-h-0">
                 <SqlEditor
-                  onRef={(h: SqlEditorHandle) => editorRef = h}
                   value={activeTab()!.sql}
                   onChange={(val: string) => props.onTabUpdate(activeTab()!.id, { sql: val })}
                   onExecute={handleExecute}
@@ -272,7 +316,9 @@ export default function QueryEditorPanel(props: Props) {
                   theme={props.theme}
                   currentDatabase={props.currentDatabase}
                   onContextMenu={handleEditorContextMenu}
+                  onRef={(handle) => (editorRef = handle)}
                   onSearchPanelChange={setSearchOpen}
+                  wrapLines={wrapLines()}
                 />
                 {!hasDatabaseSelected() && (
                   <div class="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">
@@ -296,9 +342,14 @@ export default function QueryEditorPanel(props: Props) {
               <AIChatPanel
                 currentCode={activeTab()!.sql}
                 currentDatabase={props.currentDatabase}
+                currentResultError={activeTab()!.error}
                 onApplyCode={handleGeneratedRowSql}
                 width={aiChatWidth()}
                 onWidthChange={setAiChatWidth}
+                pendingMessage={pendingChatMessage()}
+                onPendingMessageHandled={(id) => {
+                  setPendingChatMessage((current) => current?.id === id ? null : current);
+                }}
               />
             )}
           </div>
@@ -336,6 +387,7 @@ export default function QueryEditorPanel(props: Props) {
                   sourceSql={activeTab()?.sql ?? ""}
                   onGenerateSql={handleGeneratedRowSql}
                   onReExecute={() => handleExecute()}
+                  onSendErrorToChat={handleSendResultErrorToChat}
                 />
               </div>
             )}

@@ -383,6 +383,55 @@ fn parse_server(server: &str) -> (String, Option<String>, Option<u16>) {
     (host, instance, explicit_port)
 }
 
+#[cfg(windows)]
+fn is_local_sql_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host.eq_ignore_ascii_case("(local)")
+        || host == "."
+        || host == "127.0.0.1"
+        || host == "::1"
+}
+
+#[cfg(windows)]
+fn build_named_pipe_path(host: &str, instance: Option<&str>) -> String {
+    let pipe_suffix = match instance {
+        Some(inst) => format!(r"pipe\MSSQL${}\sql\query", inst),
+        None => r"pipe\sql\query".to_string(),
+    };
+
+    if is_local_sql_host(host) {
+        format!(r"\\.\{}", pipe_suffix)
+    } else {
+        format!(r"\\{}\{}", host, pipe_suffix)
+    }
+}
+
+#[cfg(windows)]
+async fn try_named_pipe_connection(
+    tib_config: &Config,
+    host: &str,
+    instance: Option<&str>,
+) -> Result<Option<SqlClient>, String> {
+    let pipe_name = build_named_pipe_path(host, instance);
+
+    let pipe = match tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name) {
+        Ok(pipe) => pipe,
+        Err(_) => return Ok(None),
+    };
+
+    let stream = TransportStream::NamedPipe(pipe);
+    let mut client = Client::connect(tib_config.clone(), stream.compat_write())
+        .await
+        .map_err(|e| {
+            format!(
+                "SQL Server named pipe connection failed for '{}': {}",
+                pipe_name, e
+            )
+        })?;
+    init_session(&mut client).await?;
+    Ok(Some(client))
+}
+
 /// Establishes connection to SQL Server.
 pub async fn connect(
     config: &ConnectionConfig,
@@ -434,19 +483,10 @@ pub async fn connect(
 
     #[cfg(windows)]
     {
-        let is_local = host.eq_ignore_ascii_case("localhost") || host == "." || host == "127.0.0.1";
-        if is_local {
-            let pipe_name = match &instance {
-                Some(inst) => format!(r"\\.\pipe\MSSQL${}\sql\query", inst),
-                None => r"\\.\pipe\sql\query".to_string(),
-            };
-            if let Ok(pipe) = tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_name)
+        if is_local_sql_host(&host) {
+            if let Some(client) =
+                try_named_pipe_connection(&tib_config, &host, instance.as_deref()).await?
             {
-                let stream = TransportStream::NamedPipe(pipe);
-                let mut client = Client::connect(tib_config, stream.compat_write())
-                    .await
-                    .map_err(|e| format!("SQL Server connection failed: {}", e))?;
-                init_session(&mut client).await?;
                 return Ok((client, None));
             }
         }
@@ -476,8 +516,44 @@ pub async fn connect(
         TcpStream::connect(tib_config.get_addr())
             .await
             .map_err(|e| e.to_string())
-    }
-    .map_err(|e| format!("TCP connection to '{}:{}' failed: {}", host, port, e))?;
+    };
+
+    let tcp = match tcp {
+        Ok(tcp) => tcp,
+        Err(err) => {
+            #[cfg(windows)]
+            {
+                // Only fall back to named pipes for remote, named instances when the
+                // TCP failure looks like "TCP listener unavailable" — i.e. SQL Browser
+                // couldn't resolve the instance, or the resolved port refused the
+                // connection. For DNS failures or generic timeouts the named-pipe path
+                // would also fail (and slowly), so we skip it.
+                if instance.is_some() && !is_local_sql_host(&host) {
+                    let lower = err.to_ascii_lowercase();
+                    let should_try_pipe = lower.contains("refused")
+                        || lower.contains("10061")
+                        || lower.contains("could not be made")
+                        || lower.contains("instance")
+                        || lower.contains("browser");
+                    if should_try_pipe {
+                        let pipe_attempt = tokio::time::timeout(
+                            std::time::Duration::from_secs(3),
+                            try_named_pipe_connection(&tib_config, &host, instance.as_deref()),
+                        )
+                        .await;
+                        if let Ok(Ok(Some(client))) = pipe_attempt {
+                            return Ok((client, None));
+                        }
+                    }
+                }
+            }
+
+            return Err(format!(
+                "TCP connection to '{}:{}' failed: {}",
+                host, port, err
+            ));
+        }
+    };
 
     let resolved_port = tcp.peer_addr().ok().map(|a| a.port());
     tcp.set_nodelay(true).ok();

@@ -177,7 +177,7 @@ export default function SettingsView(props: Props) {
                           {theme.name}
                           {themeId() === theme.id && <i class="fa-solid fa-check text-accent text-s" />}
                         </div>
-                        <div class="flex h-10 w-full rounded-md overflow-hidden border border-border/50" style={{ "background-color": theme.colors["--color-surface-raised"] }}>
+                        <div class="flex h-10 w-full rounded-md overflow-hidden border border-border/50" style={{ "background-color": theme.colors["--color-surface-panel"] }}>
                           <div class="w-10 h-full border-r border-border/30" style={{ "background-color": theme.colors["--color-surface"] }} />
                           <div class="flex-1 p-2 flex flex-col gap-1.5 relative">
                             <div class="h-1.5 w-1/2 rounded-full" style={{ "background-color": theme.colors["--color-surface-active"] }} />
