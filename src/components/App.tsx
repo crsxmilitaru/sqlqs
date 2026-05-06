@@ -18,6 +18,7 @@ import ConnectionDialog from "./ConnectionDialog";
 import ObjectExplorer from "./ObjectExplorer";
 import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
 import QueryEditorPanel from "./QueryEditorPanel";
+import { invalidateSchemaCatalog } from "./SqlEditor";
 import SettingsView from "./SettingsView";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "./UpdateDialog";
@@ -36,6 +37,14 @@ const LAST_SQL_EXPORT_FOLDER_STORAGE_KEY = "sqlqs_last_sql_export_folder";
 function getSqlFileName(title: string): string {
   const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
   return /\.sql$/i.test(sanitizedTitle) ? sanitizedTitle : `${sanitizedTitle}.sql`;
+}
+
+function isLikelySchemaChangingSql(sql: string): boolean {
+  const withoutComments = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--.*$/gm, " ");
+  return /\b(?:CREATE\s+(?:OR\s+ALTER\s+)?(?:UNIQUE\s+)?(?:(?:NON)?CLUSTERED\s+)?|ALTER\s+|DROP\s+|TRUNCATE\s+)(TABLE|VIEW|PROCEDURE|PROC|FUNCTION|TRIGGER|TYPE|SCHEMA|INDEX|SEQUENCE|SYNONYM)\b/i
+    .test(withoutComments);
 }
 
 export default function App() {
@@ -158,6 +167,9 @@ export default function App() {
       }
       updateTab(tabId, updates);
       addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
+      if (isLikelySchemaChangingSql(sqlToExecute)) {
+        invalidateSchemaCatalog(currentDatabase());
+      }
     } catch (err: any) {
       updateTab(tabId, { error: String(err), isExecuting: false });
     }

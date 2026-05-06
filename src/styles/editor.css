@@ -62,6 +62,20 @@
   color: white !important;
 }
 
+.cm-tooltip.cm-tooltip-autocomplete>ul>completion-section {
+  display: list-item !important;
+  padding: 8px 12px 4px !important;
+  margin: 2px 2px 0 !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--color-text-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  opacity: 0.7 !important;
+  text-transform: uppercase !important;
+}
+
 .cm-completionIcon {
   width: 20px !important;
   height: 20px !important;
@@ -110,6 +124,26 @@
 
 .cm-completionIcon-type::before {
   content: "T";
+}
+
+.cm-completionIcon-namespace {
+  background-color: color-mix(in srgb, var(--color-accent), transparent 85%) !important;
+  color: var(--color-accent) !important;
+}
+
+.cm-completionIcon-namespace::before {
+  content: "S";
+}
+
+.cm-completionIcon-constant,
+.cm-completionIcon-variable {
+  background-color: color-mix(in srgb, var(--color-cm-ai), transparent 85%) !important;
+  color: var(--color-cm-ai) !important;
+}
+
+.cm-completionIcon-constant::before,
+.cm-completionIcon-variable::before {
+  content: "A";
 }
 
 .cm-completionIcon-text {

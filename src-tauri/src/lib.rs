@@ -35,6 +35,12 @@ struct OpenedSqlFile {
     content: String,
 }
 
+#[derive(serde::Serialize)]
+struct AiSchemaContext {
+    database: Option<String>,
+    schema_summary: String,
+}
+
 fn same_saved_server(left: &ConnectionConfig, right: &ConnectionConfig) -> bool {
     left.server.trim().eq_ignore_ascii_case(right.server.trim())
 }
@@ -647,17 +653,20 @@ async fn change_database(state: State<'_, AppState>, database: String) -> Result
 }
 
 #[tauri::command]
-async fn generate_sql_completion(
+async fn get_ai_schema_context(
     state: State<'_, AppState>,
-) -> Result<(Option<String>, String), String> {
+) -> Result<AiSchemaContext, String> {
     let mut client_lock = state.client.lock().await;
     if let Some(client) = client_lock.as_mut() {
-        Ok((
-            db::get_current_database_name(client).await?,
-            db::get_schema_summary(client).await.unwrap_or_default(),
-        ))
+        Ok(AiSchemaContext {
+            database: db::get_current_database_name(client).await?,
+            schema_summary: db::get_ai_schema_summary(client).await.unwrap_or_default(),
+        })
     } else {
-        Ok((None, String::new()))
+        Ok(AiSchemaContext {
+            database: None,
+            schema_summary: String::new(),
+        })
     }
 }
 
@@ -1065,7 +1074,7 @@ pub fn run() {
             load_saved_password,
             try_auto_connect,
             change_database,
-            generate_sql_completion,
+            get_ai_schema_context,
             get_startup_sql_file_path,
             read_sql_file,
             write_sql_file,

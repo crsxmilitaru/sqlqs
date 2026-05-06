@@ -3,23 +3,28 @@ import {
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
+  type Completion,
   completionKeymap,
+  type CompletionResult,
+  type CompletionSection,
   startCompletion,
   type CompletionContext,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, moveLineDown, moveLineUp } from "@codemirror/commands";
-import { MSSQL, sql } from "@codemirror/lang-sql";
+import { keywordCompletionSource, MSSQL, sql } from "@codemirror/lang-sql";
 import {
   bracketMatching,
   defaultHighlightStyle,
   foldGutter,
   foldKeymap,
+  syntaxTree,
   syntaxHighlighting,
 } from "@codemirror/language";
 import { linter } from "@codemirror/lint";
 import { closeSearchPanel, getSearchQuery, highlightSelectionMatches, openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { EditorState, Compartment } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
+import type { SyntaxNode } from "@lezer/common";
 import {
   EditorView,
   highlightActiveLine,
@@ -143,27 +148,168 @@ interface SchemaTableEntry {
   columns: string[];
 }
 
-type SchemaTableMap = Map<string, SchemaTableEntry>;
-
-const schemaCatalogCache = new Map<string, SchemaTableMap>();
-const schemaCatalogLoaders = new Map<string, Promise<SchemaTableMap>>();
-
-function buildSchemaTableMap(entries: DatabaseSchemaCatalogEntry[]): SchemaTableMap {
-  const map: SchemaTableMap = new Map();
-
-  for (const entry of entries) {
-    map.set(entry.table_name.toLowerCase(), {
-      name: entry.table_name,
-      schema: entry.schema_name,
-      columns: entry.columns,
-    });
-  }
-
-  return map;
+interface SchemaCatalog {
+  schemas: string[];
+  tables: SchemaTableEntry[];
+  tablesByName: Map<string, SchemaTableEntry[]>;
+  tablesByQualifiedName: Map<string, SchemaTableEntry>;
+  tablesBySchema: Map<string, SchemaTableEntry[]>;
 }
 
-async function loadSchemaTableMap(database: string): Promise<SchemaTableMap> {
+interface SqlSourceContext {
+  from: number;
+  quoted: string | null;
+  parents: string[];
+  empty?: boolean;
+  aliases: Record<string, string[]> | null;
+  statement: SyntaxNode | null;
+}
+
+interface VisibleTableRef {
+  table: SchemaTableEntry;
+  alias?: string;
+}
+
+const SCHEMA_SECTION: CompletionSection = { name: "Schemas", rank: 20 };
+const TABLE_SECTION: CompletionSection = { name: "Tables", rank: 30 };
+const COLUMN_SECTION: CompletionSection = { name: "Columns", rank: 10 };
+const ALIAS_SECTION: CompletionSection = { name: "Aliases", rank: 15 };
+const KEYWORD_SECTION: CompletionSection = { name: "Keywords", rank: 50 };
+const SECTION_CAPS: Record<string, number> = {
+  Aliases: 10,
+  Columns: 50,
+  Schemas: 5,
+  Tables: 8,
+  Keywords: 5,
+};
+const DEFAULT_SECTION_CAP = 8;
+const IDENTIFIER_VALID_FOR = /^[\w@$#\[\]"]*$/;
+const QUOTED_IDENTIFIER_VALID_FOR = /^[\w\s@$#\[\]"]*$/;
+const SIMPLE_IDENTIFIER_RE = /^[A-Za-z_@#][A-Za-z0-9_@$#]*$/;
+const FROM_END_KEYWORDS = new Set(
+  "where group having order union intersect except all distinct limit offset fetch for option".split(" "),
+);
+const TABLE_ALIAS_STOP_WORDS = new Set(
+  "as on where inner left right full cross outer join with nolock index force group order having union except intersect set values select when then using matched not by pivot unpivot option".split(" "),
+);
+const SCHEMA_CATALOG_TTL_MS = 5 * 60 * 1000;
+
+const schemaCatalogCache = new Map<string, { catalog: SchemaCatalog; expiresAt: number }>();
+const schemaCatalogLoaders = new Map<string, Promise<SchemaCatalog>>();
+let schemaCatalogGeneration = 0;
+
+function getCachedSchemaCatalog(database: string): SchemaCatalog | undefined {
   const cached = schemaCatalogCache.get(database);
+  if (!cached) {
+    return undefined;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    schemaCatalogCache.delete(database);
+    return undefined;
+  }
+
+  return cached.catalog;
+}
+
+export function invalidateSchemaCatalog(database?: string) {
+  if (database) {
+    schemaCatalogCache.delete(database);
+  } else {
+    schemaCatalogCache.clear();
+  }
+  schemaCatalogGeneration++;
+}
+
+function normalizeIdentifier(name: string): string {
+  return unquoteIdentifier(name).toLowerCase();
+}
+
+function unquoteIdentifier(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1).replace(/\]\]/g, "]");
+  }
+  if (
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("`") && trimmed.endsWith("`"))) &&
+    trimmed.length >= 2
+  ) {
+    return trimmed.slice(1, -1).replace(/""/g, '"').replace(/``/g, "`");
+  }
+  return trimmed;
+}
+
+function bracketIdentifier(name: string): string {
+  return `[${name.replace(/\]/g, "]]")}]`;
+}
+
+function identifierApply(name: string): string {
+  return SIMPLE_IDENTIFIER_RE.test(name) ? name : bracketIdentifier(name);
+}
+
+function qualifiedTableKey(schema: string, table: string): string {
+  return `${normalizeIdentifier(schema)}.${normalizeIdentifier(table)}`;
+}
+
+function buildSchemaCatalog(entries: DatabaseSchemaCatalogEntry[]): SchemaCatalog {
+  const schemaSet = new Map<string, string>();
+  const tables: SchemaTableEntry[] = [];
+  const tablesByName = new Map<string, SchemaTableEntry[]>();
+  const tablesByQualifiedName = new Map<string, SchemaTableEntry>();
+  const tablesBySchema = new Map<string, SchemaTableEntry[]>();
+
+  for (const entry of entries) {
+    if (!entry.table_name) continue;
+
+    const table: SchemaTableEntry = {
+      name: entry.table_name,
+      schema: entry.schema_name,
+      columns: Array.from(new Set(entry.columns.filter(Boolean))),
+    };
+    const schemaKey = normalizeIdentifier(table.schema);
+    const tableKey = normalizeIdentifier(table.name);
+    const qualifiedKey = qualifiedTableKey(table.schema, table.name);
+
+    schemaSet.set(schemaKey, table.schema);
+    tables.push(table);
+
+    const sameName = tablesByName.get(tableKey);
+    if (sameName) {
+      sameName.push(table);
+    } else {
+      tablesByName.set(tableKey, [table]);
+    }
+
+    tablesByQualifiedName.set(qualifiedKey, table);
+
+    const sameSchema = tablesBySchema.get(schemaKey);
+    if (sameSchema) {
+      sameSchema.push(table);
+    } else {
+      tablesBySchema.set(schemaKey, [table]);
+    }
+  }
+
+  tables.sort((a, b) => a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name));
+  for (const list of tablesByName.values()) {
+    list.sort((a, b) => a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name));
+  }
+  for (const list of tablesBySchema.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return {
+    schemas: Array.from(schemaSet.values()).sort((a, b) => a.localeCompare(b)),
+    tables,
+    tablesByName,
+    tablesByQualifiedName,
+    tablesBySchema,
+  };
+}
+
+async function loadSchemaCatalog(database: string): Promise<SchemaCatalog> {
+  const cached = getCachedSchemaCatalog(database);
   if (cached) {
     return cached;
   }
@@ -177,9 +323,12 @@ async function loadSchemaTableMap(database: string): Promise<SchemaTableMap> {
     database,
   })
     .then((entries) => {
-      const map = buildSchemaTableMap(entries);
-      schemaCatalogCache.set(database, map);
-      return map;
+      const catalog = buildSchemaCatalog(entries);
+      schemaCatalogCache.set(database, {
+        catalog,
+        expiresAt: Date.now() + SCHEMA_CATALOG_TTL_MS,
+      });
+      return catalog;
     })
     .finally(() => {
       schemaCatalogLoaders.delete(database);
@@ -189,10 +338,622 @@ async function loadSchemaTableMap(database: string): Promise<SchemaTableMap> {
   return loader;
 }
 
+function tokenBeforeNode(node: SyntaxNode): SyntaxNode {
+  const cursor = node.cursor().moveTo(node.from, -1);
+  while (/Comment/.test(cursor.name)) {
+    cursor.moveTo(cursor.from, -1);
+  }
+  return cursor.node;
+}
+
+function idName(state: EditorState, node: SyntaxNode): string {
+  return unquoteIdentifier(state.doc.sliceString(node.from, node.to));
+}
+
+function isIdentifierNode(node: SyntaxNode | null | undefined): node is SyntaxNode {
+  return Boolean(node && (node.name === "Identifier" || node.name === "QuotedIdentifier"));
+}
+
+function pathForNode(state: EditorState, node: SyntaxNode): string[] {
+  if (node.name === "CompositeIdentifier") {
+    const path: string[] = [];
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (isIdentifierNode(child)) {
+        path.push(idName(state, child));
+      }
+    }
+    return path;
+  }
+  return [idName(state, node)];
+}
+
+function parentsForNode(state: EditorState, node: SyntaxNode): string[] {
+  const path: string[] = [];
+  let current: SyntaxNode | null = node;
+
+  while (current?.name === ".") {
+    const name = tokenBeforeNode(current);
+    if (!isIdentifierNode(name)) {
+      break;
+    }
+
+    path.unshift(idName(state, name));
+    current = tokenBeforeNode(name);
+  }
+
+  return path;
+}
+
+function findStatementNode(node: SyntaxNode | null): SyntaxNode | null {
+  for (let current = node; current; current = current.parent) {
+    if (current.name === "Statement") {
+      return current;
+    }
+  }
+  return null;
+}
+
+function getAliases(state: EditorState, at: SyntaxNode): Record<string, string[]> | null {
+  const statement = findStatementNode(at);
+  if (!statement) {
+    return null;
+  }
+
+  let aliases: Record<string, string[]> | null = null;
+  let sawFrom = false;
+  let prevIdentifier: SyntaxNode | null = null;
+
+  for (let scan = statement.firstChild; scan; scan = scan.nextSibling) {
+    const keyword = scan.name === "Keyword"
+      ? state.doc.sliceString(scan.from, scan.to).toLowerCase()
+      : null;
+    let alias: string | null = null;
+
+    if (!sawFrom) {
+      sawFrom = keyword === "from";
+    } else if (keyword === "as" && prevIdentifier && isIdentifierNode(scan.nextSibling)) {
+      alias = idName(state, scan.nextSibling);
+    } else if (keyword && FROM_END_KEYWORDS.has(keyword)) {
+      break;
+    } else if (prevIdentifier && isIdentifierNode(scan)) {
+      alias = idName(state, scan);
+    }
+
+    if (alias) {
+      if (!aliases) {
+        aliases = Object.create(null) as Record<string, string[]>;
+      }
+      aliases[alias] = pathForNode(state, prevIdentifier!);
+    }
+
+    prevIdentifier = /Identifier$/.test(scan.name) ? scan : null;
+  }
+
+  return aliases;
+}
+
+function getSqlSourceContext(state: EditorState, startPos: number): SqlSourceContext {
+  const node = syntaxTree(state).resolveInner(startPos, -1);
+  const statement = findStatementNode(node);
+  const aliases = getAliases(state, node);
+
+  if (node.name === "Identifier" || node.name === "QuotedIdentifier" || node.name === "Keyword") {
+    return {
+      from: node.from,
+      quoted: node.name === "QuotedIdentifier" ? state.doc.sliceString(node.from, node.from + 1) : null,
+      parents: parentsForNode(state, tokenBeforeNode(node)),
+      aliases,
+      statement,
+    };
+  }
+
+  if (node.name === ".") {
+    return {
+      from: startPos,
+      quoted: null,
+      parents: parentsForNode(state, node),
+      aliases,
+      statement,
+    };
+  }
+
+  return {
+    from: startPos,
+    quoted: null,
+    parents: [],
+    empty: true,
+    aliases,
+    statement,
+  };
+}
+
+function isCompletionBlocked(context: CompletionContext): boolean {
+  const node = syntaxTree(context.state).resolveInner(context.pos, -1);
+  return node.name === "String" || node.name === "LineComment" || node.name === "BlockComment";
+}
+
+function makeIdentifierCompletion(
+  label: string,
+  type: string,
+  detail: string | undefined,
+  section: CompletionSection,
+  boost = 0,
+): Completion {
+  const apply = identifierApply(label);
+  return {
+    label,
+    type,
+    detail,
+    section,
+    boost,
+    ...(apply === label ? {} : { apply }),
+  };
+}
+
+function makeSchemaCompletion(schema: string): Completion {
+  return {
+    label: schema,
+    type: "namespace",
+    detail: "schema",
+    section: SCHEMA_SECTION,
+    boost: 2,
+    apply: `${identifierApply(schema)}.`,
+  };
+}
+
+function makeTableCompletion(entry: SchemaTableEntry, boost = 0): Completion {
+  return makeIdentifierCompletion(entry.name, "type", entry.schema, TABLE_SECTION, boost);
+}
+
+function makeColumnCompletion(column: string, detail: string, boost = 0): Completion {
+  return makeIdentifierCompletion(column, "property", detail, COLUMN_SECTION, boost);
+}
+
+function makeAliasCompletion(alias: string, table: SchemaTableEntry): Completion {
+  return {
+    label: alias,
+    type: "constant",
+    detail: `${table.schema}.${table.name}`,
+    section: ALIAS_SECTION,
+    boost: 1,
+    apply: `${identifierApply(alias)}.`,
+  };
+}
+
+function maybeQuoteCompletions(openingQuote: string, options: Completion[]): Completion[] {
+  const closingQuote = openingQuote === "[" ? "]" : openingQuote;
+  return options.map((completion) => ({
+    ...completion,
+    label: completion.label.startsWith(openingQuote)
+      ? completion.label
+      : `${openingQuote}${completion.label}${closingQuote}`,
+    apply: undefined,
+  }));
+}
+
+function completionResult(
+  context: CompletionContext,
+  source: SqlSourceContext,
+  options: Completion[],
+): CompletionResult | null {
+  if (options.length === 0) {
+    return null;
+  }
+
+  const quoted = source.quoted;
+  if (quoted) {
+    const closingQuote = quoted === "[" ? "]" : quoted;
+    const quoteAfter = context.state.sliceDoc(context.pos, context.pos + 1) === closingQuote;
+    return {
+      from: source.from,
+      to: quoteAfter ? context.pos + 1 : undefined,
+      options: maybeQuoteCompletions(quoted, options),
+      validFor: QUOTED_IDENTIFIER_VALID_FOR,
+    };
+  }
+
+  return {
+    from: source.from,
+    options,
+    validFor: IDENTIFIER_VALID_FOR,
+  };
+}
+
+function dedupeCompletions(options: Completion[]): Completion[] {
+  const seen = new Set<string>();
+  const result: Completion[] = [];
+
+  for (const option of options) {
+    const key = `${option.type ?? ""}:${option.label}:${option.detail ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(option);
+  }
+
+  return result;
+}
+
+function resolveTablePath(
+  catalog: SchemaCatalog,
+  path: string[],
+  currentDatabase?: string,
+): SchemaTableEntry | undefined {
+  const parts = path.map(normalizeIdentifier).filter(Boolean);
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  if (parts.length >= 3) {
+    const database = parts[parts.length - 3];
+    const schema = parts[parts.length - 2];
+    const table = parts[parts.length - 1];
+    if (currentDatabase && database !== normalizeIdentifier(currentDatabase)) {
+      return undefined;
+    }
+    return catalog.tablesByQualifiedName.get(`${schema}.${table}`);
+  }
+
+  if (parts.length === 2) {
+    return catalog.tablesByQualifiedName.get(`${parts[0]}.${parts[1]}`);
+  }
+
+  const matches = catalog.tablesByName.get(parts[0]);
+  if (!matches?.length) {
+    return undefined;
+  }
+
+  return matches.find((entry) => normalizeIdentifier(entry.schema) === "dbo") ?? matches[0];
+}
+
+function tablesForSchemaPath(
+  catalog: SchemaCatalog,
+  parents: string[],
+  currentDatabase?: string,
+): SchemaTableEntry[] {
+  const parts = parents.map(normalizeIdentifier).filter(Boolean);
+
+  if (parts.length === 1) {
+    return catalog.tablesBySchema.get(parts[0]) ?? [];
+  }
+
+  if (parts.length === 2 && currentDatabase && parts[0] === normalizeIdentifier(currentDatabase)) {
+    return catalog.tablesBySchema.get(parts[1]) ?? [];
+  }
+
+  return [];
+}
+
+function schemasForDatabasePath(
+  catalog: SchemaCatalog,
+  parents: string[],
+  currentDatabase?: string,
+): string[] {
+  const parts = parents.map(normalizeIdentifier).filter(Boolean);
+  if (parts.length === 1 && currentDatabase && parts[0] === normalizeIdentifier(currentDatabase)) {
+    return catalog.schemas;
+  }
+  return [];
+}
+
+function columnsForTable(entry: SchemaTableEntry, boost = 0): Completion[] {
+  const detail = `${entry.schema}.${entry.name}`;
+  return entry.columns.map((column) => makeColumnCompletion(column, detail, boost));
+}
+
+function splitIdentifierPath(path: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inBracket = false;
+  let inDoubleQuote = false;
+
+  for (let i = 0; i < path.length; i++) {
+    const char = path[i];
+
+    if (inBracket) {
+      current += char;
+      if (char === "]") {
+        if (path[i + 1] === "]") {
+          current += path[++i];
+        } else {
+          inBracket = false;
+        }
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      current += char;
+      if (char === '"') {
+        if (path[i + 1] === '"') {
+          current += path[++i];
+        } else {
+          inDoubleQuote = false;
+        }
+      }
+      continue;
+    }
+
+    if (char === "[") {
+      inBracket = true;
+      current += char;
+    } else if (char === '"') {
+      inDoubleQuote = true;
+      current += char;
+    } else if (char === ".") {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  parts.push(current.trim());
+  return parts.filter(Boolean).map(unquoteIdentifier);
+}
+
+function stripSqlCommentsAndStrings(sqlText: string): string {
+  let result = "";
+
+  for (let i = 0; i < sqlText.length; i++) {
+    const char = sqlText[i];
+    const next = sqlText[i + 1];
+
+    if (char === "-" && next === "-") {
+      result += "  ";
+      i += 2;
+      while (i < sqlText.length && sqlText[i] !== "\n") {
+        result += " ";
+        i++;
+      }
+      if (i < sqlText.length) {
+        result += sqlText[i];
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      result += "  ";
+      i += 2;
+      while (i < sqlText.length) {
+        if (sqlText[i] === "*" && sqlText[i + 1] === "/") {
+          result += "  ";
+          i++;
+          break;
+        }
+        result += sqlText[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      continue;
+    }
+
+    if (char === "'") {
+      result += " ";
+      while (++i < sqlText.length) {
+        result += sqlText[i] === "\n" ? "\n" : " ";
+        if (sqlText[i] === "'") {
+          if (sqlText[i + 1] === "'") {
+            result += " ";
+            i++;
+          } else {
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseStatementTableReferences(statementText: string): Array<{ path: string[]; alias?: string }> {
+  const sanitized = stripSqlCommentsAndStrings(statementText);
+  const identifier = String.raw`(?:\[[^\]]+(?:\]\][^\]]*)*\]|"[^"]+(?:""[^"]*)*"|[#@A-Za-z_][\w@$#]*)`;
+  const tablePath = String.raw`${identifier}(?:\s*\.\s*${identifier}){0,2}`;
+  const tableHints = String.raw`(?:\s+WITH\s*\([^)]*\))*`;
+  const tableRefPattern = new RegExp(
+    String.raw`\b(?:FROM|JOIN|UPDATE|INTO|MERGE)\s+(${tablePath})${tableHints}(?:\s+(?:AS\s+)?(${identifier}))?`,
+    "gi",
+  );
+  const refs: Array<{ path: string[]; alias?: string }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = tableRefPattern.exec(sanitized))) {
+    const path = splitIdentifierPath(match[1]);
+    if (path.length === 0) {
+      continue;
+    }
+
+    const rawAlias = match[2] ? unquoteIdentifier(match[2]) : undefined;
+    const alias = rawAlias && !TABLE_ALIAS_STOP_WORDS.has(rawAlias.toLowerCase())
+      ? rawAlias
+      : undefined;
+
+    refs.push({ path, alias });
+  }
+
+  return refs;
+}
+
+function visibleTableRefs(
+  context: CompletionContext,
+  source: SqlSourceContext,
+  catalog: SchemaCatalog,
+  currentDatabase?: string,
+): VisibleTableRef[] {
+  const refs: VisibleTableRef[] = [];
+  const seen = new Set<string>();
+  const addRef = (table: SchemaTableEntry | undefined, alias?: string) => {
+    if (!table) return;
+    const key = `${qualifiedTableKey(table.schema, table.name)}:${alias ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ table, alias });
+  };
+
+  if (source.aliases) {
+    for (const [alias, path] of Object.entries(source.aliases)) {
+      addRef(resolveTablePath(catalog, path, currentDatabase), alias);
+    }
+  }
+
+  if (source.statement) {
+    const statementText = context.state.doc.sliceString(source.statement.from, source.statement.to);
+    for (const ref of parseStatementTableReferences(statementText)) {
+      addRef(resolveTablePath(catalog, ref.path, currentDatabase), ref.alias);
+    }
+  }
+
+  return refs;
+}
+
+function aliasPathFor(source: SqlSourceContext, alias: string): string[] | undefined {
+  if (!source.aliases) {
+    return undefined;
+  }
+
+  const aliasKey = normalizeIdentifier(alias);
+  const found = Object.entries(source.aliases).find(([key]) => normalizeIdentifier(key) === aliasKey);
+  return found?.[1];
+}
+
+function pathCompletions(
+  catalog: SchemaCatalog,
+  source: SqlSourceContext,
+  currentDatabase?: string,
+): Completion[] {
+  const parents = source.parents.filter(Boolean);
+  if (parents.length === 0) {
+    return [];
+  }
+
+  const schemaOptions = schemasForDatabasePath(catalog, parents, currentDatabase)
+    .map(makeSchemaCompletion);
+  if (schemaOptions.length > 0) {
+    return schemaOptions;
+  }
+
+  if (parents.length === 1) {
+    const aliasPath = aliasPathFor(source, parents[0]);
+    const aliasTable = aliasPath ? resolveTablePath(catalog, aliasPath, currentDatabase) : undefined;
+    if (aliasTable) {
+      return columnsForTable(aliasTable, 3);
+    }
+  }
+
+  const tableOptions = tablesForSchemaPath(catalog, parents, currentDatabase)
+    .map((entry) => makeTableCompletion(entry, 2));
+  const table = resolveTablePath(catalog, parents, currentDatabase);
+  const columnOptions = table ? columnsForTable(table, 3) : [];
+
+  return dedupeCompletions([...columnOptions, ...tableOptions]);
+}
+
+function topLevelCompletions(
+  context: CompletionContext,
+  source: SqlSourceContext,
+  catalog: SchemaCatalog,
+  currentDatabase?: string,
+): Completion[] {
+  const visibleRefs = visibleTableRefs(context, source, catalog, currentDatabase);
+  const options: Completion[] = [];
+
+  for (const ref of visibleRefs) {
+    options.push(...columnsForTable(ref.table, 9));
+    if (ref.alias) {
+      options.push(makeAliasCompletion(ref.alias, ref.table));
+    }
+  }
+
+  options.push(...catalog.schemas.map(makeSchemaCompletion));
+  options.push(...catalog.tables.map((entry) => makeTableCompletion(entry)));
+
+  return dedupeCompletions(options);
+}
+
+function getSectionName(section: Completion["section"]): string {
+  if (!section) return "";
+  return typeof section === "object" ? section.name : section;
+}
+
+function fuzzyMatchScore(label: string, query: string): number {
+  if (!query) return 0;
+  const l = label.toLowerCase();
+  const q = query.toLowerCase();
+  if (l === q) return 10000;
+  if (l.startsWith(q)) return 5000 - l.length;
+
+  const idx = l.indexOf(q);
+  if (idx >= 0) {
+    const before = idx > 0 ? l[idx - 1] : "_";
+    const isBoundary = before === "_" || before === "." || before === " ";
+    return (isBoundary ? 1500 : 800) - idx - l.length;
+  }
+
+  let qi = 0;
+  let consecutive = 0;
+  let maxConsecutive = 0;
+  for (let li = 0; li < l.length && qi < q.length; li++) {
+    if (l[li] === q[qi]) {
+      qi++;
+      consecutive++;
+      if (consecutive > maxConsecutive) maxConsecutive = consecutive;
+    } else {
+      consecutive = 0;
+    }
+  }
+  if (qi < q.length) return -1;
+  return 100 + maxConsecutive * 10 - l.length;
+}
+
+function capPerSection(options: Completion[], query: string): Completion[] {
+  const groups = new Map<string, Array<{ option: Completion; score: number }>>();
+
+  for (const option of options) {
+    const score = fuzzyMatchScore(option.label, query);
+    if (query && score < 0) continue;
+    const name = getSectionName(option.section);
+    let arr = groups.get(name);
+    if (!arr) {
+      arr = [];
+      groups.set(name, arr);
+    }
+    arr.push({ option, score: score + (option.boost ?? 0) * 50 });
+  }
+
+  const out: Completion[] = [];
+  for (const [name, arr] of groups) {
+    arr.sort((a, b) => b.score - a.score);
+    const cap = SECTION_CAPS[name] ?? DEFAULT_SECTION_CAP;
+    for (const { option } of arr.slice(0, cap)) {
+      out.push(option);
+    }
+  }
+  return out;
+}
+
+const sqlKeywordSource = keywordCompletionSource(MSSQL, true);
+
+async function wrappedKeywordSource(context: CompletionContext): Promise<CompletionResult | null> {
+  const result = await sqlKeywordSource(context);
+  if (!result) return null;
+  return {
+    ...result,
+    options: result.options.map((opt) => ({
+      ...opt,
+      section: opt.section ?? KEYWORD_SECTION,
+    })),
+  };
+}
+
 export default function SqlEditor(props: Props) {
   let containerRef: HTMLDivElement | undefined;
   let viewRef: EditorView | null = null;
-  let schemaRef: { database?: string; tables: SchemaTableMap } = { tables: new Map() };
+  let schemaRef: { database?: string; catalog?: SchemaCatalog; generation: number } = {
+    generation: schemaCatalogGeneration,
+  };
   const wrapCompartment = new Compartment();
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
 
@@ -243,56 +1004,75 @@ export default function SqlEditor(props: Props) {
 
   const schemaCompletionSource = async (context: CompletionContext) => {
     const database = props.currentDatabase;
-    if (!database) {
+    if (!database || isCompletionBlocked(context)) {
       return null;
     }
 
-    let { tables } = schemaRef;
-    if (schemaRef.database !== database) {
-      if (!context.explicit) {
-        return null;
-      }
+    const source = getSqlSourceContext(context.state, context.pos);
+    if (source.empty && !context.explicit) {
+      return null;
+    }
 
+    let catalog = schemaRef.database === database && schemaRef.generation === schemaCatalogGeneration
+      ? schemaRef.catalog
+      : undefined;
+    if (!catalog) {
       try {
-        tables = await loadSchemaTableMap(database);
+        catalog = await loadSchemaCatalog(database);
       } catch (err) {
         console.error("Failed to load schema for autocomplete:", err);
         return null;
       }
 
-      if (props.currentDatabase !== database) {
+      if (context.aborted || props.currentDatabase !== database) {
         return null;
       }
 
-      schemaRef = { database, tables };
+      schemaRef = { database, catalog, generation: schemaCatalogGeneration };
     }
 
-    if (tables.size === 0) return null;
-
-    const word = context.matchBefore(/[\w.]+/);
-    if (!word && !context.explicit) return null;
-    const from = word?.from ?? context.pos;
-    const text = word?.text ?? "";
-
-    const dotParts = text.split(".");
-
-    if (dotParts.length >= 2) {
-      const lastPart = dotParts[dotParts.length - 1];
-      const tableName = dotParts.length >= 3 ? dotParts[1] : dotParts[0];
-      const entry = tables.get(tableName.toLowerCase());
-      if (entry) {
-        return {
-          from: from + text.length - lastPart.length,
-          options: entry.columns.map((col) => ({ label: col, type: "property" })),
-        };
-      }
+    if (catalog.tables.length === 0) {
+      return null;
     }
 
-    const options: { label: string; type: string; detail?: string }[] = [];
-    for (const [, entry] of tables) {
-      options.push({ label: entry.name, type: "type", detail: entry.schema });
+    const options = source.parents.length > 0
+      ? pathCompletions(catalog, source, database)
+      : topLevelCompletions(context, source, catalog, database);
+    return completionResult(context, source, options);
+  };
+
+  const combinedCompletionSource = async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
+    const [schemaResult, keywordResult] = await Promise.all([
+      schemaCompletionSource(context),
+      wrappedKeywordSource(context),
+    ]);
+
+    if (!schemaResult && !keywordResult) {
+      return null;
     }
-    return { from, options };
+
+    const from = Math.min(
+      schemaResult?.from ?? Number.POSITIVE_INFINITY,
+      keywordResult?.from ?? Number.POSITIVE_INFINITY,
+    );
+    const queryText = unquoteIdentifier(context.state.sliceDoc(from, context.pos));
+    const merged = [
+      ...(schemaResult?.options ?? []),
+      ...(keywordResult?.options ?? []),
+    ];
+    const capped = capPerSection(merged, queryText);
+
+    if (capped.length === 0) {
+      return null;
+    }
+
+    return {
+      from,
+      options: capped,
+      filter: false,
+    };
   };
 
   createEffect(() => {
@@ -412,12 +1192,12 @@ export default function SqlEditor(props: Props) {
         autocompletion({
           defaultKeymap: true,
           closeOnBlur: false,
-          maxRenderedOptions: 5,
+          maxRenderedOptions: 80,
+          override: [combinedCompletionSource],
+          activateOnCompletion: (completion) =>
+            completion.type === "namespace" || completion.type === "constant",
         }),
         sql({ dialect: MSSQL, upperCaseKeywords: true }),
-        EditorState.languageData.of(() => [
-          { autocomplete: schemaCompletionSource },
-        ]),
         search(),
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -617,23 +1397,23 @@ export default function SqlEditor(props: Props) {
   createEffect(() => {
     const currentDatabase = props.currentDatabase;
     if (!currentDatabase) return;
-    const cached = schemaCatalogCache.get(currentDatabase);
+    const cached = getCachedSchemaCatalog(currentDatabase);
     if (cached) {
-      schemaRef = { database: currentDatabase, tables: cached };
+      schemaRef = { database: currentDatabase, catalog: cached, generation: schemaCatalogGeneration };
       return;
     }
 
-    schemaRef = { database: currentDatabase, tables: new Map() };
+    schemaRef = { database: currentDatabase, generation: schemaCatalogGeneration };
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void loadSchemaTableMap(currentDatabase)
-        .then((tables) => {
+      void loadSchemaCatalog(currentDatabase)
+        .then((catalog) => {
           if (cancelled || props.currentDatabase !== currentDatabase) {
             return;
           }
 
-          schemaRef = { database: currentDatabase, tables };
+          schemaRef = { database: currentDatabase, catalog, generation: schemaCatalogGeneration };
         })
         .catch((err) => {
           if (!cancelled) {
@@ -651,7 +1431,7 @@ export default function SqlEditor(props: Props) {
   createEffect(() => {
     const currentDatabase = props.currentDatabase;
     if (!currentDatabase) {
-      schemaRef = { database: undefined, tables: new Map() };
+      schemaRef = { generation: schemaCatalogGeneration };
     }
   });
 

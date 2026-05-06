@@ -262,7 +262,7 @@ export function buildObjectExplorerMenuItems({
       children: [
         {
           id: "script-create",
-          label: "Create Table",
+          label: objectType === "VIEW" ? "Create View" : "Create Table",
           icon: <i class="fa-solid fa-plus" />,
           onClick: async () => {
             const sql = await scriptAction(database, schema, table, objectType, "script_create");
@@ -271,7 +271,7 @@ export function buildObjectExplorerMenuItems({
         },
         {
           id: "script-alter",
-          label: "Alter Table",
+          label: objectType === "VIEW" ? "Alter View" : "Alter Table",
           icon: <i class="fa-solid fa-pen" />,
           onClick: async () => {
             const sql = await scriptAction(database, schema, table, objectType, objectType === "VIEW" ? "script_alter" : "script_alter_table");

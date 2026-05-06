@@ -18,6 +18,11 @@ export interface ToolExecutionContext {
   currentDatabase?: string;
 }
 
+interface AiSchemaContext {
+  database: string | null;
+  schema_summary: string;
+}
+
 export const AI_TOOLS: AiTool[] = [
   {
     id: "get_database_schema",
@@ -171,8 +176,8 @@ export async function executeTool(
 
   switch (toolName) {
     case "get_database_schema": {
-      const [, schema] = await invoke<[string | null, string]>("generate_sql_completion");
-      return schema || "No schema available (not connected or no objects found).";
+      const schemaContext = await invoke<AiSchemaContext>("get_ai_schema_context");
+      return schemaContext.schema_summary || "No schema available (not connected or no objects found).";
     }
 
     case "get_table_columns": {

@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onCleanup, onMount, Show, For } from "solid-js";
 import type { JSX } from "solid-js";
+import { Portal } from "solid-js/web";
 
 export interface ContextMenuItem {
   id: string;
@@ -143,34 +144,36 @@ export default function ContextMenu(props: Props) {
   };
 
   return (
-    <div
-      ref={menuRef}
-      class="popup-menu fixed rounded-lg animate-popover-in"
-      style={{ left: `${position().x}px`, top: `${position().y}px` }}
-    >
-      <For each={props.items}>
-        {(item, index) => {
-          if (item.separator) {
+    <Portal>
+      <div
+        ref={menuRef}
+        class="popup-menu fixed rounded-lg animate-popover-in"
+        style={{ left: `${position().x}px`, top: `${position().y}px` }}
+      >
+        <For each={props.items}>
+          {(item) => {
+            if (item.separator) {
+              return (
+                <div class="my-1.5 h-px bg-border/50 mx-2" />
+              );
+            }
+
             return (
-              <div class="my-1.5 h-px bg-border/50 mx-2" />
+              <div class="relative">
+                {renderItem(item)}
+
+                <Show when={item.children && activeSubmenu() === item.id}>
+                  <div class="popup-menu absolute left-full -top-2 -ml-1 rounded-lg animate-popover-in">
+                    <For each={item.children}>
+                      {(child) => renderItem(child, true)}
+                    </For>
+                  </div>
+                </Show>
+              </div>
             );
-          }
-
-          return (
-            <div class="relative">
-              {renderItem(item)}
-
-              <Show when={item.children && activeSubmenu() === item.id}>
-                <div class="popup-menu absolute left-full -top-2 -ml-1 rounded-lg animate-popover-in">
-                  <For each={item.children}>
-                    {(child) => renderItem(child, true)}
-                  </For>
-                </div>
-              </Show>
-            </div>
-          );
-        }}
-      </For>
-    </div>
+          }}
+        </For>
+      </div>
+    </Portal>
   );
 }

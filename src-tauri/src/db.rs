@@ -951,8 +951,8 @@ pub async fn get_current_database_name(client: &mut SqlClient) -> Result<Option<
         .and_then(|row| row.try_get::<&str, _>(0).ok().flatten().map(String::from)))
 }
 
-/// Generates schema summary for context.
-pub async fn get_schema_summary(client: &mut SqlClient) -> Result<String, String> {
+/// Generates a compact schema summary for AI tool context.
+pub async fn get_ai_schema_summary(client: &mut SqlClient) -> Result<String, String> {
     let sql = r#"
 WITH objects AS (
     SELECT

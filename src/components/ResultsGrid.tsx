@@ -404,6 +404,7 @@ function VirtualGrid(props: {
                 <col style={{ width: `${colWidths()[ci]}px` }} />
               )}
             </For>
+            <col />
           </colgroup>
           <thead>
             <tr>
@@ -471,11 +472,12 @@ function VirtualGrid(props: {
                   );
                 }}
               </For>
+              <th class="bg-surface-table border-b border-border/40" />
             </tr>
           </thead>
           <tbody>
             <tr style={{ height: `${startIndex() * rowHeight}px` }}>
-              <td colSpan={visibleColIndices().length + 1} style={{ padding: "0", border: "0", background: "transparent" }} />
+              <td colSpan={visibleColIndices().length + 2} style={{ padding: "0", border: "0", background: "transparent" }} />
             </tr>
             <For each={visibleRows()}>
               {({ row, originalIndex }, i) => {
@@ -507,12 +509,13 @@ function VirtualGrid(props: {
                         );
                       }}
                     </For>
+                    <td />
                   </tr>
                 );
               }}
             </For>
             <tr style={{ height: `${Math.max(0, (processedRows().length - endIndex()) * rowHeight)}px` }}>
-              <td colSpan={visibleColIndices().length + 1} style={{ padding: "0", border: "0", background: "transparent" }} />
+              <td colSpan={visibleColIndices().length + 2} style={{ padding: "0", border: "0", background: "transparent" }} />
             </tr>
           </tbody>
         </table>
