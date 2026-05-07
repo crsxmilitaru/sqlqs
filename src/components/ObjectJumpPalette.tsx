@@ -35,6 +35,10 @@ interface Props {
   indexStatus: ServerObjectIndexStatus;
   onClose: () => void;
   onSelect: (selection: ObjectJumpSelection) => void;
+  onShowProperties?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowRename?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowDrop?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowDependencies?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
 }
 
 type JumpObject = ServerDatabaseObject;
@@ -319,6 +323,42 @@ export default function ObjectJumpPalette(props: Props) {
           execute,
           database: object.database,
         });
+      },
+      onShowProperties: () => {
+        props.onShowProperties?.(
+          object.database,
+          object.schema_name,
+          object.name,
+          object.object_type as ExplorerObjectType,
+        );
+        props.onClose();
+      },
+      onShowRename: () => {
+        props.onShowRename?.(
+          object.database,
+          object.schema_name,
+          object.name,
+          object.object_type as ExplorerObjectType,
+        );
+        props.onClose();
+      },
+      onShowDrop: () => {
+        props.onShowDrop?.(
+          object.database,
+          object.schema_name,
+          object.name,
+          object.object_type as ExplorerObjectType,
+        );
+        props.onClose();
+      },
+      onShowDependencies: () => {
+        props.onShowDependencies?.(
+          object.database,
+          object.schema_name,
+          object.name,
+          object.object_type as ExplorerObjectType,
+        );
+        props.onClose();
       },
     });
 

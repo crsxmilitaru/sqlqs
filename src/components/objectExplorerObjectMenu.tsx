@@ -9,6 +9,21 @@ interface BuildObjectExplorerMenuItemsParams {
   table: string;
   objectType: ExplorerObjectType;
   onSelectSql: (sql: string, execute?: boolean) => void;
+  onShowProperties?: () => void;
+  onShowRename?: () => void;
+  onShowDrop?: () => void;
+  onShowDependencies?: () => void;
+}
+
+function dropLabel(type: ExplorerObjectType): string {
+  switch (type) {
+    case "TABLE": return "Drop Table";
+    case "VIEW": return "Drop View";
+    case "PROCEDURE": return "Drop Procedure";
+    case "FUNCTION": return "Drop Function";
+    case "TRIGGER": return "Drop Trigger";
+    case "TYPE": return "Drop Type";
+  }
 }
 
 async function scriptAction(
@@ -34,8 +49,38 @@ export function buildObjectExplorerMenuItems({
   table,
   objectType,
   onSelectSql,
+  onShowProperties,
+  onShowRename,
+  onShowDrop,
+  onShowDependencies,
 }: BuildObjectExplorerMenuItemsParams): ContextMenuItem[] {
-  const fullName = `[${database}].[${schema}].[${table}]`;
+  const propertiesItem: ContextMenuItem = {
+    id: "properties",
+    label: "Properties",
+    icon: <i class="fa-solid fa-circle-info" />,
+    onClick: () => onShowProperties?.(),
+  };
+
+  const dependenciesItem: ContextMenuItem = {
+    id: "dependencies",
+    label: "Dependencies",
+    icon: <i class="fa-solid fa-diagram-project" />,
+    onClick: () => onShowDependencies?.(),
+  };
+
+  const renameItem: ContextMenuItem = {
+    id: "rename",
+    label: "Rename",
+    icon: <i class="fa-solid fa-i-cursor" />,
+    onClick: () => onShowRename?.(),
+  };
+
+  const dropItem: ContextMenuItem = {
+    id: "drop",
+    label: dropLabel(objectType),
+    icon: <i class="fa-solid fa-trash" />,
+    onClick: () => onShowDrop?.(),
+  };
 
   if (objectType === "PROCEDURE") {
     return [
@@ -48,6 +93,7 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql, true);
         },
       },
+      { id: "sep-proc-1", separator: true },
       {
         id: "script-alter",
         label: "Script ALTER",
@@ -57,22 +103,11 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql);
         },
       },
-      {
-        id: "get-last-modified",
-        label: "Get Last Modified",
-        icon: <i class="fa-solid fa-clock-rotate-left" />,
-        onClick: async () => {
-          const sql = await scriptAction(database, schema, table, objectType, "get_last_modified");
-          onSelectSql(sql, true);
-        },
-      },
-      { id: "sep-proc-1", separator: true },
-      {
-        id: "copy-name",
-        label: "Copy Name",
-        icon: <i class="fa-solid fa-copy" />,
-        onClick: () => navigator.clipboard.writeText(fullName),
-      },
+      { id: "sep-proc-2", separator: true },
+      renameItem,
+      { id: "sep-proc-3", separator: true },
+      dependenciesItem,
+      propertiesItem,
     ];
   }
 
@@ -87,6 +122,7 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql, true);
         },
       },
+      { id: "sep-fn-1", separator: true },
       {
         id: "script-alter",
         label: "Script ALTER",
@@ -96,22 +132,11 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql);
         },
       },
-      {
-        id: "get-last-modified",
-        label: "Get Last Modified",
-        icon: <i class="fa-solid fa-clock-rotate-left" />,
-        onClick: async () => {
-          const sql = await scriptAction(database, schema, table, objectType, "get_last_modified");
-          onSelectSql(sql, true);
-        },
-      },
-      { id: "sep-fn-1", separator: true },
-      {
-        id: "copy-name",
-        label: "Copy Name",
-        icon: <i class="fa-solid fa-copy" />,
-        onClick: () => navigator.clipboard.writeText(fullName),
-      },
+      { id: "sep-fn-2", separator: true },
+      renameItem,
+      { id: "sep-fn-3", separator: true },
+      dependenciesItem,
+      propertiesItem,
     ];
   }
 
@@ -126,6 +151,16 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql);
         },
       },
+      { id: "sep-trigger-1", separator: true },
+      {
+        id: "trigger-details",
+        label: "Trigger Details",
+        icon: <i class="fa-solid fa-table-list" />,
+        onClick: async () => {
+          const sql = await scriptAction(database, schema, table, objectType, "trigger_details");
+          onSelectSql(sql, true);
+        },
+      },
       {
         id: "script-alter",
         label: "Script ALTER",
@@ -135,15 +170,7 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql);
         },
       },
-      {
-        id: "trigger-details",
-        label: "Trigger Details",
-        icon: <i class="fa-solid fa-circle-info" />,
-        onClick: async () => {
-          const sql = await scriptAction(database, schema, table, objectType, "trigger_details");
-          onSelectSql(sql, true);
-        },
-      },
+      { id: "sep-trigger-2", separator: true },
       {
         id: "enable-trigger",
         label: "Script ENABLE",
@@ -162,22 +189,11 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql);
         },
       },
-      {
-        id: "get-last-modified",
-        label: "Get Last Modified",
-        icon: <i class="fa-solid fa-clock-rotate-left" />,
-        onClick: async () => {
-          const sql = await scriptAction(database, schema, table, objectType, "get_last_modified");
-          onSelectSql(sql, true);
-        },
-      },
-      { id: "sep-trigger-1", separator: true },
-      {
-        id: "copy-name",
-        label: "Copy Name",
-        icon: <i class="fa-solid fa-copy" />,
-        onClick: () => navigator.clipboard.writeText(fullName),
-      },
+      { id: "sep-trigger-3", separator: true },
+      renameItem,
+      { id: "sep-trigger-4", separator: true },
+      dependenciesItem,
+      propertiesItem,
     ];
   }
 
@@ -192,25 +208,15 @@ export function buildObjectExplorerMenuItems({
           onSelectSql(sql, true);
         },
       },
-      {
-        id: "script-drop",
-        label: "Script DROP",
-        icon: <i class="fa-solid fa-trash" />,
-        onClick: async () => {
-          const sql = await scriptAction(database, schema, table, objectType, "script_drop");
-          onSelectSql(sql);
-        },
-      },
       { id: "sep-type-1", separator: true },
-      {
-        id: "copy-name",
-        label: "Copy Name",
-        icon: <i class="fa-solid fa-copy" />,
-        onClick: () => navigator.clipboard.writeText(fullName),
-      },
+      renameItem,
+      dropItem,
+      { id: "sep-type-2", separator: true },
+      propertiesItem,
     ];
   }
 
+  // TABLE / VIEW
   return [
     {
       id: "select",
@@ -279,15 +285,6 @@ export function buildObjectExplorerMenuItems({
           },
         },
         {
-          id: "script-drop",
-          label: "Drop Object",
-          icon: <i class="fa-solid fa-trash" />,
-          onClick: async () => {
-            const sql = await scriptAction(database, schema, table, objectType, "script_drop");
-            onSelectSql(sql);
-          },
-        },
-        {
           id: "script-select",
           label: "Select Rows",
           icon: <i class="fa-solid fa-magnifying-glass" />,
@@ -325,21 +322,11 @@ export function buildObjectExplorerMenuItems({
         },
       ],
     },
-    {
-      id: "get-last-modified",
-      label: "Get Last Modified",
-      icon: <i class="fa-solid fa-clock-rotate-left" />,
-      onClick: async () => {
-        const sql = await scriptAction(database, schema, table, objectType, "get_last_modified");
-        onSelectSql(sql, true);
-      },
-    },
-    { id: "sep2", separator: true },
-    {
-      id: "copy-name",
-      label: "Copy Name",
-      icon: <i class="fa-solid fa-copy" />,
-      onClick: () => navigator.clipboard.writeText(fullName),
-    },
+    { id: "sep-tv-2", separator: true },
+    renameItem,
+    dropItem,
+    { id: "sep-tv-3", separator: true },
+    dependenciesItem,
+    propertiesItem,
   ];
 }

@@ -5,7 +5,7 @@ import type { SavedQuery } from "../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../lib/types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import { IconChevronRight, IconColumn, IconDatabase, IconFunction, IconProcedure, IconTable, IconTrigger, IconType, IconView } from "./Icons";
-import { buildObjectExplorerMenuItems } from "./objectExplorerObjectMenu";
+import { buildObjectExplorerMenuItems, type ExplorerObjectType } from "./objectExplorerObjectMenu";
 import Tooltip from "./Tooltip";
 
 interface Props {
@@ -21,6 +21,10 @@ interface Props {
   onDeleteSavedQuery?: (id: string) => void;
   onLoadSavedQuery?: (filePath: string, title: string) => void;
   onOpenSavedQueriesFolder?: () => void;
+  onShowProperties?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowRename?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowDrop?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowDependencies?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -493,6 +497,14 @@ export default function ObjectExplorer(props: Props) {
       table,
       objectType,
       onSelectSql: select,
+      onShowProperties: () =>
+        props.onShowProperties?.(database, schema, table, objectType as ExplorerObjectType),
+      onShowRename: () =>
+        props.onShowRename?.(database, schema, table, objectType as ExplorerObjectType),
+      onShowDrop: () =>
+        props.onShowDrop?.(database, schema, table, objectType as ExplorerObjectType),
+      onShowDependencies: () =>
+        props.onShowDependencies?.(database, schema, table, objectType as ExplorerObjectType),
     });
   }
 

@@ -494,11 +494,31 @@ pub fn generate_object_script_static(
                 flag_lit = quote_string_literal(flag),
             ))
         }
-        ("TABLE" | "VIEW", "get_last_modified")
-        | ("PROCEDURE" | "FUNCTION" | "TRIGGER", "get_last_modified") => {
+        ("TABLE", "properties") => {
             let qdb = quote_identifier(database);
             Some(format!(
-                "SELECT\n\t[name] AS [Object],\n\t[type_desc] AS [Type],\n\t[create_date] AS [CreatedDate],\n\t[modify_date] AS [ModifiedDate]\nFROM {qdb}.sys.objects\nWHERE object_id = OBJECT_ID({full_lit})",
+                "SELECT\n\ts.name AS [Schema],\n\tt.name AS [Name],\n\t'TABLE' AS [Type],\n\tt.create_date AS [CreatedDate],\n\tt.modify_date AS [ModifiedDate],\n\tISNULL(ps.row_count, 0) AS [RowCount],\n\tCAST(ISNULL(ps.reserved_kb, 0) / 1024.0 AS DECIMAL(18, 2)) AS [TotalSizeMB],\n\tCAST(ISNULL(ps.used_kb, 0) / 1024.0 AS DECIMAL(18, 2)) AS [UsedSizeMB],\n\t(SELECT COUNT(*) FROM {qdb}.sys.columns WHERE object_id = t.object_id) AS [Columns],\n\t(SELECT COUNT(*) FROM {qdb}.sys.indexes WHERE object_id = t.object_id AND type > 0) AS [Indexes]\nFROM {qdb}.sys.tables t\nJOIN {qdb}.sys.schemas s ON s.schema_id = t.schema_id\nOUTER APPLY (\n\tSELECT\n\t\tSUM(CASE WHEN dps.index_id IN (0, 1) THEN dps.row_count ELSE 0 END) AS row_count,\n\t\tSUM(dps.reserved_page_count) * 8 AS reserved_kb,\n\t\tSUM(dps.used_page_count) * 8 AS used_kb\n\tFROM {qdb}.sys.dm_db_partition_stats dps\n\tWHERE dps.object_id = t.object_id\n) ps\nWHERE t.object_id = OBJECT_ID({full_lit})",
+                full_lit = quote_string_literal(&full),
+            ))
+        }
+        ("VIEW", "properties") => {
+            let qdb = quote_identifier(database);
+            Some(format!(
+                "SELECT\n\ts.name AS [Schema],\n\tv.name AS [Name],\n\t'VIEW' AS [Type],\n\tv.create_date AS [CreatedDate],\n\tv.modify_date AS [ModifiedDate],\n\tv.is_schema_bound AS [IsSchemaBound],\n\tv.with_check_option AS [WithCheckOption],\n\t(SELECT COUNT(*) FROM {qdb}.sys.columns WHERE object_id = v.object_id) AS [Columns],\n\tLEN(m.definition) AS [DefinitionLength]\nFROM {qdb}.sys.views v\nJOIN {qdb}.sys.schemas s ON s.schema_id = v.schema_id\nLEFT JOIN {qdb}.sys.sql_modules m ON m.object_id = v.object_id\nWHERE v.object_id = OBJECT_ID({full_lit})",
+                full_lit = quote_string_literal(&full),
+            ))
+        }
+        ("PROCEDURE" | "FUNCTION", "properties") => {
+            let qdb = quote_identifier(database);
+            Some(format!(
+                "SELECT\n\ts.name AS [Schema],\n\to.name AS [Name],\n\to.type_desc AS [Type],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate],\n\tLEN(m.definition) AS [DefinitionLength],\n\tm.is_schema_bound AS [IsSchemaBound],\n\tm.uses_ansi_nulls AS [UsesAnsiNulls],\n\tm.uses_quoted_identifier AS [UsesQuotedIdentifier],\n\t(SELECT COUNT(*) FROM {qdb}.sys.parameters WHERE object_id = o.object_id) AS [Parameters]\nFROM {qdb}.sys.objects o\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.sql_modules m ON m.object_id = o.object_id\nWHERE o.object_id = OBJECT_ID({full_lit})",
+                full_lit = quote_string_literal(&full),
+            ))
+        }
+        ("TRIGGER", "properties") => {
+            let qdb = quote_identifier(database);
+            Some(format!(
+                "SELECT\n\tt.name AS [Name],\n\ts.name AS [Schema],\n\tparent.name AS [ParentTable],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\tLEN(m.definition) AS [DefinitionLength]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nLEFT JOIN {qdb}.sys.sql_modules m ON m.object_id = t.object_id\nWHERE t.object_id = OBJECT_ID({full_lit})",
                 full_lit = quote_string_literal(&full),
             ))
         }
@@ -513,22 +533,24 @@ pub fn generate_object_script_static(
         ("TRIGGER", "trigger_details") => {
             let qdb = quote_identifier(database);
             Some(format!(
-                "SELECT\n\tt.name AS [Trigger],\n\tOBJECT_NAME(t.parent_id) AS [ParentTable],\n\tSCHEMA_NAME(o.schema_id) AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nWHERE t.object_id = OBJECT_ID({full_lit})",
+                "SELECT\n\tt.name AS [Trigger],\n\tparent.name AS [ParentTable],\n\ts.name AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nWHERE t.object_id = OBJECT_ID({full_lit})",
                 full_lit = quote_string_literal(&full),
             ))
         }
         ("TRIGGER", "enable_trigger") => {
             let qdb = quote_identifier(database);
+            let schema_lit = quote_string_literal(schema);
+            let name_lit = quote_string_literal(name);
             Some(format!(
-                "DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM {qdb}.sys.triggers WHERE object_id = OBJECT_ID({full_lit})));\nEXEC('ENABLE TRIGGER {qs}.{qn} ON {qs}.' + QUOTENAME(@parent))",
-                full_lit = quote_string_literal(&full),
+                "EXEC {qdb}.sys.sp_executesql N'DECLARE @parent SYSNAME = (SELECT parent.name FROM sys.triggers t JOIN sys.objects o ON o.object_id = t.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id JOIN sys.objects parent ON parent.object_id = t.parent_id WHERE s.name = @schema AND t.name = @name); DECLARE @sql NVARCHAR(MAX) = N''ENABLE TRIGGER '' + QUOTENAME(@schema) + N''.'' + QUOTENAME(@name) + N'' ON '' + QUOTENAME(@schema) + N''.'' + QUOTENAME(@parent); EXEC(@sql)', N'@schema SYSNAME, @name SYSNAME', @schema = {schema_lit}, @name = {name_lit}",
             ))
         }
         ("TRIGGER", "disable_trigger") => {
             let qdb = quote_identifier(database);
+            let schema_lit = quote_string_literal(schema);
+            let name_lit = quote_string_literal(name);
             Some(format!(
-                "DECLARE @parent NVARCHAR(256) = OBJECT_NAME((SELECT parent_id FROM {qdb}.sys.triggers WHERE object_id = OBJECT_ID({full_lit})));\nEXEC('DISABLE TRIGGER {qs}.{qn} ON {qs}.' + QUOTENAME(@parent))",
-                full_lit = quote_string_literal(&full),
+                "EXEC {qdb}.sys.sp_executesql N'DECLARE @parent SYSNAME = (SELECT parent.name FROM sys.triggers t JOIN sys.objects o ON o.object_id = t.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id JOIN sys.objects parent ON parent.object_id = t.parent_id WHERE s.name = @schema AND t.name = @name); DECLARE @sql NVARCHAR(MAX) = N''DISABLE TRIGGER '' + QUOTENAME(@schema) + N''.'' + QUOTENAME(@name) + N'' ON '' + QUOTENAME(@schema) + N''.'' + QUOTENAME(@parent); EXEC(@sql)', N'@schema SYSNAME, @name SYSNAME', @schema = {schema_lit}, @name = {name_lit}",
             ))
         }
 
@@ -536,12 +558,58 @@ pub fn generate_object_script_static(
         ("TYPE", "view_definition") | ("TYPE", "jump") => {
             let qdb = quote_identifier(database);
             Some(format!(
-                "SELECT\n\tt.name AS [TypeName],\n\tSCHEMA_NAME(t.schema_id) AS [Schema],\n\tTYPE_NAME(t.system_type_id) AS [BaseType],\n\tt.max_length AS [MaxLength],\n\tt.precision AS [Precision],\n\tt.scale AS [Scale],\n\tt.is_nullable AS [IsNullable],\n\tt.is_table_type AS [IsTableType]\nFROM {qdb}.sys.types t\nWHERE t.name = {name_lit}\n\tAND SCHEMA_NAME(t.schema_id) = {schema_lit}",
+                "SELECT\n\tt.name AS [TypeName],\n\ts.name AS [Schema],\n\tbase.name AS [BaseType],\n\tt.max_length AS [MaxLength],\n\tt.precision AS [Precision],\n\tt.scale AS [Scale],\n\tt.is_nullable AS [IsNullable],\n\tt.is_table_type AS [IsTableType]\nFROM {qdb}.sys.types t\nJOIN {qdb}.sys.schemas s ON s.schema_id = t.schema_id\nLEFT JOIN {qdb}.sys.types base ON base.user_type_id = t.system_type_id AND base.user_type_id = base.system_type_id\nWHERE t.name = {name_lit}\n\tAND s.name = {schema_lit}",
                 name_lit = quote_string_literal(name),
                 schema_lit = quote_string_literal(schema),
             ))
         }
         ("TYPE", "script_drop") => Some(format!("DROP TYPE {full}")),
+
+        // DEPENDENCIES (sys.dm_sql_referencing/referenced_entities) ---------
+        // sp_executesql is invoked in the target database via 3-part name so
+        // the calling session's database context is preserved.
+        ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "referencing_entities") => {
+            let qdb = quote_identifier(database);
+            let target_lit = quote_string_literal(&format!("{}.{}", schema, name));
+            Some(format!(
+                "EXEC {qdb}.sys.sp_executesql N'SELECT DISTINCT referencing_schema_name AS [Schema], referencing_entity_name AS [Name], referencing_class_desc AS [Class] FROM sys.dm_sql_referencing_entities(@target, N''OBJECT'') WHERE referencing_entity_name IS NOT NULL ORDER BY 1, 2', N'@target NVARCHAR(517)', @target = {target_lit}"
+            ))
+        }
+        ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "referenced_entities") => {
+            let qdb = quote_identifier(database);
+            let target_lit = quote_string_literal(&format!("{}.{}", schema, name));
+            Some(format!(
+                "EXEC {qdb}.sys.sp_executesql N'SELECT DISTINCT ISNULL(referenced_database_name, N'''') AS [Database], ISNULL(referenced_schema_name, N'''') AS [Schema], referenced_entity_name AS [Name], referenced_class_desc AS [Class] FROM sys.dm_sql_referenced_entities(@target, N''OBJECT'') WHERE referenced_entity_name IS NOT NULL ORDER BY 2, 3', N'@target NVARCHAR(517)', @target = {target_lit}"
+            ))
+        }
+        ("TYPE", "properties") => {
+            let qdb = quote_identifier(database);
+            Some(format!(
+                "SELECT\n\tt.name AS [Name],\n\ts.name AS [Schema],\n\tbase.name AS [BaseType],\n\tt.max_length AS [MaxLength],\n\tt.precision AS [Precision],\n\tt.scale AS [Scale],\n\tt.is_nullable AS [IsNullable],\n\tt.is_table_type AS [IsTableType]\nFROM {qdb}.sys.types t\nJOIN {qdb}.sys.schemas s ON s.schema_id = t.schema_id\nLEFT JOIN {qdb}.sys.types base ON base.user_type_id = t.system_type_id AND base.user_type_id = base.system_type_id\nWHERE t.name = {name_lit}\n\tAND s.name = {schema_lit}",
+                name_lit = quote_string_literal(name),
+                schema_lit = quote_string_literal(schema),
+            ))
+        }
+
+        // RENAME (sp_rename) -------------------------------------------------
+        ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "script_rename") => {
+            let qdb = quote_identifier(database);
+            let old_qualified = format!("{qs}.{qn}");
+            Some(format!(
+                "-- Rename {object_type} {full}.\n-- NOTE: sp_rename only updates the object's name; module bodies in sys.sql_modules\n-- continue to reference the old name until you ALTER them.\nEXEC {qdb}.sys.sp_rename {old}, N'<NewName>';\nGO",
+                qdb = qdb,
+                old = quote_string_literal(&old_qualified),
+            ))
+        }
+        ("TYPE", "script_rename") => {
+            let qdb = quote_identifier(database);
+            let old_qualified = format!("{qs}.{qn}");
+            Some(format!(
+                "EXEC {qdb}.sys.sp_rename {old}, N'<NewName>', N'USERDATATYPE';\nGO",
+                qdb = qdb,
+                old = quote_string_literal(&old_qualified),
+            ))
+        }
 
         // Default SELECT for unknown types
         (_, "jump") => Some(format!("SELECT * FROM {full}")),

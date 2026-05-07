@@ -15,9 +15,14 @@ import type {
   ServerObjectIndexStatus,
 } from "../lib/types";
 import ConnectionDialog from "./ConnectionDialog";
+import DependenciesDialog from "./DependenciesDialog";
+import DropConfirmDialog from "./DropConfirmDialog";
 import ObjectExplorer from "./ObjectExplorer";
 import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
+import type { ExplorerObjectType } from "./objectExplorerObjectMenu";
+import PropertiesDialog from "./PropertiesDialog";
 import QueryEditorPanel from "./QueryEditorPanel";
+import RenameDialog from "./RenameDialog";
 import { invalidateSchemaCatalog } from "./SqlEditor";
 import SettingsView from "./SettingsView";
 import TitleBar from "./TitleBar";
@@ -91,6 +96,66 @@ export default function App() {
   const [aiChatOpen, setAiChatOpen] = createSignal(
     localStorage.getItem("sqlqs_ai_chat_open") === "true",
   );
+  const [propertiesTarget, setPropertiesTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [renameTarget, setRenameTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [dropTarget, setDropTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [dependenciesTarget, setDependenciesTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+
+  const handleShowProperties = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setPropertiesTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowRename = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setRenameTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowDrop = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setDropTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowDependencies = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setDependenciesTarget({ database, schema, name, objectType });
+  };
 
   createEffect(() => {
     localStorage.setItem("sqlqs_ai_chat_open", String(aiChatOpen()));
@@ -314,7 +379,7 @@ export default function App() {
     }
   }
 
-  const hasBlockingDialog = () => isConnectionDialogOpen() || isSettingsOpen() || !!updateAvailable();
+  const hasBlockingDialog = () => isConnectionDialogOpen() || isSettingsOpen() || !!updateAvailable() || !!propertiesTarget() || !!renameTarget() || !!dropTarget() || !!dependenciesTarget();
   const canOpenObjectJump = () => connected();
 
   function handleToggleObjectJump() {
@@ -594,6 +659,10 @@ export default function App() {
                     onDeleteSavedQuery={handleDeleteSavedQuery}
                     onLoadSavedQuery={handleLoadSavedQuery}
                     onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
+                    onShowProperties={handleShowProperties}
+                    onShowRename={handleShowRename}
+                    onShowDrop={handleShowDrop}
+                    onShowDependencies={handleShowDependencies}
                   />
                 </div>
                 <div class="resizer resizer-h" onMouseDown={handleExplorerResize} />
@@ -650,7 +719,65 @@ export default function App() {
         indexStatus={objectJumpIndexStatus()}
         onClose={() => setIsObjectJumpOpen(false)}
         onSelect={(selection: ObjectJumpSelection) => handleOpenQueryTab(selection)}
+        onShowProperties={handleShowProperties}
+        onShowRename={handleShowRename}
+        onShowDrop={handleShowDrop}
+        onShowDependencies={handleShowDependencies}
       />
+
+      <Show when={propertiesTarget()}>
+        {(target) => (
+          <PropertiesDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setPropertiesTarget(null)}
+          />
+        )}
+      </Show>
+
+      <Show when={renameTarget()}>
+        {(target) => (
+          <RenameDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setRenameTarget(null)}
+            onSuccess={() => {
+              invalidateSchemaCatalog();
+            }}
+          />
+        )}
+      </Show>
+
+      <Show when={dropTarget()}>
+        {(target) => (
+          <DropConfirmDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setDropTarget(null)}
+            onSuccess={() => {
+              invalidateSchemaCatalog();
+            }}
+          />
+        )}
+      </Show>
+
+      <Show when={dependenciesTarget()}>
+        {(target) => (
+          <DependenciesDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setDependenciesTarget(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 }
