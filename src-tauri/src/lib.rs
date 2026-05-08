@@ -42,7 +42,13 @@ struct AiSchemaContext {
 }
 
 fn same_saved_server(left: &ConnectionConfig, right: &ConnectionConfig) -> bool {
-    left.server.trim().eq_ignore_ascii_case(right.server.trim())
+    match (&left.connection_string, &right.connection_string) {
+        (Some(l), Some(r)) => db::strip_password_from_connection_string(l)
+            .trim()
+            .eq_ignore_ascii_case(db::strip_password_from_connection_string(r).trim()),
+        (Some(_), None) | (None, Some(_)) => false,
+        _ => left.server.trim().eq_ignore_ascii_case(right.server.trim()),
+    }
 }
 
 async fn reset_server_object_index(state: &AppState) {
@@ -343,6 +349,18 @@ async fn connect_to_server(
     remember_password: bool,
     keep_logged_in: bool,
 ) -> Result<String, String> {
+    let resolved_config = if let Some(ref conn_str) = config.connection_string {
+        if !conn_str.trim().is_empty() {
+            let mut parsed = db::parse_connection_string(conn_str)?;
+            parsed.password = config.password.clone().or(parsed.password);
+            parsed
+        } else {
+            config.clone()
+        }
+    } else {
+        config.clone()
+    };
+
     let mut settings = settings::load_settings();
 
     let cached_port = save_connection
@@ -353,15 +371,15 @@ async fn connect_to_server(
             settings
                 .connections
                 .iter()
-                .filter(|c| same_saved_server(&c.config, &config))
+                .filter(|c| same_saved_server(&c.config, &resolved_config))
                 .find_map(|c| c.cached_port)
         });
 
-    let (client, resolved_port) = db::connect(&config, cached_port).await?;
+    let (client, resolved_port) = db::connect(&resolved_config, cached_port).await?;
     let mut settings_changed = false;
 
     if let Some(name) = &save_connection {
-        let mut save_config = config.clone();
+        let mut save_config = resolved_config.clone();
 
         if remember_password {
             if let Some(pass) = &save_config.password {
@@ -369,6 +387,10 @@ async fn connect_to_server(
             }
         }
         save_config.password = None;
+        if let Some(conn_str) = &save_config.connection_string {
+            save_config.connection_string =
+                Some(db::strip_password_from_connection_string(conn_str));
+        }
 
         if let Some(existing) = settings.connections.iter_mut().find(|c| &c.name == name) {
             existing.config = save_config;
@@ -592,9 +614,16 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
     };
 
     let password = settings::load_password(&last_name);
-    let config = ConnectionConfig {
-        password,
-        ..saved.config
+    let config = match &saved.config.connection_string {
+        Some(conn_str) if !conn_str.trim().is_empty() => {
+            let mut parsed = db::parse_connection_string(conn_str)?;
+            parsed.password = password.or(parsed.password);
+            parsed
+        }
+        _ => ConnectionConfig {
+            password,
+            ..saved.config.clone()
+        },
     };
 
     let (client, resolved_port) = match tokio::time::timeout(
@@ -653,9 +682,7 @@ async fn change_database(state: State<'_, AppState>, database: String) -> Result
 }
 
 #[tauri::command]
-async fn get_ai_schema_context(
-    state: State<'_, AppState>,
-) -> Result<AiSchemaContext, String> {
+async fn get_ai_schema_context(state: State<'_, AppState>) -> Result<AiSchemaContext, String> {
     let mut client_lock = state.client.lock().await;
     if let Some(client) = client_lock.as_mut() {
         Ok(AiSchemaContext {
@@ -729,9 +756,9 @@ async fn get_object_definition(
 #[cfg(target_os = "windows")]
 #[tauri::command]
 fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    use windows::core::BOOL;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
-    use windows::core::BOOL;
 
     let hwnd = window.hwnd().map_err(|e| e.to_string())?;
     let value = BOOL::from(dark);

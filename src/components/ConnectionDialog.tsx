@@ -5,6 +5,76 @@ import Dropdown from "./Dropdown";
 import Input from "./Input";
 import Tooltip from "./Tooltip";
 
+type ConnectMode = "fields" | "connectionString";
+
+function splitConnectionStringParts(value: string) {
+  const parts: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | null = null;
+
+  for (const ch of value) {
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === "\"") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ";") {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  if (current || value.endsWith(";")) {
+    parts.push(current.trim());
+  }
+
+  return parts;
+}
+
+function unquoteConnectionStringValue(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+
+function parseConnectionStringPreview(value: string) {
+  const parts = splitConnectionStringParts(value).filter(Boolean);
+  const pairs = new Map<string, string>();
+
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.split("=");
+    const key = rawKey?.trim().toLowerCase();
+    if (!key || rest.length === 0) continue;
+    pairs.set(key, unquoteConnectionStringValue(rest.join("=")));
+  }
+
+  const server = pairs.get("server")
+    || pairs.get("data source")
+    || pairs.get("addr")
+    || pairs.get("address")
+    || pairs.get("network address")
+    || pairs.get("datasource")
+    || "";
+  const database = pairs.get("database")
+    || pairs.get("initial catalog")
+    || pairs.get("catalog")
+    || "";
+
+  return {
+    server: server.replace(/^tcp:/i, ""),
+    database: database || undefined,
+  };
+}
+
 interface Props {
   onConnect: (config: ConnectionConfig) => void;
   onClose: () => void;
@@ -12,6 +82,7 @@ interface Props {
 
 export default function ConnectionDialog(props: Props) {
   const supportsWindowsAuth = !isMacOS();
+  const [mode, setMode] = createSignal<ConnectMode>("fields");
   const [server, setServer] = createSignal("localhost");
   const [database, setDatabase] = createSignal("");
   const [username, setUsername] = createSignal("sa");
@@ -19,6 +90,7 @@ export default function ConnectionDialog(props: Props) {
   const [useWindowsAuth, setUseWindowsAuth] = createSignal(false);
   const [encrypt, setEncrypt] = createSignal(false);
   const [trustCert, setTrustCert] = createSignal(true);
+  const [connectionString, setConnectionString] = createSignal("");
   const [saveName, setSaveName] = createSignal("");
   const [rememberPassword, setRememberPassword] = createSignal(false);
   const [keepLoggedIn, setKeepLoggedIn] = createSignal(true);
@@ -56,15 +128,25 @@ export default function ConnectionDialog(props: Props) {
 
   async function loadConnection(saved: SavedConnection) {
     const cfg = saved.config;
-    setServer(cfg.server);
-    setDatabase(cfg.database || "");
-    setUsername(cfg.username || "sa");
     setPassword("");
     setRememberPassword(false);
-    setUseWindowsAuth(supportsWindowsAuth && cfg.use_windows_auth);
-    setEncrypt(cfg.encrypt);
-    setTrustCert(cfg.trust_server_certificate);
-    setSaveName(saved.name);
+
+    if (cfg.connection_string) {
+      setMode("connectionString");
+      setConnectionString(cfg.connection_string);
+      setSaveName(saved.name);
+    } else {
+      setMode("fields");
+      setServer(cfg.server);
+      setDatabase(cfg.database || "");
+      setUsername(cfg.username || "sa");
+      setPassword("");
+      setRememberPassword(false);
+      setUseWindowsAuth(supportsWindowsAuth && cfg.use_windows_auth);
+      setEncrypt(cfg.encrypt);
+      setTrustCert(cfg.trust_server_certificate);
+      setSaveName(saved.name);
+    }
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -88,25 +170,49 @@ export default function ConnectionDialog(props: Props) {
     setConnecting(true);
     setError("");
 
-    const config: ConnectionConfig = {
-      server: server(),
-      database: database() || undefined,
-      username: useWindowsAuth() ? undefined : username(),
-      password: useWindowsAuth() ? undefined : password(),
-      use_windows_auth: useWindowsAuth(),
-      encrypt: encrypt(),
-      trust_server_certificate: trustCert(),
-    };
+    let config: ConnectionConfig;
+
+    if (mode() === "connectionString") {
+      const cs = connectionString().trim();
+      if (!cs) {
+        setError("Connection string is required");
+        setConnecting(false);
+        return;
+      }
+      config = {
+        server: "",
+        use_windows_auth: false,
+        encrypt: false,
+        trust_server_certificate: false,
+        connection_string: cs,
+        password: password() || undefined,
+      };
+    } else {
+      config = {
+        server: server(),
+        database: database() || undefined,
+        username: useWindowsAuth() ? undefined : username(),
+        password: useWindowsAuth() ? undefined : password(),
+        use_windows_auth: useWindowsAuth(),
+        encrypt: encrypt(),
+        trust_server_certificate: trustCert(),
+      };
+    }
 
     const trimmedSaveName = saveName().trim();
-    const generatedSaveName = database().trim()
-      ? `${server().trim()} (${database().trim()})`
-      : server().trim();
+    const connectionPreview = mode() === "connectionString"
+      ? parseConnectionStringPreview(connectionString())
+      : null;
+    const generatedSaveName = mode() === "connectionString"
+      ? connectionPreview?.server || "Connection"
+      : (database().trim()
+          ? `${server().trim()} (${database().trim()})`
+          : server().trim());
     const effectiveSaveName = keepLoggedIn()
       ? (trimmedSaveName || generatedSaveName)
       : (trimmedSaveName || null);
     const effectiveRememberPassword =
-      rememberPassword() || (keepLoggedIn() && !useWindowsAuth());
+      rememberPassword() || (keepLoggedIn() && (mode() === "connectionString" || !useWindowsAuth()));
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -119,7 +225,7 @@ export default function ConnectionDialog(props: Props) {
       if (keepLoggedIn() && !trimmedSaveName) {
         setSaveName(generatedSaveName);
       }
-      props.onConnect(config);
+      props.onConnect(connectionPreview ? { ...config, ...connectionPreview } : config);
     } catch (err: any) {
       setError(String(err));
     } finally {
@@ -167,83 +273,130 @@ export default function ConnectionDialog(props: Props) {
             </div>
           )}
 
-          <div class="flex flex-col gap-1.5">
-            <label class="text-s font-medium text-text-muted select-none">Server</label>
-            <Input
-              value={server()}
-              onInput={(e) => {
-                const val = e.currentTarget.value;
-                setServer(val);
-                setSaveName(generateSaveName(val, username(), useWindowsAuth()));
-              }}
-              placeholder="hostname or hostname\instance"
-              required
-              autofocus
-            />
+          <div class="flex bg-surface-panel rounded-lg p-1 border border-border">
+            <button
+              type="button"
+              onClick={() => setMode("fields")}
+              class={`flex-1 text-m px-3 py-1.5 rounded-md transition-colors cursor-pointer ${mode() === "fields" ? "bg-surface-active text-text font-medium" : "text-text-muted hover:text-text"}`}
+            >
+              Fields
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("connectionString")}
+              class={`flex-1 text-m px-3 py-1.5 rounded-md transition-colors cursor-pointer ${mode() === "connectionString" ? "bg-surface-active text-text font-medium" : "text-text-muted hover:text-text"}`}
+            >
+              Connection String
+            </button>
           </div>
 
-          <div class="flex flex-col gap-1.5">
-            <label class="text-s font-medium text-text-muted select-none">Database (optional)</label>
-            <Input
-              value={database()}
-              onInput={(e) => setDatabase(e.currentTarget.value)}
-              placeholder="master"
-            />
-          </div>
-
-          {supportsWindowsAuth && (
-            <label class="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
-              <input
-                type="checkbox"
-                checked={useWindowsAuth()}
-                onChange={(e) => setUseWindowsAuth(e.currentTarget.checked)}
-              />
-              <span>Windows Authentication</span>
-            </label>
-          )}
-
-          {!useWindowsAuth() && (
-            <div class="flex gap-4 mt-0.5">
-              <div class="flex-1 flex flex-col gap-1.5">
-                <label class="text-s font-medium text-text-muted select-none">Username</label>
+          {mode() === "connectionString" ? (
+            <>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Connection String</label>
+                <textarea
+                  value={connectionString()}
+                  onInput={(e) => setConnectionString(e.currentTarget.value)}
+                  placeholder="Server=localhost;Database=mydb;User Id=sa;Password=secret;TrustServerCertificate=true"
+                  required
+                  autofocus
+                  rows={4}
+                  class="w-full bg-surface-input border border-border rounded-lg px-3 py-2 text-m text-text placeholder:text-text-muted/50 resize-none outline-none focus:border-accent transition-colors font-mono"
+                />
+              </div>
+              <div class="flex gap-4 mt-0.5">
+                <div class="flex-1 flex flex-col gap-1.5">
+                  <label class="text-s font-medium text-text-muted select-none">Password (optional override)</label>
+                  <Input
+                    type="password"
+                    value={password()}
+                    onInput={(e) => setPassword(e.currentTarget.value)}
+                    placeholder="Override password from string"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Server</label>
                 <Input
-                  value={username()}
+                  value={server()}
                   onInput={(e) => {
                     const val = e.currentTarget.value;
-                    setUsername(val);
-                    setSaveName(generateSaveName(server(), val, useWindowsAuth()));
+                    setServer(val);
+                    setSaveName(generateSaveName(val, username(), useWindowsAuth()));
                   }}
+                  placeholder="hostname or hostname\instance"
+                  required
+                  autofocus
                 />
               </div>
-              <div class="flex-1 flex flex-col gap-1.5">
-                <label class="text-s font-medium text-text-muted select-none">Password</label>
-                <Input
-                  type="password"
-                  value={password()}
-                  onInput={(e) => setPassword(e.currentTarget.value)}
-                />
-              </div>
-            </div>
-          )}
 
-          <div class="flex gap-6 mt-1.5 mb-1">
-            <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={encrypt()}
-                onChange={(e) => setEncrypt(e.currentTarget.checked)}
-              />
-              <span>Encrypt</span>
-            </label>
-            <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={trustCert()}
-                onChange={(e) => setTrustCert(e.currentTarget.checked)}
-              />
-              <span>Trust Server Certificate</span>
-            </label>
-          </div>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-s font-medium text-text-muted select-none">Database (optional)</label>
+                <Input
+                  value={database()}
+                  onInput={(e) => setDatabase(e.currentTarget.value)}
+                  placeholder="master"
+                />
+              </div>
+
+              {supportsWindowsAuth && (
+                <label class="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
+                  <input
+                    type="checkbox"
+                    checked={useWindowsAuth()}
+                    onChange={(e) => setUseWindowsAuth(e.currentTarget.checked)}
+                  />
+                  <span>Windows Authentication</span>
+                </label>
+              )}
+
+              {!useWindowsAuth() && (
+                <div class="flex gap-4 mt-0.5">
+                  <div class="flex-1 flex flex-col gap-1.5">
+                    <label class="text-s font-medium text-text-muted select-none">Username</label>
+                    <Input
+                      value={username()}
+                      onInput={(e) => {
+                        const val = e.currentTarget.value;
+                        setUsername(val);
+                        setSaveName(generateSaveName(server(), val, useWindowsAuth()));
+                      }}
+                    />
+                  </div>
+                  <div class="flex-1 flex flex-col gap-1.5">
+                    <label class="text-s font-medium text-text-muted select-none">Password</label>
+                    <Input
+                      type="password"
+                      value={password()}
+                      onInput={(e) => setPassword(e.currentTarget.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div class="flex gap-6 mt-1.5 mb-1">
+                <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={encrypt()}
+                    onChange={(e) => setEncrypt(e.currentTarget.checked)}
+                  />
+                  <span>Encrypt</span>
+                </label>
+                <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={trustCert()}
+                    onChange={(e) => setTrustCert(e.currentTarget.checked)}
+                  />
+                  <span>Trust Server Certificate</span>
+                </label>
+              </div>
+            </>
+          )}
 
           <div class="border-t border-border mt-1 pt-4 flex flex-col gap-3">
             <div class="flex gap-4 items-start">

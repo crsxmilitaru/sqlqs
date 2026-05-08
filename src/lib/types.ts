@@ -7,6 +7,7 @@ export interface ConnectionConfig {
   use_windows_auth: boolean;
   encrypt: boolean;
   trust_server_certificate: boolean;
+  connection_string?: string;
 }
 
 export interface QueryResult {
