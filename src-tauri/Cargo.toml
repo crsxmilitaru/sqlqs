@@ -30,6 +30,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 dirs = "6"
 tauri-plugin-fs = "2.5.0"
 tauri-plugin-notification = "2"
+rust_xlsxwriter = "0.78"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }

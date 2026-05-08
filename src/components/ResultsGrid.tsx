@@ -154,21 +154,6 @@ function VirtualGrid(props: {
     return result;
   });
 
-  const copyToClipboard = async () => {
-    const header = props.resultSet.columns.map((col) => col.name).join("\t");
-    const rows = processedRows().map(({ row }) =>
-      row.map((cell) => (cell != null ? String(cell) : "NULL")).join("\t"),
-    );
-    const text = [header, ...rows].join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
-
   const exportToCsv = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const filePath = await save({
@@ -195,6 +180,45 @@ function VirtualGrid(props: {
       columns: props.resultSet.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
       rows: processedRows().map(({ row }) => row),
     });
+  };
+
+  const exportToXlsx = async () => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const filePath = await save({
+      defaultPath: "query_results.xlsx",
+      filters: [{ name: "Excel", extensions: ["xlsx"] }],
+    });
+    if (!filePath) return;
+    await invoke("export_results_xlsx", {
+      path: filePath,
+      columns: props.resultSet.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
+      rows: processedRows().map(({ row }) => row),
+    });
+  };
+
+  const escapeMarkdownCell = (val: unknown): string => {
+    if (val == null) return "";
+    return String(val)
+      .replace(/\\/g, "\\\\")
+      .replace(/\|/g, "\\|")
+      .replace(/\r?\n/g, " ");
+  };
+
+  const copyAsMarkdown = async () => {
+    const cols = props.resultSet.columns;
+    const header = `| ${cols.map((c) => escapeMarkdownCell(c.name)).join(" | ")} |`;
+    const sep = `| ${cols.map(() => "---").join(" | ")} |`;
+    const body = processedRows()
+      .map(({ row }) => `| ${row.map(escapeMarkdownCell).join(" | ")} |`)
+      .join("\n");
+    const text = [header, sep, body].filter(Boolean).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy markdown:", err);
+    }
   };
 
   const handleExportClick = (e: MouseEvent) => {
@@ -310,10 +334,10 @@ function VirtualGrid(props: {
         <div class="flex items-center justify-end px-1 gap-2">
           <div class="flex items-center gap-2">
             <button
-              onClick={copyToClipboard}
+              onClick={copyAsMarkdown}
               class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${copied() ? "text-success border-success/30 bg-success/5" : ""
                 }`}
-              title="Copy table to clipboard"
+              title="Copy table as Markdown"
             >
               <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-[10px]`} />
               <span class="text-[11px] font-medium">{copied() ? "Copied!" : "Copy"}</span>
@@ -348,6 +372,12 @@ function VirtualGrid(props: {
                       label: "Export to JSON",
                       icon: <i class="fa-solid fa-file-code" />,
                       onClick: exportToJson,
+                    },
+                    {
+                      id: "export-xlsx",
+                      label: "Export to Excel",
+                      icon: <i class="fa-solid fa-file-excel" />,
+                      onClick: exportToXlsx,
                     },
                   ]}
                   onClose={() => setExportMenuPos(null)}

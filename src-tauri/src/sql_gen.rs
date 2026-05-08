@@ -454,6 +454,101 @@ pub fn export_json(
     Ok(())
 }
 
+pub fn export_xlsx(
+    path: &str,
+    columns: &[ColumnDef],
+    rows: &[Vec<serde_json::Value>],
+) -> Result<(), String> {
+    use rust_xlsxwriter::{Format, FormatBorder, Workbook};
+
+    let mut workbook = Workbook::new();
+    let sheet = workbook
+        .add_worksheet()
+        .set_name("Results")
+        .map_err(|e| format!("XLSX worksheet error: {e}"))?;
+
+    let header_format = Format::new()
+        .set_bold()
+        .set_background_color("#E7E6E6")
+        .set_border_bottom(FormatBorder::Thin);
+
+    for (col_idx, col) in columns.iter().enumerate() {
+        sheet
+            .write_string_with_format(0, col_idx as u16, &col.name, &header_format)
+            .map_err(|e| format!("XLSX header write error: {e}"))?;
+    }
+
+    let mut col_widths: Vec<f64> = columns
+        .iter()
+        .map(|c| (c.name.chars().count() as f64).max(8.0))
+        .collect();
+
+    for (ri, row) in rows.iter().enumerate() {
+        let row_idx = (ri + 1) as u32;
+        for (ci, cell) in row.iter().enumerate() {
+            let col_idx = ci as u16;
+            match cell {
+                serde_json::Value::Null => {}
+                serde_json::Value::Bool(b) => {
+                    sheet
+                        .write_boolean(row_idx, col_idx, *b)
+                        .map_err(|e| format!("XLSX write error: {e}"))?;
+                    if let Some(w) = col_widths.get_mut(ci) {
+                        *w = w.max(5.0);
+                    }
+                }
+                serde_json::Value::Number(n) => {
+                    if let Some(f) = n.as_f64() {
+                        sheet
+                            .write_number(row_idx, col_idx, f)
+                            .map_err(|e| format!("XLSX write error: {e}"))?;
+                    } else {
+                        sheet
+                            .write_string(row_idx, col_idx, &n.to_string())
+                            .map_err(|e| format!("XLSX write error: {e}"))?;
+                    }
+                    if let Some(w) = col_widths.get_mut(ci) {
+                        *w = w.max(n.to_string().chars().count() as f64);
+                    }
+                }
+                serde_json::Value::String(s) => {
+                    sheet
+                        .write_string(row_idx, col_idx, s)
+                        .map_err(|e| format!("XLSX write error: {e}"))?;
+                    if let Some(w) = col_widths.get_mut(ci) {
+                        *w = w.max(s.chars().count() as f64);
+                    }
+                }
+                other => {
+                    let text = serde_json::to_string(other).unwrap_or_default();
+                    sheet
+                        .write_string(row_idx, col_idx, &text)
+                        .map_err(|e| format!("XLSX write error: {e}"))?;
+                    if let Some(w) = col_widths.get_mut(ci) {
+                        *w = w.max(text.chars().count() as f64);
+                    }
+                }
+            }
+        }
+    }
+
+    for (ci, width) in col_widths.iter().enumerate() {
+        let capped = (width + 2.0).min(60.0);
+        sheet
+            .set_column_width(ci as u16, capped)
+            .map_err(|e| format!("XLSX column width error: {e}"))?;
+    }
+
+    sheet
+        .set_freeze_panes(1, 0)
+        .map_err(|e| format!("XLSX freeze error: {e}"))?;
+
+    workbook
+        .save(PathBuf::from(path))
+        .map_err(|e| format!("XLSX save error: {e}"))?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Object-script generation (explorer menu & jump palette)
 // ---------------------------------------------------------------------------

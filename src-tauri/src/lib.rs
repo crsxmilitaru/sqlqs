@@ -909,6 +909,15 @@ fn export_results_json(
     sql_gen::export_json(&path, &columns, &rows)
 }
 
+#[tauri::command]
+fn export_results_xlsx(
+    path: String,
+    columns: Vec<sql_gen::ColumnDef>,
+    rows: Vec<Vec<serde_json::Value>>,
+) -> Result<(), String> {
+    sql_gen::export_xlsx(&path, &columns, &rows)
+}
+
 #[derive(serde::Serialize)]
 struct ObjectScriptResult {
     sql: String,
@@ -1122,6 +1131,7 @@ pub fn run() {
             get_table_column_metadata,
             export_results_csv,
             export_results_json,
+            export_results_xlsx,
             generate_object_script,
         ])
         .build(tauri::generate_context!())
