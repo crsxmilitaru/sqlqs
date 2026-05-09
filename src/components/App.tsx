@@ -20,6 +20,7 @@ import DropConfirmDialog from "./DropConfirmDialog";
 import ObjectExplorer from "./ObjectExplorer";
 import ObjectJumpPalette, { type ObjectJumpSelection } from "./ObjectJumpPalette";
 import type { ExplorerObjectType } from "./objectExplorerObjectMenu";
+import BackupRestoreDialog from "./BackupRestoreDialog";
 import PropertiesDialog from "./PropertiesDialog";
 import QueryEditorPanel from "./QueryEditorPanel";
 import RenameDialog from "./RenameDialog";
@@ -90,6 +91,7 @@ export default function App() {
   const [explorerWidth, setExplorerWidth] = createSignal(325);
   const [theme, setTheme] = createSignal(loadTheme());
   const [isObjectJumpOpen, setIsObjectJumpOpen] = createSignal(false);
+  const [backupRestoreDatabase, setBackupRestoreDatabase] = createSignal<string | null>(null);
   const [objectJumpIndexStatus, setObjectJumpIndexStatus] = createSignal<ServerObjectIndexStatus>(
     EMPTY_OBJECT_INDEX_STATUS,
   );
@@ -379,7 +381,7 @@ export default function App() {
     }
   }
 
-  const hasBlockingDialog = () => isConnectionDialogOpen() || isSettingsOpen() || !!updateAvailable() || !!propertiesTarget() || !!renameTarget() || !!dropTarget() || !!dependenciesTarget();
+  const hasBlockingDialog = () => isConnectionDialogOpen() || isSettingsOpen() || !!updateAvailable() || backupRestoreDatabase() !== null || !!propertiesTarget() || !!renameTarget() || !!dropTarget() || !!dependenciesTarget();
   const canOpenObjectJump = () => connected();
 
   function handleToggleObjectJump() {
@@ -586,6 +588,7 @@ export default function App() {
         onConnect={() => setIsConnectionDialogOpen(true)}
         onDisconnect={disconnect}
         onOpenSqlFile={handleOpenSqlFile}
+        onShowBackupRestore={() => setBackupRestoreDatabase(currentDatabase() || databases()[0] || "")}
         onShowSettings={() => setIsSettingsOpen(true)}
         onHideSettings={() => setIsSettingsOpen(false)}
         settingsDisabled={isSettingsOpen()}
@@ -663,6 +666,7 @@ export default function App() {
                     onShowRename={handleShowRename}
                     onShowDrop={handleShowDrop}
                     onShowDependencies={handleShowDependencies}
+                    onShowBackupRestore={(database) => setBackupRestoreDatabase(database)}
                   />
                 </div>
                 <div class="resizer resizer-h" onMouseDown={handleExplorerResize} />
@@ -711,6 +715,16 @@ export default function App() {
           onCancel={() => cancelUpdate(updateAvailable()!)}
         />
       )}
+
+      <Show when={backupRestoreDatabase() !== null}>
+        <BackupRestoreDialog
+          databases={databases()}
+          currentDatabase={currentDatabase()}
+          initialDatabase={backupRestoreDatabase() || undefined}
+          onClose={() => setBackupRestoreDatabase(null)}
+          onRefreshDatabases={refreshDatabases}
+        />
+      </Show>
 
       <ObjectJumpPalette
         open={isObjectJumpOpen()}

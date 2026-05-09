@@ -25,6 +25,7 @@ interface Props {
   onShowRename?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
   onShowDrop?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
   onShowDependencies?: (database: string, schema: string, name: string, objectType: ExplorerObjectType) => void;
+  onShowBackupRestore?: (database: string) => void;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -473,6 +474,12 @@ export default function ObjectExplorer(props: Props) {
             props.onDatabaseChange(database);
             props.onSelect("");
           },
+        },
+        {
+          id: "backup-restore",
+          label: "Backup & Restore",
+          icon: <i class="fa-solid fa-rotate" />,
+          onClick: () => props.onShowBackupRestore?.(database),
         },
         { id: "sep-db-1", separator: true },
         {

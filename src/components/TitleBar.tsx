@@ -33,6 +33,7 @@ interface Props {
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenSqlFile: () => void;
+  onShowBackupRestore?: () => void;
   onToggleObjectJump?: () => void;
   objectJumpOpen?: boolean;
   objectJumpEnabled?: boolean;
@@ -450,6 +451,17 @@ export default function TitleBar(props: Props) {
                   <i class="fa-solid fa-folder-open text-m" />
                 </button>
               </Tooltip>
+              {props.onShowBackupRestore && (
+                <Tooltip content="Backup & Restore" placement="bottom">
+                  <button
+                    onClick={props.onShowBackupRestore}
+                    disabled={(props.dialogOpen ?? false) || !props.connected}
+                    class="text-text-muted enabled:hover:text-text w-8 h-8 flex items-center justify-center rounded-md enabled:hover:bg-surface-hover transition-colors enabled:cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                  >
+                    <i class="fa-solid fa-rotate text-m" />
+                  </button>
+                </Tooltip>
+              )}
               {props.onToggleObjectJump && (
                 <Tooltip content={objectJumpTooltip()} placement="bottom">
                   <button

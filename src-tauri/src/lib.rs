@@ -3,9 +3,10 @@ mod settings;
 mod sql_gen;
 
 use db::{
-    CachedServerObjectIndex, ColumnInfo, ConnectionConfig, DatabaseObject,
-    DatabaseSchemaCatalogEntry, QueryResult, ServerObjectIndexStatus, ServerObjectSearchResponse,
-    SqlClient,
+    BackupDatabaseRequest, BackupDefaults, BackupFileInfo, BackupOperationResult,
+    BackupScheduleInfo, BackupScheduleRequest, CachedServerObjectIndex, ColumnInfo,
+    ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult,
+    RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse, SqlClient,
 };
 use settings::{AppSettings, SavedConnection};
 use std::path::PathBuf;
@@ -682,6 +683,86 @@ async fn change_database(state: State<'_, AppState>, database: String) -> Result
 }
 
 #[tauri::command]
+async fn get_backup_defaults(state: State<'_, AppState>) -> Result<BackupDefaults, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::get_backup_defaults(client).await
+}
+
+#[tauri::command]
+async fn backup_database(
+    state: State<'_, AppState>,
+    request: BackupDatabaseRequest,
+) -> Result<BackupOperationResult, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::backup_database(client, request).await
+}
+
+#[tauri::command]
+async fn inspect_backup_file(
+    state: State<'_, AppState>,
+    source_path: String,
+) -> Result<Vec<BackupFileInfo>, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::inspect_backup_file(client, &source_path).await
+}
+
+#[tauri::command]
+async fn restore_database(
+    state: State<'_, AppState>,
+    request: RestoreDatabaseRequest,
+) -> Result<BackupOperationResult, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::restore_database(client, request).await
+}
+
+#[tauri::command]
+async fn create_backup_schedule(
+    state: State<'_, AppState>,
+    request: BackupScheduleRequest,
+) -> Result<BackupOperationResult, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::create_backup_schedule(client, request).await
+}
+
+#[tauri::command]
+async fn list_backup_schedules(
+    state: State<'_, AppState>,
+) -> Result<Vec<BackupScheduleInfo>, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::list_backup_schedules(client).await
+}
+
+#[tauri::command]
+async fn delete_backup_schedule(
+    state: State<'_, AppState>,
+    job_name: String,
+) -> Result<BackupOperationResult, String> {
+    let mut lock = state.client.lock().await;
+    let client = lock
+        .as_mut()
+        .ok_or("Not connected to a server".to_string())?;
+    db::delete_backup_schedule(client, &job_name).await
+}
+
+#[tauri::command]
 async fn get_ai_schema_context(state: State<'_, AppState>) -> Result<AiSchemaContext, String> {
     let mut client_lock = state.client.lock().await;
     if let Some(client) = client_lock.as_mut() {
@@ -1110,6 +1191,13 @@ pub fn run() {
             load_saved_password,
             try_auto_connect,
             change_database,
+            get_backup_defaults,
+            backup_database,
+            inspect_backup_file,
+            restore_database,
+            create_backup_schedule,
+            list_backup_schedules,
+            delete_backup_schedule,
             get_ai_schema_context,
             get_startup_sql_file_path,
             read_sql_file,

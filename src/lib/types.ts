@@ -35,6 +35,73 @@ export interface DatabaseObject {
   object_type: string;
 }
 
+export type BackupType = "full" | "differential" | "log";
+export type BackupScheduleFrequency = "daily" | "weekly" | "monthly";
+
+export interface BackupDatabaseRequest {
+  database: string;
+  destination_path: string;
+  backup_type: BackupType;
+  overwrite: boolean;
+  copy_only: boolean;
+  compression: boolean;
+  checksum: boolean;
+}
+
+export interface BackupOperationResult {
+  message: string;
+  elapsed_ms: number;
+}
+
+export interface BackupDefaults {
+  backup_directory?: string | null;
+  data_directory?: string | null;
+  log_directory?: string | null;
+}
+
+export interface BackupFileInfo {
+  logical_name: string;
+  physical_name: string;
+  file_type: string;
+  size_bytes: number;
+}
+
+export interface RestoreFileMove {
+  logical_name: string;
+  physical_name: string;
+}
+
+export interface RestoreDatabaseRequest {
+  source_path: string;
+  target_database: string;
+  replace_existing: boolean;
+  recovery: boolean;
+  restricted_user: boolean;
+  file_moves: RestoreFileMove[];
+}
+
+export interface BackupScheduleRequest {
+  job_name: string;
+  database: string;
+  destination_folder: string;
+  backup_type: BackupType;
+  frequency: BackupScheduleFrequency;
+  time: string;
+  weekly_days: number[];
+  monthly_day?: number | null;
+  copy_only: boolean;
+  compression: boolean;
+  checksum: boolean;
+}
+
+export interface BackupScheduleInfo {
+  job_id: string;
+  job_name: string;
+  enabled: boolean;
+  schedule_name?: string | null;
+  next_run?: string | null;
+}
+
 export interface DatabaseSchemaCatalogEntry {
   table_name: string;
   schema_name: string;
