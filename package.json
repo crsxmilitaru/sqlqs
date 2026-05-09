@@ -2,6 +2,27 @@
   "name": "sqlqs",
   "version": "0.2.2",
   "description": "SQL Query Studio - A lightweight SQL editor",
+  "author": "Cristian Militaru",
+  "publisher": "crsx",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crsxmilitaru/sqlqs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/crsxmilitaru/sqlqs/issues"
+  },
+  "homepage": "https://github.com/crsxmilitaru/sqlqs#readme",
+  "keywords": [
+    "sql",
+    "editor",
+    "query",
+    "database",
+    "tauri",
+    "solidjs",
+    "ai",
+    "studio"
+  ],
   "private": true,
   "type": "module",
   "scripts": {
