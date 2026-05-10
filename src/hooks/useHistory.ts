@@ -20,14 +20,22 @@ function loadExecutedQueries(): ExecutedQuery[] {
     }
 
     return parsed
-      .map(item => {
-        if (typeof item === 'string') {
-          return { sql: item, title: generateTabTitle(item) || item.substring(0, 40) + (item.length > 40 ? "..." : "") };
+      .map((item) => {
+        if (typeof item === "string") {
+          return {
+            sql: item,
+            title:
+              generateTabTitle(item) ||
+              item.substring(0, 40) + (item.length > 40 ? "..." : ""),
+          };
         }
 
         return item as ExecutedQuery;
       })
-      .filter((query): query is ExecutedQuery => !!query.sql && query.sql.trim().length > 0)
+      .filter(
+        (query): query is ExecutedQuery =>
+          !!query.sql && query.sql.trim().length > 0,
+      )
       .slice(0, maxHistoryItems);
   } catch {
     return [];
@@ -35,7 +43,9 @@ function loadExecutedQueries(): ExecutedQuery[] {
 }
 
 export function useHistory() {
-  const [executedQueries, setExecutedQueries] = createSignal<ExecutedQuery[]>(loadExecutedQueries());
+  const [executedQueries, setExecutedQueries] = createSignal<ExecutedQuery[]>(
+    loadExecutedQueries(),
+  );
 
   createEffect(() => {
     const queries = executedQueries();
@@ -60,18 +70,24 @@ export function useHistory() {
         return prev;
       }
 
-      const displayTitle = (title && title !== "Query" && !title.startsWith("Query "))
-        ? title
-        : (generateTabTitle(normalizedSql) || normalizedSql.substring(0, 40) + (normalizedSql.length > 40 ? "..." : ""));
+      const displayTitle =
+        title && title !== "Query" && !title.startsWith("Query ")
+          ? title
+          : generateTabTitle(normalizedSql) ||
+            normalizedSql.substring(0, 40) +
+              (normalizedSql.length > 40 ? "..." : "");
 
       const entry: ExecutedQuery = {
         sql: normalizedSql,
         title: displayTitle,
         database: database || "master",
-        executedAt: Date.now()
+        executedAt: Date.now(),
       };
       const { maxHistoryItems } = loadPreferences();
-      const next = [entry, ...prev.filter((q) => q.sql !== normalizedSql)].slice(0, maxHistoryItems);
+      const next = [
+        entry,
+        ...prev.filter((q) => q.sql !== normalizedSql),
+      ].slice(0, maxHistoryItems);
       return next;
     });
   };

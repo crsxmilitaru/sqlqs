@@ -5,4 +5,3 @@ export function generateTabTitle(sql: string): string {
   }
   return s;
 }
-

@@ -15,7 +15,9 @@ export function useConnection() {
   const [connected, setConnected] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [serverName, setServerName] = createSignal("");
-  const [currentDatabase, setCurrentDatabase] = createSignal<string | undefined>();
+  const [currentDatabase, setCurrentDatabase] = createSignal<
+    string | undefined
+  >();
   const [databases, setDatabases] = createSignal<string[]>([]);
 
   let restored = false;
@@ -46,7 +48,7 @@ export function useConnection() {
   const disconnect = async () => {
     try {
       await invoke("disconnect_from_server");
-    } catch { }
+    } catch {}
     setIsInitializing(false);
     setConnected(false);
     setServerName("");
@@ -60,21 +62,25 @@ export function useConnection() {
       await invoke("change_database", { database: db });
       setCurrentDatabase(db);
       localStorage.setItem(STORAGE_KEY_LAST_DATABASE, db);
-    } catch { }
+    } catch {}
   };
 
-  // Restore last database from localStorage
   createEffect(() => {
-    if (restored || !connected() || currentDatabase() || databases().length === 0) return;
+    if (
+      restored ||
+      !connected() ||
+      currentDatabase() ||
+      databases().length === 0
+    )
+      return;
     const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
     if (saved && databases().includes(saved)) {
       restored = true;
       setCurrentDatabase(saved);
-      invoke("change_database", { database: saved }).catch(() => { });
+      invoke("change_database", { database: saved }).catch(() => {});
     }
   });
 
-  // Auto-connect on mount
   onMount(async () => {
     let cancelled = false;
     try {
@@ -89,7 +95,7 @@ export function useConnection() {
           if (saved && result.databases.includes(saved)) {
             db = saved;
             restored = true;
-            invoke("change_database", { database: saved }).catch(() => { });
+            invoke("change_database", { database: saved }).catch(() => {});
           }
         }
         setCurrentDatabase(db);
@@ -101,6 +107,7 @@ export function useConnection() {
         }
       }
     } catch {
+      /* */
     } finally {
       if (!cancelled) {
         setIsInitializing(false);

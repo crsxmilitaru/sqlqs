@@ -8,8 +8,12 @@ function getPlatformString(): string {
   if (typeof navigator === "undefined") return "";
 
   const nav = navigator as NavigatorWithUAData;
-  return (nav.userAgentData?.platform || navigator.platform || navigator.userAgent || "")
-    .toLowerCase();
+  return (
+    nav.userAgentData?.platform ||
+    navigator.platform ||
+    navigator.userAgent ||
+    ""
+  ).toLowerCase();
 }
 
 export function isMacOS(): boolean {
@@ -18,15 +22,10 @@ export function isMacOS(): boolean {
   return platform.includes("mac");
 }
 
-export function isWindowsOS(): boolean {
-  const platform = getPlatformString();
-
-  return platform.includes("win");
-}
-
 export function getPlatformClass(): "macos" | "windows" | "other" {
   if (isMacOS()) return "macos";
-  if (isWindowsOS()) return "windows";
+  const platform = getPlatformString();
+  if (platform.includes("win")) return "windows";
   return "other";
 }
 

@@ -9,9 +9,8 @@ use db::{
     RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse, SqlClient,
 };
 use settings::{AppSettings, SavedConnection};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
@@ -19,8 +18,14 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
+
+fn is_sql_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("sql"))
+        .unwrap_or(false)
+}
 
 struct AppState {
     client: Arc<Mutex<Option<SqlClient>>>,
@@ -185,13 +190,7 @@ async fn ensure_server_object_indexing_started(
 fn extract_startup_sql_file_path() -> Option<String> {
     std::env::args_os().skip(1).find_map(|arg| {
         let path = PathBuf::from(arg);
-        let is_sql = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("sql"))
-            .unwrap_or(false);
-
-        if is_sql && path.exists() {
+        if is_sql_path(&path) && path.exists() {
             Some(path.to_string_lossy().to_string())
         } else {
             None
@@ -207,13 +206,7 @@ fn get_startup_sql_file_path() -> Option<String> {
 #[tauri::command]
 fn read_sql_file(path: String) -> Result<OpenedSqlFile, String> {
     let file_path = PathBuf::from(&path);
-    let is_sql = file_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("sql"))
-        .unwrap_or(false);
-
-    if !is_sql {
+    if !is_sql_path(&file_path) {
         return Err("Only .sql files are supported".to_string());
     }
 
@@ -239,18 +232,12 @@ fn read_sql_file(path: String) -> Result<OpenedSqlFile, String> {
 fn write_sql_file(path: String, content: String) -> Result<String, String> {
     let file_path = PathBuf::from(&path);
 
-    let is_sql = file_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("sql"))
-        .unwrap_or(false);
-    if !is_sql {
+    if !is_sql_path(&file_path) {
         return Err("Only .sql files can be written".to_string());
     }
 
     if let Some(parent) = file_path.parent() {
         if !parent.exists() {
-            // Only auto-create directories under the user's Documents folder
             let allowed_root = dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
             if !parent.starts_with(&allowed_root) {
                 return Err("Cannot create directories outside Documents folder".to_string());
@@ -271,7 +258,6 @@ fn write_sql_file(path: String, content: String) -> Result<String, String> {
 fn open_folder(path: String) -> Result<(), String> {
     let folder = PathBuf::from(&path);
     if !folder.exists() {
-        // Only auto-create directories under the user's Documents folder
         let allowed_root = dirs::document_dir().ok_or("Cannot resolve Documents folder")?;
         if !folder.starts_with(&allowed_root) {
             return Err("Cannot create directories outside Documents folder".to_string());
@@ -637,7 +623,6 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         _ => return Ok(not_connected),
     };
 
-    // Cache resolved port for faster reconnects
     if resolved_port != saved.cached_port {
         if let Some(conn) = settings
             .connections
@@ -656,8 +641,10 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 
     let databases = {
         let mut lock = state.client.lock().await;
-        let client = lock.as_mut().unwrap();
-        db::get_databases(client).await.unwrap_or_default()
+        match lock.as_mut() {
+            Some(client) => db::get_databases(client).await.unwrap_or_default(),
+            None => Vec::new(),
+        }
     };
 
     Ok(AutoConnectResult {
@@ -882,10 +869,6 @@ fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), Stri
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// SQL generation commands (logic moved from TypeScript)
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 fn extract_table_name(sql: String) -> Option<String> {
     sql_gen::extract_table_name(&sql)
@@ -907,7 +890,7 @@ fn build_row_sql(
         "update" => sql_gen::build_update_sql(&table_name, &columns, &row, &primary_key_columns),
         "delete" => sql_gen::build_delete_sql(&table_name, &columns, &row, &primary_key_columns),
         "insert" => Ok(sql_gen::build_insert_sql(&table_name, &columns, &row)),
-        _ => return Err(format!("Unknown operation: {}", operation)),
+        _ => Err(format!("Unknown operation: {}", operation)),
     }
 }
 
@@ -1013,14 +996,12 @@ async fn generate_object_script(
     object_type: String,
     action: String,
 ) -> Result<ObjectScriptResult, String> {
-    // Try static generation first (no DB access needed)
     if let Some(sql) =
         sql_gen::generate_object_script_static(&database, &schema, &name, &object_type, &action)
     {
         return Ok(ObjectScriptResult { sql });
     }
 
-    // Actions that need column metadata
     let needs_columns = matches!(
         action.as_str(),
         "script_select_columns" | "script_insert" | "script_update" | "script_delete"
@@ -1060,7 +1041,6 @@ async fn generate_object_script(
         }
     }
 
-    // Actions that need CREATE script (table)
     if action == "script_create" && object_type == "TABLE" {
         let script_result = {
             let mut lock = state.client.lock().await;
@@ -1084,7 +1064,6 @@ async fn generate_object_script(
         }
     }
 
-    // Actions that need object definition (alter, view_definition, jump for procs/funcs/triggers)
     let needs_definition = matches!(action.as_str(), "script_alter" | "view_definition" | "jump")
         && matches!(
             object_type.as_str(),
@@ -1124,7 +1103,6 @@ async fn generate_object_script(
         }
     }
 
-    // Fallback
     let sql = sql_gen::generate_object_script_definition_fallback(
         &database,
         &schema,
@@ -1146,7 +1124,30 @@ pub fn run() {
         }
     }));
 
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance plugin must be registered before any other plugin so the
+    // secondary process exits cleanly. Mac uses RunEvent::Opened instead.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            for arg in args.iter().skip(1) {
+                let path = PathBuf::from(arg);
+                if is_sql_path(&path) && path.exists() {
+                    let _ = app.emit(SQL_FILE_OPENED_EVENT, path.to_string_lossy().to_string());
+                    break;
+                }
+            }
+        }));
+    }
+
+    let app = builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1156,7 +1157,6 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
-            // Show window after a small delay to ensure it's rendered
             let window_clone = window.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -1233,13 +1233,7 @@ pub fn run() {
                     continue;
                 };
 
-                let is_sql = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
-                    .unwrap_or(false);
-
-                if is_sql {
+                if is_sql_path(&path) {
                     let _ =
                         app_handle.emit(SQL_FILE_OPENED_EVENT, path.to_string_lossy().to_string());
                 }

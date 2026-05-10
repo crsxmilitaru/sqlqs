@@ -1,6 +1,8 @@
 export function joinPath(...segments: string[]): string {
-  const joined = segments
-    .filter(Boolean)
+  const filtered = segments.filter(Boolean);
+  const isUnc = filtered.length > 0 && /^[\\/]{2}/.test(filtered[0]);
+
+  const joined = filtered
     .map((segment, index) => {
       const normalized = segment.replace(/\\/g, "/");
       return index === 0
@@ -8,9 +10,14 @@ export function joinPath(...segments: string[]): string {
         : normalized.replace(/^\/+|\/+$/g, "");
     })
     .join("/");
-  // Preserve native backslashes on Windows paths (e.g. C:/Users → C:\Users)
+
+  // Convert to native Windows separators for drive-letter (`C:\…`) and UNC
+  // (`\\server\share\…`) paths. Mac/Linux paths fall through with `/`.
   if (/^[A-Za-z]:/.test(joined)) {
     return joined.replace(/\//g, "\\");
+  }
+  if (isUnc) {
+    return "\\\\" + joined.replace(/^\/+/, "").replace(/\//g, "\\");
   }
   return joined;
 }

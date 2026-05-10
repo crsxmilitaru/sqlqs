@@ -19,10 +19,6 @@ fn default_true() -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------
-// Identifier & literal helpers
-// ---------------------------------------------------------------------------
-
 pub fn quote_identifier(name: &str) -> String {
     format!("[{}]", name.replace(']', "]]"))
 }
@@ -59,10 +55,6 @@ pub fn sql_literal(value: &serde_json::Value) -> String {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// SQL comment stripping & table-name extraction
-// ---------------------------------------------------------------------------
 
 pub fn strip_comments(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
@@ -122,7 +114,6 @@ fn extract_after_keyword(sql: &str, keyword: &str) -> Option<String> {
     while let Some(pos) = lower[search_start..].find(keyword) {
         let abs_pos = search_start + pos;
 
-        // word boundary before
         if abs_pos > 0 {
             let prev = sql.as_bytes()[abs_pos - 1];
             if prev.is_ascii_alphanumeric() || prev == b'_' {
@@ -130,7 +121,6 @@ fn extract_after_keyword(sql: &str, keyword: &str) -> Option<String> {
                 continue;
             }
         }
-        // word boundary after
         let after_pos = abs_pos + keyword.len();
         if after_pos < sql.len() {
             let next = sql.as_bytes()[after_pos];
@@ -146,7 +136,7 @@ fn extract_after_keyword(sql: &str, keyword: &str) -> Option<String> {
         }
 
         let name = parse_table_identifier(rest)?;
-        let trimmed = name.trim_end_matches(|c: char| c == ';' || c == ',');
+        let trimmed = name.trim_end_matches([';', ',']);
         if !trimmed.is_empty() {
             return Some(trimmed.to_string());
         }
@@ -219,10 +209,6 @@ fn parse_table_identifier(s: &str) -> Option<String> {
         Some(result)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Row-level SQL builders (UPDATE / DELETE / INSERT)
-// ---------------------------------------------------------------------------
 
 fn find_column_index(columns: &[ColumnDef], name: &str) -> Option<usize> {
     columns.iter().position(|col| col.name == name).or_else(|| {
@@ -390,10 +376,6 @@ pub fn build_delete_sql_with_primary_key(
     Ok(wrap_single_row_dml(&dml))
 }
 
-// ---------------------------------------------------------------------------
-// Export helpers (CSV / JSON)
-// ---------------------------------------------------------------------------
-
 pub fn export_csv(
     path: &str,
     columns: &[ColumnDef],
@@ -504,7 +486,7 @@ pub fn export_xlsx(
                             .map_err(|e| format!("XLSX write error: {e}"))?;
                     } else {
                         sheet
-                            .write_string(row_idx, col_idx, &n.to_string())
+                            .write_string(row_idx, col_idx, n.to_string())
                             .map_err(|e| format!("XLSX write error: {e}"))?;
                     }
                     if let Some(w) = col_widths.get_mut(ci) {
@@ -549,10 +531,6 @@ pub fn export_xlsx(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Object-script generation (explorer menu & jump palette)
-// ---------------------------------------------------------------------------
-
 pub fn generate_object_script_static(
     database: &str,
     schema: &str,
@@ -565,7 +543,6 @@ pub fn generate_object_script_static(
     let qn = quote_identifier(name);
 
     match (object_type, action) {
-        // TABLE / VIEW -------------------------------------------------------
         ("TABLE" | "VIEW", "select_top_100") | ("TABLE" | "VIEW", "jump") => {
             Some(format!("SELECT TOP 100 * FROM {full}"))
         }
@@ -618,13 +595,10 @@ pub fn generate_object_script_static(
             ))
         }
 
-        // PROCEDURE ----------------------------------------------------------
         ("PROCEDURE", "exec") | ("PROCEDURE", "jump") => Some(format!("EXEC {full}")),
 
-        // FUNCTION -----------------------------------------------------------
         ("FUNCTION", "script_select") | ("FUNCTION", "jump") => Some(format!("SELECT {full}()")),
 
-        // TRIGGER ------------------------------------------------------------
         ("TRIGGER", "trigger_details") => {
             let qdb = quote_identifier(database);
             Some(format!(
@@ -649,7 +623,6 @@ pub fn generate_object_script_static(
             ))
         }
 
-        // TYPE ---------------------------------------------------------------
         ("TYPE", "view_definition") | ("TYPE", "jump") => {
             let qdb = quote_identifier(database);
             Some(format!(
@@ -660,7 +633,6 @@ pub fn generate_object_script_static(
         }
         ("TYPE", "script_drop") => Some(format!("DROP TYPE {full}")),
 
-        // DEPENDENCIES (sys.dm_sql_referencing/referenced_entities) ---------
         // sp_executesql is invoked in the target database via 3-part name so
         // the calling session's database context is preserved.
         ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "referencing_entities") => {
@@ -686,7 +658,6 @@ pub fn generate_object_script_static(
             ))
         }
 
-        // RENAME (sp_rename) -------------------------------------------------
         ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "script_rename") => {
             let qdb = quote_identifier(database);
             let old_qualified = format!("{qs}.{qn}");
@@ -706,7 +677,6 @@ pub fn generate_object_script_static(
             ))
         }
 
-        // Default SELECT for unknown types
         (_, "jump") => Some(format!("SELECT * FROM {full}")),
 
         _ => None,
@@ -869,33 +839,61 @@ pub fn generate_object_script_definition_fallback(
     }
 }
 
-/// Simple CREATE→ALTER replacement in SQL definitions.
+/// Rewrites `CREATE <kind>` (and `CREATE OR ALTER <kind>`) to `ALTER <kind>`.
 fn alter_replace(definition: &str, keyword_pattern: &str) -> String {
-    // Build a case-insensitive search for "CREATE <keyword>"
-    // keyword_pattern can be e.g. "PROC(?:EDURE)?" but we only need simple matching here.
-    // We'll do a simple case-insensitive search for "CREATE " followed by the keyword.
-    let lower = definition.to_lowercase();
-    let keywords: Vec<&str> = match keyword_pattern {
-        "PROC(?:EDURE)?" => vec!["procedure", "proc"],
-        "FUNCTION" => vec!["function"],
-        "TRIGGER" => vec!["trigger"],
-        "VIEW" => vec!["view"],
-        _ => vec![],
+    let keywords: &[&str] = match keyword_pattern {
+        "PROC(?:EDURE)?" => &["procedure", "proc"],
+        "FUNCTION" => &["function"],
+        "TRIGGER" => &["trigger"],
+        "VIEW" => &["view"],
+        _ => return definition.to_string(),
     };
 
-    for kw in keywords {
-        let pattern = format!("create ");
-        if let Some(create_pos) = lower.find(&pattern) {
-            let after_create = &lower[create_pos + 7..].trim_start();
-            if after_create.starts_with(kw) {
-                // Find the actual position in the original string
-                let rest_start = create_pos + 7;
-                let trimmed_offset =
-                    lower[rest_start..].len() - lower[rest_start..].trim_start().len();
-                let kw_start = rest_start + trimmed_offset;
-                let kw_end = kw_start + kw.len();
-                // Preserve the original case of the keyword
-                let original_kw = &definition[kw_start..kw_end];
+    let lower = definition.to_lowercase();
+    let bytes = lower.as_bytes();
+    let len = bytes.len();
+
+    let is_word_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let boundary_before = |pos: usize| pos == 0 || !is_word_char(bytes[pos - 1]);
+    let boundary_after = |pos: usize| pos >= len || !is_word_char(bytes[pos]);
+    let skip_ws = |mut pos: usize| {
+        while pos < len && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        pos
+    };
+    let match_kw = |pos: usize, kw: &str| -> Option<usize> {
+        let end = pos + kw.len();
+        if end <= len && &lower[pos..end] == kw && boundary_after(end) {
+            Some(end)
+        } else {
+            None
+        }
+    };
+
+    let mut search_from = 0;
+    while let Some(rel) = lower[search_from..].find("create") {
+        let create_pos = search_from + rel;
+        let create_end = create_pos + "create".len();
+
+        if !boundary_before(create_pos) || !boundary_after(create_end) {
+            search_from = create_pos + 1;
+            continue;
+        }
+
+        let mut cursor = skip_ws(create_end);
+
+        // Optional "OR ALTER" between CREATE and the kind keyword.
+        if let Some(or_end) = match_kw(cursor, "or") {
+            let after_or = skip_ws(or_end);
+            if let Some(alter_end) = match_kw(after_or, "alter") {
+                cursor = skip_ws(alter_end);
+            }
+        }
+
+        for kw in keywords {
+            if let Some(kw_end) = match_kw(cursor, kw) {
+                let original_kw = &definition[cursor..kw_end];
                 return format!(
                     "{}ALTER {}{}",
                     &definition[..create_pos],
@@ -904,6 +902,8 @@ fn alter_replace(definition: &str, keyword_pattern: &str) -> String {
                 );
             }
         }
+
+        search_from = create_pos + 1;
     }
 
     definition.to_string()
@@ -964,6 +964,54 @@ mod tests {
         assert!(sql.contains("[Name] = N'After'"));
         assert!(!sql.contains("[Name] = N'Before'"));
         assert!(!sql.contains("[Id] = 7,"));
+    }
+
+    #[test]
+    fn alter_replace_rewrites_create_to_alter() {
+        let sql = "CREATE PROCEDURE [dbo].[Foo] AS SELECT 1";
+        let altered = alter_replace(sql, "PROC(?:EDURE)?");
+        assert_eq!(altered, "ALTER PROCEDURE [dbo].[Foo] AS SELECT 1");
+    }
+
+    #[test]
+    fn alter_replace_rewrites_create_or_alter_to_alter() {
+        let sql = "CREATE OR ALTER PROCEDURE [dbo].[Foo] AS SELECT 1";
+        let altered = alter_replace(sql, "PROC(?:EDURE)?");
+        assert_eq!(altered, "ALTER PROCEDURE [dbo].[Foo] AS SELECT 1");
+    }
+
+    #[test]
+    fn alter_replace_handles_extra_whitespace_in_create_or_alter() {
+        let sql = "CREATE   OR\nALTER  VIEW [dbo].[V] AS SELECT 1";
+        let altered = alter_replace(sql, "VIEW");
+        assert_eq!(altered, "ALTER VIEW [dbo].[V] AS SELECT 1");
+    }
+
+    #[test]
+    fn alter_replace_preserves_keyword_casing() {
+        let sql = "create Function dbo.Foo() RETURNS int AS BEGIN RETURN 1 END";
+        let altered = alter_replace(sql, "FUNCTION");
+        assert_eq!(
+            altered,
+            "ALTER Function dbo.Foo() RETURNS int AS BEGIN RETURN 1 END"
+        );
+    }
+
+    #[test]
+    fn alter_replace_skips_create_in_string_or_unrelated_word() {
+        // "creates" should not match "create" — word boundary check
+        let sql = "-- creates foo\nCREATE OR ALTER TRIGGER tr ON dbo.T AFTER INSERT AS SELECT 1";
+        let altered = alter_replace(sql, "TRIGGER");
+        assert_eq!(
+            altered,
+            "-- creates foo\nALTER TRIGGER tr ON dbo.T AFTER INSERT AS SELECT 1"
+        );
+    }
+
+    #[test]
+    fn alter_replace_returns_original_when_no_match() {
+        let sql = "SELECT 1";
+        assert_eq!(alter_replace(sql, "PROC(?:EDURE)?"), sql);
     }
 
     #[test]

@@ -36,7 +36,9 @@ export function useAppUpdater() {
     message: null,
     tone: "info",
   });
-  const [updateAvailable, setUpdateAvailable] = createSignal<Update | null>(null);
+  const [updateAvailable, setUpdateAvailable] = createSignal<Update | null>(
+    null,
+  );
   let isChecking = false;
 
   onMount(async () => {
@@ -62,7 +64,8 @@ export function useAppUpdater() {
     if (
       normalized.includes("public key") ||
       normalized.includes("pubkey") ||
-      (normalized.includes("signature") && normalized.includes("could not be decoded"))
+      (normalized.includes("signature") &&
+        normalized.includes("could not be decoded"))
     ) {
       return {
         message: INVALID_UPDATER_SIGNATURE_MESSAGE,
@@ -71,7 +74,11 @@ export function useAppUpdater() {
       };
     }
 
-    if (normalized.includes("could not fetch a valid release json from the remote")) {
+    if (
+      normalized.includes(
+        "could not fetch a valid release json from the remote",
+      )
+    ) {
       return {
         message: NO_RELEASE_METADATA_MESSAGE,
         configurationIssue: false,
@@ -86,7 +93,9 @@ export function useAppUpdater() {
     };
   };
 
-  const checkForUpdates = async (manual: boolean): Promise<UpdateCheckResult> => {
+  const checkForUpdates = async (
+    manual: boolean,
+  ): Promise<UpdateCheckResult> => {
     if (isChecking) {
       return "skipped";
     }

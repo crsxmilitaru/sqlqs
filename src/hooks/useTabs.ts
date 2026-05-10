@@ -14,7 +14,11 @@ function isTemporarySource(sourceId?: string) {
   return sourceId?.startsWith("history:") || sourceId?.startsWith("saved:");
 }
 
-function createTab(sql = "", temporary?: boolean, id = `tab-${tabCounter++}`): QueryTab {
+function createTab(
+  sql = "",
+  temporary?: boolean,
+  id = `tab-${tabCounter++}`,
+): QueryTab {
   const normalizedSql = normalizeSql(sql);
   return {
     id,
@@ -51,7 +55,6 @@ export function useTabs() {
   const [activeTabId, setActiveTabId] = createSignal(tabsStore[0]?.id ?? "");
 
   createEffect(() => {
-    // Track each tab field used in persistence so the effect reruns on edits.
     const snapshot = tabsStore.map((t) => ({
       title: t.title,
       sql: t.sql,
@@ -213,7 +216,11 @@ export function useTabs() {
     const newTab = createTab(tab.sql);
     newTab.title = tab.title;
     newTab.userTitle = tab.userTitle;
-    setTabsStore(produce((draft) => { draft.push(newTab); }));
+    setTabsStore(
+      produce((draft) => {
+        draft.push(newTab);
+      }),
+    );
     setActiveTabId(newTab.id);
     return newTab.id;
   };
@@ -225,8 +232,15 @@ export function useTabs() {
     const tab = current[tabIndex];
     const newPinned = !tab.pinned;
     const next = current.filter((t) => t.id !== tabId);
-    const updatedTab: QueryTab = { ...tab, pinned: newPinned || undefined, temporary: undefined };
-    const lastPinnedIndex = next.reduce((acc, t, i) => (t.pinned ? i : acc), -1);
+    const updatedTab: QueryTab = {
+      ...tab,
+      pinned: newPinned || undefined,
+      temporary: undefined,
+    };
+    const lastPinnedIndex = next.reduce(
+      (acc, t, i) => (t.pinned ? i : acc),
+      -1,
+    );
     next.splice(lastPinnedIndex + 1, 0, updatedTab);
     setTabsStore(next);
   };

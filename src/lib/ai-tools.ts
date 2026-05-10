@@ -28,7 +28,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_database_schema",
     name: "get_database_schema",
     label: "Database Schema",
-    description: "List all tables, views, procedures, and functions with their columns in the current database",
+    description:
+      "List all tables, views, procedures, and functions with their columns in the current database",
     icon: "fa-solid fa-database",
     parameters: {
       type: "OBJECT",
@@ -39,7 +40,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_table_columns",
     name: "get_table_columns",
     label: "Table Columns",
-    description: "Get detailed column information (name, data type) for a specific table or view",
+    description:
+      "Get detailed column information (name, data type) for a specific table or view",
     icon: "fa-solid fa-table-columns",
     parameters: {
       type: "OBJECT",
@@ -54,7 +56,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_table_indexes",
     name: "get_table_indexes",
     label: "Table Indexes",
-    description: "Get index definitions for a specific table, including primary keys and unique constraints",
+    description:
+      "Get index definitions for a specific table, including primary keys and unique constraints",
     icon: "fa-solid fa-list-ol",
     parameters: {
       type: "OBJECT",
@@ -69,7 +72,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_foreign_keys",
     name: "get_foreign_keys",
     label: "Foreign Keys",
-    description: "Get foreign key relationships for a specific table, showing which columns reference other tables",
+    description:
+      "Get foreign key relationships for a specific table, showing which columns reference other tables",
     icon: "fa-solid fa-link",
     parameters: {
       type: "OBJECT",
@@ -84,13 +88,17 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_object_definition",
     name: "get_object_definition",
     label: "Object Definition",
-    description: "Get the T-SQL source code of a view, stored procedure, or function",
+    description:
+      "Get the T-SQL source code of a view, stored procedure, or function",
     icon: "fa-solid fa-file-code",
     parameters: {
       type: "OBJECT",
       properties: {
         schema_name: { type: "STRING", description: "Schema name, e.g. dbo" },
-        object_name: { type: "STRING", description: "Name of the view, stored procedure, or function" },
+        object_name: {
+          type: "STRING",
+          description: "Name of the view, stored procedure, or function",
+        },
       },
       required: ["schema_name", "object_name"],
     },
@@ -99,7 +107,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_current_editor_query",
     name: "get_current_editor_query",
     label: "Current Editor Query",
-    description: "Get the SQL code currently written in the user's query editor tab",
+    description:
+      "Get the SQL code currently written in the user's query editor tab",
     icon: "fa-solid fa-code",
     parameters: {
       type: "OBJECT",
@@ -110,7 +119,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "get_selected_editor_query",
     name: "get_selected_editor_query",
     label: "Selected Editor SQL",
-    description: "Get the SQL code currently selected in the user's query editor tab",
+    description:
+      "Get the SQL code currently selected in the user's query editor tab",
     icon: "fa-solid fa-i-cursor",
     parameters: {
       type: "OBJECT",
@@ -132,7 +142,8 @@ export const AI_TOOLS: AiTool[] = [
     id: "list_databases",
     name: "list_databases",
     label: "List Databases",
-    description: "List all databases available on the connected SQL Server instance",
+    description:
+      "List all databases available on the connected SQL Server instance",
     icon: "fa-solid fa-server",
     parameters: {
       type: "OBJECT",
@@ -145,7 +156,7 @@ export function loadEnabledTools(): Set<string> {
   try {
     const stored = localStorage.getItem(TOOLS_STORAGE_KEY);
     if (stored) return new Set(JSON.parse(stored));
-  } catch { /* use defaults */ }
+  } catch {}
   return new Set(AI_TOOLS.map((t) => t.id));
 }
 
@@ -154,13 +165,11 @@ export function saveEnabledTools(enabled: Set<string>) {
 }
 
 export function getEnabledToolDeclarations(enabled: Set<string>) {
-  return AI_TOOLS
-    .filter((t) => enabled.has(t.id))
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    }));
+  return AI_TOOLS.filter((t) => enabled.has(t.id)).map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+  }));
 }
 
 export function getToolLabel(name: string): string {
@@ -176,16 +185,24 @@ export async function executeTool(
 
   switch (toolName) {
     case "get_database_schema": {
-      const schemaContext = await invoke<AiSchemaContext>("get_ai_schema_context");
-      return schemaContext.schema_summary || "No schema available (not connected or no objects found).";
+      const schemaContext = await invoke<AiSchemaContext>(
+        "get_ai_schema_context",
+      );
+      return (
+        schemaContext.schema_summary ||
+        "No schema available (not connected or no objects found)."
+      );
     }
 
     case "get_table_columns": {
-      const columns = await invoke<{ name: string; type_name: string }[]>("get_columns", {
-        database: db,
-        schema: args.schema_name || "dbo",
-        table: args.table_name,
-      });
+      const columns = await invoke<{ name: string; type_name: string }[]>(
+        "get_columns",
+        {
+          database: db,
+          schema: args.schema_name || "dbo",
+          table: args.table_name,
+        },
+      );
       if (columns.length === 0) return "No columns found for this table.";
       return columns.map((c) => `${c.name} ${c.type_name}`).join("\n");
     }

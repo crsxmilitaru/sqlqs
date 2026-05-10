@@ -2,19 +2,92 @@ import { type Diagnostic } from "@codemirror/lint";
 import type { EditorView } from "@codemirror/view";
 
 const SQL_KEYWORDS = new Set([
-  "SELECT", "FROM", "WHERE", "INSERT", "INTO", "UPDATE", "SET", "DELETE",
-  "CREATE", "ALTER", "DROP", "TABLE", "VIEW", "INDEX", "PROCEDURE", "FUNCTION",
-  "TRIGGER", "BEGIN", "END", "IF", "ELSE", "WHILE", "RETURN", "DECLARE",
-  "EXEC", "EXECUTE", "WITH", "AS", "JOIN", "INNER", "LEFT", "RIGHT", "FULL",
-  "OUTER", "CROSS", "ON", "AND", "OR", "NOT", "IN", "EXISTS", "BETWEEN",
-  "LIKE", "IS", "NULL", "CASE", "WHEN", "THEN", "ORDER", "BY", "GROUP",
-  "HAVING", "UNION", "ALL", "TOP", "DISTINCT", "VALUES", "GO", "USE",
-  "GRANT", "REVOKE", "DENY", "MERGE", "TRUNCATE", "ROLLBACK", "COMMIT",
-  "TRANSACTION", "TRY", "CATCH", "THROW", "PRINT", "RAISERROR",
+  "SELECT",
+  "FROM",
+  "WHERE",
+  "INSERT",
+  "INTO",
+  "UPDATE",
+  "SET",
+  "DELETE",
+  "CREATE",
+  "ALTER",
+  "DROP",
+  "TABLE",
+  "VIEW",
+  "INDEX",
+  "PROCEDURE",
+  "FUNCTION",
+  "TRIGGER",
+  "BEGIN",
+  "END",
+  "IF",
+  "ELSE",
+  "WHILE",
+  "RETURN",
+  "DECLARE",
+  "EXEC",
+  "EXECUTE",
+  "WITH",
+  "AS",
+  "JOIN",
+  "INNER",
+  "LEFT",
+  "RIGHT",
+  "FULL",
+  "OUTER",
+  "CROSS",
+  "ON",
+  "AND",
+  "OR",
+  "NOT",
+  "IN",
+  "EXISTS",
+  "BETWEEN",
+  "LIKE",
+  "IS",
+  "NULL",
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ORDER",
+  "BY",
+  "GROUP",
+  "HAVING",
+  "UNION",
+  "ALL",
+  "TOP",
+  "DISTINCT",
+  "VALUES",
+  "GO",
+  "USE",
+  "GRANT",
+  "REVOKE",
+  "DENY",
+  "MERGE",
+  "TRUNCATE",
+  "ROLLBACK",
+  "COMMIT",
+  "TRANSACTION",
+  "TRY",
+  "CATCH",
+  "THROW",
+  "PRINT",
+  "RAISERROR",
 ]);
 
 interface Token {
-  type: "keyword" | "string" | "comment" | "paren" | "operator" | "identifier" | "number" | "semicolon" | "comma" | "other";
+  type:
+    | "keyword"
+    | "string"
+    | "comment"
+    | "paren"
+    | "operator"
+    | "identifier"
+    | "number"
+    | "semicolon"
+    | "comma"
+    | "other";
   value: string;
   from: number;
   to: number;
@@ -25,32 +98,39 @@ function tokenize(text: string): Token[] {
   let i = 0;
 
   while (i < text.length) {
-    // Whitespace
     if (/\s/.test(text[i])) {
       i++;
       continue;
     }
 
-    // Single-line comment
     if (text[i] === "-" && text[i + 1] === "-") {
       const start = i;
       while (i < text.length && text[i] !== "\n") i++;
-      tokens.push({ type: "comment", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "comment",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // Block comment
     if (text[i] === "/" && text[i + 1] === "*") {
       const start = i;
       i += 2;
-      while (i < text.length - 1 && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      while (i < text.length - 1 && !(text[i] === "*" && text[i + 1] === "/"))
+        i++;
       if (i < text.length - 1) i += 2;
       else i = text.length;
-      tokens.push({ type: "comment", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "comment",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // String literal (single quotes)
     if (text[i] === "'") {
       const start = i;
       i++;
@@ -64,58 +144,71 @@ function tokenize(text: string): Token[] {
           i++;
         }
       }
-      tokens.push({ type: "string", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "string",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // Bracketed identifier [...]
     if (text[i] === "[") {
       const start = i;
       i++;
       while (i < text.length && text[i] !== "]") i++;
       if (i < text.length) i++;
-      tokens.push({ type: "identifier", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "identifier",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // Parentheses
     if (text[i] === "(" || text[i] === ")") {
       tokens.push({ type: "paren", value: text[i], from: i, to: i + 1 });
       i++;
       continue;
     }
 
-    // Semicolon
     if (text[i] === ";") {
       tokens.push({ type: "semicolon", value: ";", from: i, to: i + 1 });
       i++;
       continue;
     }
 
-    // Comma
     if (text[i] === ",") {
       tokens.push({ type: "comma", value: ",", from: i, to: i + 1 });
       i++;
       continue;
     }
 
-    // Operators
     if (/[+\-*/<>=!%&|^~]/.test(text[i])) {
       const start = i;
       while (i < text.length && /[+\-*/<>=!%&|^~]/.test(text[i])) i++;
-      tokens.push({ type: "operator", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "operator",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // Numbers
     if (/\d/.test(text[i])) {
       const start = i;
       while (i < text.length && /[\d.]/.test(text[i])) i++;
-      tokens.push({ type: "number", value: text.slice(start, i), from: start, to: i });
+      tokens.push({
+        type: "number",
+        value: text.slice(start, i),
+        from: start,
+        to: i,
+      });
       continue;
     }
 
-    // Words (keywords or identifiers)
     if (/[a-zA-Z_@#]/.test(text[i])) {
       const start = i;
       while (i < text.length && /[a-zA-Z0-9_@#$.]/.test(text[i])) i++;
@@ -130,7 +223,6 @@ function tokenize(text: string): Token[] {
       continue;
     }
 
-    // Unknown character — skip
     i++;
   }
 
@@ -146,7 +238,10 @@ function splitStatements(tokens: Token[]): StatementTokens[] {
   for (const token of tokens) {
     if (token.type === "comment") continue;
 
-    if (token.type === "semicolon" || (token.type === "keyword" && token.value.toUpperCase() === "GO")) {
+    if (
+      token.type === "semicolon" ||
+      (token.type === "keyword" && token.value.toUpperCase() === "GO")
+    ) {
       if (current.length > 0) {
         statements.push(current);
         current = [];
@@ -168,7 +263,8 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   if (tokens.length === 0) return diagnostics;
 
-  const firstKeyword = tokens[0].type === "keyword" ? tokens[0].value.toUpperCase() : null;
+  const firstKeyword =
+    tokens[0].type === "keyword" ? tokens[0].value.toUpperCase() : null;
 
   // SELECT without FROM. We only consider depth-0 tokens so scalar subqueries
   // (SELECT (SELECT 1) AS x) and CTE-style nested SELECTs do not trigger the warning.
@@ -192,7 +288,12 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
         const kw = t.value.toUpperCase();
         if (kw === "FROM") hasFromAtDepth0 = true;
         else if (kw === "INTO") hasIntoAtDepth0 = true;
-        else if (kw === "WHERE" || kw === "GROUP" || kw === "HAVING" || kw === "ORDER") {
+        else if (
+          kw === "WHERE" ||
+          kw === "GROUP" ||
+          kw === "HAVING" ||
+          kw === "ORDER"
+        ) {
           hasFilterClause = true;
         }
       }
@@ -200,7 +301,11 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
       // A qualified identifier like `schema.table` or `t.col` strongly suggests a
       // table reference. Skip if it's followed by `(`, which indicates a function call
       // such as `dbo.GetDate()`.
-      if (t.type === "identifier" && !t.value.startsWith("@") && t.value.includes(".")) {
+      if (
+        t.type === "identifier" &&
+        !t.value.startsWith("@") &&
+        t.value.includes(".")
+      ) {
         const next = tokens[i + 1];
         if (!(next?.type === "paren" && next.value === "(")) {
           hasQualifiedRef = true;
@@ -208,7 +313,11 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
       }
     }
 
-    if (!hasFromAtDepth0 && !hasIntoAtDepth0 && (hasFilterClause || hasQualifiedRef)) {
+    if (
+      !hasFromAtDepth0 &&
+      !hasIntoAtDepth0 &&
+      (hasFilterClause || hasQualifiedRef)
+    ) {
       const selectToken = tokens[0];
       diagnostics.push({
         from: selectToken.from,
@@ -219,7 +328,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     }
   }
 
-  // FROM without SELECT (standalone FROM is invalid unless in DELETE/UPDATE context)
   if (firstKeyword === "FROM") {
     diagnostics.push({
       from: tokens[0].from,
@@ -229,7 +337,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     });
   }
 
-  // WHERE without SELECT/UPDATE/DELETE
   if (firstKeyword === "WHERE") {
     diagnostics.push({
       from: tokens[0].from,
@@ -239,9 +346,10 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     });
   }
 
-  // INSERT without INTO
   if (firstKeyword === "INSERT") {
-    const hasInto = tokens.some(t => t.type === "keyword" && t.value.toUpperCase() === "INTO");
+    const hasInto = tokens.some(
+      (t) => t.type === "keyword" && t.value.toUpperCase() === "INTO",
+    );
     if (!hasInto) {
       diagnostics.push({
         from: tokens[0].from,
@@ -252,9 +360,10 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     }
   }
 
-  // UPDATE without SET
   if (firstKeyword === "UPDATE") {
-    const hasSet = tokens.some(t => t.type === "keyword" && t.value.toUpperCase() === "SET");
+    const hasSet = tokens.some(
+      (t) => t.type === "keyword" && t.value.toUpperCase() === "SET",
+    );
     if (!hasSet) {
       diagnostics.push({
         from: tokens[0].from,
@@ -265,9 +374,10 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     }
   }
 
-  // DELETE without FROM
   if (firstKeyword === "DELETE") {
-    const hasFrom = tokens.some(t => t.type === "keyword" && t.value.toUpperCase() === "FROM");
+    const hasFrom = tokens.some(
+      (t) => t.type === "keyword" && t.value.toUpperCase() === "FROM",
+    );
     if (!hasFrom) {
       // DELETE can also be used without FROM in T-SQL (DELETE tablename WHERE...)
       const nextToken = tokens[1];
@@ -282,7 +392,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     }
   }
 
-  // Unmatched parentheses
   let parenDepth = 0;
   let firstUnmatched: Token | null = null;
   for (const token of tokens) {
@@ -311,12 +420,15 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     });
   }
 
-  // ORDER BY without BY
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type === "keyword" && t.value.toUpperCase() === "ORDER") {
       const next = tokens[i + 1];
-      if (!next || next.type !== "keyword" || next.value.toUpperCase() !== "BY") {
+      if (
+        !next ||
+        next.type !== "keyword" ||
+        next.value.toUpperCase() !== "BY"
+      ) {
         diagnostics.push({
           from: t.from,
           to: t.to,
@@ -327,12 +439,15 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
     }
   }
 
-  // GROUP BY without BY
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type === "keyword" && t.value.toUpperCase() === "GROUP") {
       const next = tokens[i + 1];
-      if (!next || next.type !== "keyword" || next.value.toUpperCase() !== "BY") {
+      if (
+        !next ||
+        next.type !== "keyword" ||
+        next.value.toUpperCase() !== "BY"
+      ) {
         diagnostics.push({
           from: t.from,
           to: t.to,
@@ -351,14 +466,14 @@ function lintUnclosedStrings(text: string): Diagnostic[] {
   let i = 0;
 
   while (i < text.length) {
-    // Skip comments
     if (text[i] === "-" && text[i + 1] === "-") {
       while (i < text.length && text[i] !== "\n") i++;
       continue;
     }
     if (text[i] === "/" && text[i + 1] === "*") {
       i += 2;
-      while (i < text.length - 1 && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      while (i < text.length - 1 && !(text[i] === "*" && text[i + 1] === "/"))
+        i++;
       if (i < text.length - 1) i += 2;
       else i = text.length;
       continue;

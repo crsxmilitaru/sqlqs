@@ -15,5 +15,13 @@ export default defineConfig({
   optimizeDeps: {
     entries: ["index.html"],
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rolldownOptions: {
+      checks: {
+        pluginTimings: false,
+      },
+    },
+  },
   clearScreen: false,
 });

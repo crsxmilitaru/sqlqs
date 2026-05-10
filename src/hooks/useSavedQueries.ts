@@ -1,4 +1,5 @@
 import { createSignal, createEffect } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { getSavedQueriesDir, joinPath } from "../lib/path";
 
 export interface SavedQuery {
@@ -33,7 +34,7 @@ function loadSavedQueries(): SavedQuery[] {
         typeof q.title === "string" &&
         typeof q.fileName === "string" &&
         typeof q.filePath === "string" &&
-        typeof q.savedAt === "number"
+        typeof q.savedAt === "number",
     );
   } catch {
     return [];
@@ -41,7 +42,8 @@ function loadSavedQueries(): SavedQuery[] {
 }
 
 export function useSavedQueries() {
-  const [savedQueries, setSavedQueries] = createSignal<SavedQuery[]>(loadSavedQueries());
+  const [savedQueries, setSavedQueries] =
+    createSignal<SavedQuery[]>(loadSavedQueries());
 
   createEffect(() => {
     const queries = savedQueries();
@@ -52,17 +54,20 @@ export function useSavedQueries() {
       }
 
       localStorage.setItem(SAVED_QUERIES_STORAGE_KEY, JSON.stringify(queries));
-    } catch { }
+    } catch {}
   });
 
-  const saveQuery = async (title: string, sql: string): Promise<SavedQuery | null> => {
+  const saveQuery = async (
+    title: string,
+    sql: string,
+  ): Promise<SavedQuery | null> => {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
 
       const documentsPath = await invoke<string>("get_documents_folder");
       const savedQueriesDir = getSavedQueriesDir(documentsPath);
 
-      const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
+      const sanitizedTitle =
+        title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
       const fileName = `${sanitizedTitle}.sql`;
       const filePath = joinPath(savedQueriesDir, fileName);
 
@@ -105,8 +110,9 @@ export function useSavedQueries() {
 
   const loadQueryContent = async (filePath: string): Promise<string | null> => {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<{ content: string }>("read_sql_file", { path: filePath });
+      const result = await invoke<{ content: string }>("read_sql_file", {
+        path: filePath,
+      });
       return result.content;
     } catch (err) {
       console.error("Failed to load query content:", err);

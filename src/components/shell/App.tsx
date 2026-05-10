@@ -1,0 +1,866 @@
+import {
+  createSignal,
+  createEffect,
+  onMount,
+  onCleanup,
+  Show,
+} from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useAppUpdater } from "../../hooks/useAppUpdater";
+import { useConnection } from "../../hooks/useConnection";
+import { useHistory } from "../../hooks/useHistory";
+import { useSavedQueries } from "../../hooks/useSavedQueries";
+import { useTabs } from "../../hooks/useTabs";
+import { getSavedQueriesDir, joinPath } from "../../lib/path";
+import { getPlatformClass } from "../../lib/platform";
+import { generateTabTitle } from "../../lib/sql";
+import { loadTheme } from "../../lib/theme";
+import type {
+  ConnectionConfig,
+  QueryResult,
+  QueryTab,
+  ServerObjectIndexStatus,
+} from "../../lib/types";
+import ConnectionDialog from "../dialogs/ConnectionDialog";
+import DependenciesDialog from "../dialogs/DependenciesDialog";
+import DropConfirmDialog from "../dialogs/DropConfirmDialog";
+import ObjectExplorer from "../explorer/ObjectExplorer";
+import ObjectJumpPalette, {
+  type ObjectJumpSelection,
+} from "../explorer/ObjectJumpPalette";
+import type { ExplorerObjectType } from "../explorer/ObjectMenu";
+import BackupRestoreDialog from "../dialogs/BackupRestoreDialog";
+import PropertiesDialog from "../dialogs/PropertiesDialog";
+import QueryEditorPanel from "../editor/QueryEditorPanel";
+import RenameDialog from "../dialogs/RenameDialog";
+import { invalidateSchemaCatalog } from "../editor/SqlEditor";
+import SettingsView from "../settings/SettingsView";
+import TitleBar from "./TitleBar";
+import UpdateDialog from "../dialogs/UpdateDialog";
+
+const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
+  initialized: false,
+  indexing: false,
+  database_count: 0,
+  processed_database_count: 0,
+  failed_databases: [],
+  object_count: 0,
+};
+
+const LAST_SQL_EXPORT_FOLDER_STORAGE_KEY = "sqlqs_last_sql_export_folder";
+
+function getSqlFileName(title: string): string {
+  const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
+  return /\.sql$/i.test(sanitizedTitle)
+    ? sanitizedTitle
+    : `${sanitizedTitle}.sql`;
+}
+
+function isLikelySchemaChangingSql(sql: string): boolean {
+  const withoutComments = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--.*$/gm, " ");
+  return /\b(?:CREATE\s+(?:OR\s+ALTER\s+)?(?:UNIQUE\s+)?(?:(?:NON)?CLUSTERED\s+)?|ALTER\s+|DROP\s+|TRUNCATE\s+)(TABLE|VIEW|PROCEDURE|PROC|FUNCTION|TRIGGER|TYPE|SCHEMA|INDEX|SEQUENCE|SYNONYM)\b/i.test(
+    withoutComments,
+  );
+}
+
+export default function App() {
+  const {
+    tabs,
+    activeTabId,
+    setActiveTabId,
+    addTab,
+    closeTab,
+    closeAllTabs,
+    closeOtherTabs,
+    updateTab,
+    reorderTabs,
+    duplicateTab,
+    togglePin,
+    promoteTab,
+  } = useTabs();
+
+  const {
+    connected,
+    isInitializing,
+    serverName,
+    currentDatabase,
+    databases,
+    connect,
+    disconnect,
+    changeDatabase,
+    refreshDatabases,
+  } = useConnection();
+
+  const { executedQueries, addHistory, deleteHistory, clearHistory } =
+    useHistory();
+  const { savedQueries, saveQuery, deleteQuery, loadQueryContent } =
+    useSavedQueries();
+  const {
+    appVersion,
+    updateStatus,
+    updateAvailable,
+    checkForUpdates,
+    installUpdate,
+    cancelUpdate,
+  } = useAppUpdater();
+
+  const [isConnectionDialogOpen, setIsConnectionDialogOpen] =
+    createSignal(false);
+  const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
+  const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
+  const [explorerWidth, setExplorerWidth] = createSignal(325);
+  const [theme, setTheme] = createSignal(loadTheme());
+  const [isObjectJumpOpen, setIsObjectJumpOpen] = createSignal(false);
+  const [backupRestoreDatabase, setBackupRestoreDatabase] = createSignal<
+    string | null
+  >(null);
+  const [objectJumpIndexStatus, setObjectJumpIndexStatus] =
+    createSignal<ServerObjectIndexStatus>(EMPTY_OBJECT_INDEX_STATUS);
+  const [aiChatOpen, setAiChatOpen] = createSignal(
+    localStorage.getItem("sqlqs_ai_chat_open") === "true",
+  );
+  const [propertiesTarget, setPropertiesTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [renameTarget, setRenameTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [dropTarget, setDropTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+  const [dependenciesTarget, setDependenciesTarget] = createSignal<{
+    database: string;
+    schema: string;
+    name: string;
+    objectType: ExplorerObjectType;
+  } | null>(null);
+
+  const handleShowProperties = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setPropertiesTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowRename = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setRenameTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowDrop = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setDropTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowDependencies = (
+    database: string,
+    schema: string,
+    name: string,
+    objectType: ExplorerObjectType,
+  ) => {
+    setDependenciesTarget({ database, schema, name, objectType });
+  };
+
+  createEffect(() => {
+    localStorage.setItem("sqlqs_ai_chat_open", String(aiChatOpen()));
+  });
+
+  function handleToggleAiChat() {
+    setAiChatOpen((prev) => !prev);
+  }
+
+  onMount(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void getCurrentWindow().show();
+      });
+    });
+  });
+
+  createEffect(() => {
+    const handleStorage = () => setTheme(loadTheme());
+    window.addEventListener("storage", handleStorage);
+    onCleanup(() => window.removeEventListener("storage", handleStorage));
+  });
+
+  onMount(() => {
+    const platformClass = getPlatformClass();
+    document.documentElement.dataset.platform = platformClass;
+
+    onCleanup(() => {
+      delete document.documentElement.dataset.platform;
+    });
+  });
+
+  onMount(() => {
+    const timer = setTimeout(() => {
+      void checkForUpdates(false);
+    }, 5000);
+
+    onCleanup(() => {
+      clearTimeout(timer);
+    });
+  });
+
+  function handleConnect(config: ConnectionConfig) {
+    connect(config);
+    setIsConnectionDialogOpen(false);
+  }
+
+  async function handleExecute(tabId: string, selectedSql?: string) {
+    const tab = tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+
+    const sqlToExecute = (selectedSql || tab.sql).trim();
+    if (!sqlToExecute) return;
+
+    updateTab(tabId, { isExecuting: true, error: undefined });
+
+    try {
+      const result: QueryResult = await invoke("execute_query", {
+        sql: sqlToExecute,
+      });
+      const updates: Partial<QueryTab> = { result, isExecuting: false };
+      if (!tab.userTitle) {
+        const generatedTitle = generateTabTitle(sqlToExecute);
+        if (generatedTitle) {
+          updates.title = generatedTitle;
+        }
+      }
+      updateTab(tabId, updates);
+      addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
+      if (isLikelySchemaChangingSql(sqlToExecute)) {
+        invalidateSchemaCatalog(currentDatabase());
+      }
+    } catch (err: any) {
+      updateTab(tabId, { error: String(err), isExecuting: false });
+    }
+  }
+
+  function handleOpenQueryTab({
+    sql,
+    execute,
+    title,
+    database,
+    sourceId,
+    preserveTitle,
+    temporary,
+  }: {
+    sql: string;
+    execute?: boolean;
+    title?: string;
+    database?: string;
+    sourceId?: string;
+    preserveTitle?: boolean;
+    temporary?: boolean;
+  }) {
+    if (database && database !== currentDatabase()) {
+      changeDatabase(database);
+    }
+
+    const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
+    if (execute) {
+      setTimeout(() => handleExecute(tabId, sql), 0);
+    }
+  }
+
+  function handleOpenSqlFile() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".sql,text/plain";
+
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      try {
+        const content = await file.text();
+        const title = file.name.replace(/\.sql$/i, "").trim();
+        addTab(content, title || undefined);
+      } catch (error) {
+        console.error("Failed to open SQL file:", error);
+      }
+    };
+
+    input.click();
+  }
+
+  async function handleOpenSqlFilePath(path: string) {
+    try {
+      const file = await invoke<{
+        path: string;
+        file_name: string;
+        content: string;
+      }>("read_sql_file", { path });
+
+      addTab(file.content, file.file_name, `file:${file.path}`, true);
+    } catch (error) {
+      console.error("Failed to open SQL file from path:", error);
+    }
+  }
+
+  function handleExplorerResize(e: MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = explorerWidth();
+
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(
+        325,
+        Math.min(500, startWidth + ev.clientX - startX),
+      );
+      setExplorerWidth(newWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  async function handleTabSave(tabId: string) {
+    const tab = tabs().find((t) => t.id === tabId);
+    if (!tab || !tab.sql.trim()) return;
+
+    await saveQuery(tab.title, tab.sql);
+    promoteTab(tabId);
+    updateTab(tabId, { savedSql: tab.sql });
+  }
+
+  async function handleTabSaveToFile(tabId: string) {
+    const tab = tabs().find((t) => t.id === tabId);
+    if (!tab || !tab.sql.trim()) return;
+
+    try {
+      const lastFolder = localStorage.getItem(
+        LAST_SQL_EXPORT_FOLDER_STORAGE_KEY,
+      );
+      const documentsPath = await invoke<string>("get_documents_folder");
+      const folderPath = await invoke<string | null>("pick_folder_dialog", {
+        title: "Choose a folder for your SQL file",
+        startingDirectory: lastFolder || documentsPath,
+      });
+
+      if (!folderPath) {
+        return;
+      }
+
+      const filePath = joinPath(folderPath, getSqlFileName(tab.title));
+      await invoke<string>("write_sql_file", {
+        path: filePath,
+        content: tab.sql,
+      });
+
+      localStorage.setItem(LAST_SQL_EXPORT_FOLDER_STORAGE_KEY, folderPath);
+      promoteTab(tabId);
+      updateTab(tabId, { savedSql: tab.sql });
+    } catch (error) {
+      console.error("Failed to save SQL file to chosen folder:", error);
+    }
+  }
+
+  async function handleLoadSavedQuery(filePath: string, title: string) {
+    const content = await loadQueryContent(filePath);
+    if (content) {
+      addTab(content, title, `saved:${filePath}`, true, { temporary: true });
+    }
+  }
+
+  async function handleDeleteSavedQuery(id: string) {
+    await deleteQuery(id);
+  }
+
+  async function handleOpenSavedQueriesFolder() {
+    try {
+      const documentsPath = await invoke<string>("get_documents_folder");
+      const folderPath = getSavedQueriesDir(documentsPath);
+      await invoke("open_folder", { path: folderPath });
+    } catch (err) {
+      console.error("Failed to open folder:", err);
+    }
+  }
+
+  const hasBlockingDialog = () =>
+    isConnectionDialogOpen() ||
+    isSettingsOpen() ||
+    !!updateAvailable() ||
+    backupRestoreDatabase() !== null ||
+    !!propertiesTarget() ||
+    !!renameTarget() ||
+    !!dropTarget() ||
+    !!dependenciesTarget();
+  const canOpenObjectJump = () => connected();
+
+  function handleToggleObjectJump() {
+    if (!canOpenObjectJump() || hasBlockingDialog()) {
+      return;
+    }
+
+    setIsObjectJumpOpen((prev) => !prev);
+  }
+
+  createEffect(() => {
+    let isMounted = true;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const startupPath = await invoke<string | null>(
+          "get_startup_sql_file_path",
+        );
+        if (isMounted && startupPath) {
+          await handleOpenSqlFilePath(startupPath);
+        }
+
+        unlisten = await listen<string>("sql-file-opened", async (event) => {
+          await handleOpenSqlFilePath(event.payload);
+        });
+      } catch (error) {
+        console.error("Failed to register SQL file handlers:", error);
+      }
+    })();
+
+    onCleanup(() => {
+      isMounted = false;
+      unlisten?.();
+    });
+  });
+
+  createEffect(() => {
+    const jumpOpen = isObjectJumpOpen();
+    if (jumpOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "o"
+      ) {
+        event.preventDefault();
+        handleOpenSqlFile();
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key === ","
+      ) {
+        event.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
+    if (!canOpenObjectJump() || hasBlockingDialog()) {
+      setIsObjectJumpOpen(false);
+    }
+  });
+
+  createEffect(() => {
+    const conn = connected();
+    const init = isInitializing();
+    const status = objectJumpIndexStatus();
+
+    if (!conn || init || status.initialized) {
+      return;
+    }
+
+    let cancelled = false;
+    let idleHandle: number | undefined;
+
+    const startIndexingInBackground = async () => {
+      try {
+          const newStatus = await invoke<ServerObjectIndexStatus>(
+          "start_server_object_indexing",
+        );
+
+        if (!cancelled) {
+          setObjectJumpIndexStatus(newStatus);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to start background object indexing:", error);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      if ("requestIdleCallback" in window) {
+        idleHandle = window.requestIdleCallback(
+          () => {
+            void startIndexingInBackground();
+          },
+          { timeout: 2000 },
+        );
+        return;
+      }
+
+      void startIndexingInBackground();
+    }, 900);
+
+    onCleanup(() => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (idleHandle !== undefined && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleHandle);
+      }
+    });
+  });
+
+  createEffect(() => {
+    const canOpen = canOpenObjectJump();
+    const blocking = hasBlockingDialog();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!canOpen || blocking) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const isObjectJumpHotkey =
+        ((event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          !event.altKey &&
+          key === "f") ||
+        ((event.ctrlKey || event.metaKey) &&
+          !event.shiftKey &&
+          !event.altKey &&
+          key === "p");
+
+      if (isObjectJumpHotkey) {
+        event.preventDefault();
+        setIsObjectJumpOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
+    const conn = connected();
+    const jumpOpen = isObjectJumpOpen();
+    const status = objectJumpIndexStatus();
+
+    if (!conn) {
+      setObjectJumpIndexStatus(EMPTY_OBJECT_INDEX_STATUS);
+      return;
+    }
+
+    if (!jumpOpen && !status.indexing) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const syncIndexStatus = async (startIndexing: boolean) => {
+      try {
+          const newStatus = await invoke<ServerObjectIndexStatus>(
+          startIndexing
+            ? "start_server_object_indexing"
+            : "get_server_object_index_status",
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setObjectJumpIndexStatus(newStatus);
+
+        if (newStatus.indexing) {
+          timer = window.setTimeout(() => {
+            void syncIndexStatus(false);
+          }, 700);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to sync object jump index status:", error);
+        }
+      }
+    };
+
+    void syncIndexStatus(jumpOpen && !status.initialized);
+
+    onCleanup(() => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    });
+  });
+
+  const isAnyDialogOpen = () => hasBlockingDialog() || isObjectJumpOpen();
+
+  return (
+    <div class="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-white">
+      <TitleBar
+        connected={connected()}
+        isInitializing={isInitializing()}
+        serverName={serverName()}
+        onConnect={() => setIsConnectionDialogOpen(true)}
+        onDisconnect={disconnect}
+        onOpenSqlFile={handleOpenSqlFile}
+        onShowBackupRestore={() =>
+          setBackupRestoreDatabase(currentDatabase() || databases()[0] || "")
+        }
+        onShowSettings={() => setIsSettingsOpen(true)}
+        onHideSettings={() => setIsSettingsOpen(false)}
+        settingsDisabled={isSettingsOpen()}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen())}
+        sidebarVisible={isSidebarOpen()}
+        sidebarWidth={explorerWidth()}
+        dialogOpen={isAnyDialogOpen()}
+        tabs={tabs()}
+        activeTabId={activeTabId()}
+        onTabChange={setActiveTabId}
+        onTabAdd={addTab}
+        onTabClose={closeTab}
+        onTabCloseOthers={closeOtherTabs}
+        onTabCloseAll={closeAllTabs}
+        onTabUpdate={updateTab}
+        onTabReorder={reorderTabs}
+        onTabDuplicate={duplicateTab}
+        onTabTogglePin={togglePin}
+        onTabPromote={promoteTab}
+        onTabSave={handleTabSave}
+        aiChatOpen={aiChatOpen()}
+        onToggleAiChat={handleToggleAiChat}
+        onToggleObjectJump={handleToggleObjectJump}
+        objectJumpOpen={isObjectJumpOpen()}
+        objectJumpEnabled={canOpenObjectJump()}
+        objectJumpIndexStatus={objectJumpIndexStatus()}
+        hideAppContent={isSettingsOpen()}
+      />
+
+      <div class="app-workspace flex flex-1 overflow-hidden relative">
+        {isSettingsOpen() ? (
+          <SettingsView
+            onClose={() => setIsSettingsOpen(false)}
+            version={appVersion()}
+            onCheckForUpdates={() => checkForUpdates(true)}
+            checkingForUpdates={updateStatus().checking}
+            updateMessage={updateStatus().message}
+            updateMessageTone={updateStatus().tone}
+            onThemeChange={setTheme}
+            renderLayout={(sidebar, content) => (
+              <>
+                <div
+                  style={{ width: `${explorerWidth()}px` }}
+                  class="app-sidebar-surface flex-shrink-0 overflow-hidden relative flex flex-col z-10 animate-in fade-in"
+                >
+                  {sidebar}
+                </div>
+                <div
+                  class="resizer resizer-h"
+                  onMouseDown={handleExplorerResize}
+                />
+                <main
+                  class={`flex-1 flex flex-col overflow-hidden bg-surface-panel rounded-tl-2xl border-t border-l-0 border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative`}
+                >
+                  <div class="flex-1 w-full h-full p-8 md:p-12 overflow-y-auto animate-in fade-in duration-[var(--duration-slow)]">
+                    {content}
+                  </div>
+                </main>
+              </>
+            )}
+          />
+        ) : (
+          <>
+            {connected() && isSidebarOpen() && (
+              <>
+                <div
+                  style={{ width: `${explorerWidth()}px` }}
+                  class="app-sidebar-surface flex-shrink-0 overflow-hidden relative z-10"
+                >
+                  <ObjectExplorer
+                    databases={databases()}
+                    onRefreshDatabases={refreshDatabases}
+                    onSelect={(sql, execute, title, database, sourceId) => {
+                      handleOpenQueryTab({
+                        sql,
+                        execute,
+                        title,
+                        database,
+                        sourceId,
+                      });
+                    }}
+                    onDatabaseChange={changeDatabase}
+                    currentDatabase={currentDatabase()}
+                    executedQueries={executedQueries()}
+                    onDeleteHistory={deleteHistory}
+                    onClearHistory={clearHistory}
+                    savedQueries={savedQueries()}
+                    onDeleteSavedQuery={handleDeleteSavedQuery}
+                    onLoadSavedQuery={handleLoadSavedQuery}
+                    onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
+                    onShowProperties={handleShowProperties}
+                    onShowRename={handleShowRename}
+                    onShowDrop={handleShowDrop}
+                    onShowDependencies={handleShowDependencies}
+                    onShowBackupRestore={(database) =>
+                      setBackupRestoreDatabase(database)
+                    }
+                  />
+                </div>
+                <div
+                  class="resizer resizer-h"
+                  onMouseDown={handleExplorerResize}
+                />
+              </>
+            )}
+
+            <main
+              class={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen() && connected() ? "rounded-tl-2xl border-t border-l-0" : "rounded-none border-l border-t"} border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-colors duration-[var(--duration-slow)]`}
+            >
+              <QueryEditorPanel
+                tabs={tabs()}
+                activeTabId={activeTabId()}
+                onTabAdd={addTab}
+                onOpenSqlFile={handleOpenSqlFile}
+                onTabUpdate={updateTab}
+                onExecute={handleExecute}
+                onConnect={() => setIsConnectionDialogOpen(true)}
+                connected={connected()}
+                isInitializing={isInitializing()}
+                currentDatabase={currentDatabase()}
+                databases={databases()}
+                onDatabaseChange={changeDatabase}
+                theme={theme()}
+                aiChatOpen={aiChatOpen()}
+                onAiChatOpenChange={setAiChatOpen}
+                onSave={handleTabSave}
+                onSaveToFile={handleTabSaveToFile}
+              />
+            </main>
+          </>
+        )}
+      </div>
+
+      {isConnectionDialogOpen() && (
+        <ConnectionDialog
+          onClose={() => setIsConnectionDialogOpen(false)}
+          onConnect={handleConnect}
+        />
+      )}
+
+      {updateAvailable() && (
+        <UpdateDialog
+          version={updateAvailable()!.version}
+          currentVersion={updateAvailable()!.currentVersion}
+          onInstall={() => installUpdate(updateAvailable()!)}
+          onCancel={() => cancelUpdate(updateAvailable()!)}
+        />
+      )}
+
+      <Show when={backupRestoreDatabase() !== null}>
+        <BackupRestoreDialog
+          databases={databases()}
+          currentDatabase={currentDatabase()}
+          initialDatabase={backupRestoreDatabase() || undefined}
+          onClose={() => setBackupRestoreDatabase(null)}
+          onRefreshDatabases={refreshDatabases}
+        />
+      </Show>
+
+      <ObjectJumpPalette
+        open={isObjectJumpOpen()}
+        connected={connected()}
+        currentDatabase={currentDatabase()}
+        indexStatus={objectJumpIndexStatus()}
+        onClose={() => setIsObjectJumpOpen(false)}
+        onSelect={(selection: ObjectJumpSelection) =>
+          handleOpenQueryTab(selection)
+        }
+        onShowProperties={handleShowProperties}
+        onShowRename={handleShowRename}
+        onShowDrop={handleShowDrop}
+        onShowDependencies={handleShowDependencies}
+      />
+
+      <Show when={propertiesTarget()}>
+        {(target) => (
+          <PropertiesDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setPropertiesTarget(null)}
+          />
+        )}
+      </Show>
+
+      <Show when={renameTarget()}>
+        {(target) => (
+          <RenameDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setRenameTarget(null)}
+            onSuccess={() => {
+              invalidateSchemaCatalog();
+            }}
+          />
+        )}
+      </Show>
+
+      <Show when={dropTarget()}>
+        {(target) => (
+          <DropConfirmDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setDropTarget(null)}
+            onSuccess={() => {
+              invalidateSchemaCatalog();
+            }}
+          />
+        )}
+      </Show>
+
+      <Show when={dependenciesTarget()}>
+        {(target) => (
+          <DependenciesDialog
+            database={target().database}
+            schema={target().schema}
+            name={target().name}
+            objectType={target().objectType}
+            onClose={() => setDependenciesTarget(null)}
+          />
+        )}
+      </Show>
+    </div>
+  );
+}

@@ -19,16 +19,12 @@ pub struct AppSettings {
     pub keep_logged_in: bool,
 }
 
-const LEGACY_KEYRING_SERVICE: &str = "sqlqs";
-#[cfg(target_os = "macos")]
+// Writes always go to KEYRING_SERVICE. Reads check LEGACY_KEYRING_SERVICE too
+// so users upgrading from the old "sqlqs" service name (Windows/Linux builds
+// before the rename) keep their saved passwords.
 const KEYRING_SERVICE: &str = "SQL Query Studio";
-#[cfg(not(target_os = "macos"))]
-const KEYRING_SERVICE: &str = LEGACY_KEYRING_SERVICE;
-
-#[cfg(target_os = "macos")]
+const LEGACY_KEYRING_SERVICE: &str = "sqlqs";
 const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE, LEGACY_KEYRING_SERVICE];
-#[cfg(not(target_os = "macos"))]
-const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE];
 
 fn settings_path() -> PathBuf {
     let dir = dirs_next()

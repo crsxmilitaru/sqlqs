@@ -9,7 +9,7 @@ import {
 import type { GeminiStatus } from "./types";
 
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
-const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
+const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 const MAX_TOOL_TURNS = 8;
 
 export type ChatReference = "editor" | "selected" | "result";
@@ -29,7 +29,6 @@ export interface ChatImageAttachment extends ChatAttachmentBase {
 
 export interface ChatTextAttachment extends ChatAttachmentBase {
   kind: "text";
-  // Absent after a reload — only metadata is persisted in localStorage.
   text?: string;
 }
 
@@ -53,7 +52,9 @@ function serializeMessage(message: ChatMessage): string {
     return message.content;
   }
 
-  const references = message.references.map((reference) => `(${reference})`).join(" ");
+  const references = message.references
+    .map((reference) => `(${reference})`)
+    .join(" ");
   return message.content
     ? `Context references: ${references}\n${message.content}`
     : `Context references: ${references}`;
@@ -114,7 +115,9 @@ export const AiService = {
   },
 
   getModel(): string {
-    return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL;
+    return (
+      localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL
+    );
   },
 
   async getStatus(): Promise<GeminiStatus> {
@@ -134,7 +137,9 @@ export const AiService = {
 
   buildSystemPrompt(database?: string): string {
     // Sanitize database name to prevent prompt injection via crafted DB names
-    const dbName = database ? database.replace(/[\r\n]/g, "").slice(0, 128) : "unknown";
+    const dbName = database
+      ? database.replace(/[\r\n]/g, "").slice(0, 128)
+      : "unknown";
     return `You are an expert T-SQL assistant for Microsoft SQL Server.
 Current database: ${dbName}
 
@@ -161,7 +166,9 @@ RULES:
   ): Promise<ChatResult> {
     const apiKey = await this.getApiKey();
     if (!apiKey) {
-      throw new Error("Gemini API key not configured. Please set it in Settings.");
+      throw new Error(
+        "Gemini API key not configured. Please set it in Settings.",
+      );
     }
 
     if (signal?.aborted) {
@@ -192,9 +199,10 @@ RULES:
         contents,
         config: {
           systemInstruction: systemPrompt,
-          tools: toolDeclarations.length > 0
-            ? [{ functionDeclarations: toolDeclarations }]
-            : undefined,
+          tools:
+            toolDeclarations.length > 0
+              ? [{ functionDeclarations: toolDeclarations }]
+              : undefined,
           temperature: 0.7,
           maxOutputTokens: 4096,
         },

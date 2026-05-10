@@ -1,5 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { Effect, EffectState, getCurrentWindow, type Theme as WindowTheme } from "@tauri-apps/api/window";
+import {
+  Effect,
+  EffectState,
+  getCurrentWindow,
+  type Theme as WindowTheme,
+} from "@tauri-apps/api/window";
 import dark from "../themes/dark.json";
 import oled from "../themes/oled.json";
 import midnight from "../themes/midnight.json";
@@ -23,7 +28,7 @@ export const THEMES: ThemeOption[] = [
   midnight,
   dracula,
   light,
-  softLight
+  softLight,
 ] as ThemeOption[];
 
 function resolveTheme(themeId: string): ThemeOption {
