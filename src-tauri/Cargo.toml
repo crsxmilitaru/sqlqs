@@ -1,6 +1,6 @@
 [package]
 name = "sqlqs"
-version = "0.2.2"
+version = "0.3.0"
 description = "SQL Query Studio"
 authors = ["Cristian Militaru"]
 edition = "2021"
