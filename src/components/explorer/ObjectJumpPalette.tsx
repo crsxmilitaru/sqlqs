@@ -70,6 +70,38 @@ interface Props {
 type JumpObject = ServerDatabaseObject;
 
 const MAX_RESULTS = 60;
+const RECENT_STORAGE_KEY = "sqlqs.objectJumpPalette.recent";
+const MAX_RECENTS = 10;
+
+const TYPE_FILTERS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "TABLE", label: "Tables" },
+  { value: "VIEW", label: "Views" },
+  { value: "PROCEDURE", label: "Procedures" },
+  { value: "FUNCTION", label: "Functions" },
+  { value: "TRIGGER", label: "Triggers" },
+  { value: "TYPE", label: "Types" },
+];
+
+function loadRecents(): JumpObject[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecents(items: JumpObject[]): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore quota or serialization errors
+  }
+}
 
 function getJumpObjectSourceId(object: JumpObject): string {
   return `object:${object.database}:${object.schema_name}:${object.name}:${object.object_type}`;
@@ -127,6 +159,7 @@ export default function ObjectJumpPalette(props: Props) {
   const [processedDatabaseCount, setProcessedDatabaseCount] = createSignal(0);
   const [failedDatabases, setFailedDatabases] = createSignal<string[]>([]);
   const [searchLoading, setSearchLoading] = createSignal(false);
+  const [showLoader, setShowLoader] = createSignal(false);
   const [searchError, setSearchError] = createSignal<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = createSignal(0);
   const [expandedSourceId, setExpandedSourceId] = createSignal<string | null>(
@@ -137,9 +170,13 @@ export default function ObjectJumpPalette(props: Props) {
     null,
   );
   const [visible, setVisible] = createSignal(false);
+  const [recents, setRecents] = createSignal<JumpObject[]>(loadRecents());
+  const [typeFilter, setTypeFilter] = createSignal<string | null>(null);
+
   let inputRef: HTMLInputElement | undefined;
   let itemRefs: Array<HTMLButtonElement | null> = [];
   let searchRequestRef = 0;
+
   const deferredQuery = createMemo(() => query().trim());
   const portalTarget = createMemo(() =>
     typeof document !== "undefined"
@@ -148,7 +185,28 @@ export default function ObjectJumpPalette(props: Props) {
       : null,
   );
 
-  const runSearch = async (searchQuery: string) => {
+  const pushRecent = (object: JumpObject) => {
+    setRecents((prev) => {
+      const sourceId = getJumpObjectSourceId(object);
+      if (prev.some((item) => getJumpObjectSourceId(item) === sourceId)) {
+        return prev;
+      }
+      const next = [object, ...prev].slice(0, MAX_RECENTS);
+      saveRecents(next);
+      return next;
+    });
+  };
+
+  createEffect(() => {
+    if (!searchLoading()) {
+      setShowLoader(false);
+      return;
+    }
+    const handle = window.setTimeout(() => setShowLoader(true), 180);
+    onCleanup(() => window.clearTimeout(handle));
+  });
+
+  const runSearch = async (searchQuery: string, objectType: string | null) => {
     const requestId = ++searchRequestRef;
     setSearchLoading(true);
 
@@ -158,6 +216,7 @@ export default function ObjectJumpPalette(props: Props) {
         {
           query: searchQuery,
           preferredDatabase: props.currentDatabase,
+          objectType: objectType ?? undefined,
           limit: MAX_RESULTS,
         },
       );
@@ -214,6 +273,7 @@ export default function ObjectJumpPalette(props: Props) {
       setExpandedSourceId(null);
       setResolvingSourceId(null);
       setRunningActionId(null);
+      setTypeFilter(null);
       return;
     }
 
@@ -258,9 +318,10 @@ export default function ObjectJumpPalette(props: Props) {
     const open = props.open;
     const connected = props.connected;
     const dq = deferredQuery();
-    if (!open || !connected) return;
+    const filter = typeFilter();
+    if (!open || !connected || !isSearching()) return;
 
-    void runSearch(dq);
+    void runSearch(dq, filter);
   });
 
   createEffect(() => {
@@ -268,10 +329,11 @@ export default function ObjectJumpPalette(props: Props) {
     const connected = props.connected;
     const indexing = searchIndexing();
     const dq = deferredQuery();
-    if (!open || !connected || !indexing) return;
+    const filter = typeFilter();
+    if (!open || !connected || !indexing || !isSearching()) return;
 
     const interval = window.setInterval(() => {
-      void runSearch(dq);
+      void runSearch(dq, filter);
     }, 500);
 
     onCleanup(() => {
@@ -282,7 +344,7 @@ export default function ObjectJumpPalette(props: Props) {
   createEffect(() => {
     const open = props.open;
     const _dq = deferredQuery();
-    const len = searchResults().length;
+    const len = displayItems().length;
     if (!open) return;
     setHighlightedIndex(len > 0 ? 0 : -1);
   });
@@ -291,7 +353,7 @@ export default function ObjectJumpPalette(props: Props) {
     const expanded = expandedSourceId();
     if (!expanded) return;
 
-    const expandedObjectStillVisible = searchResults().some(
+    const expandedObjectStillVisible = displayItems().some(
       (object) => getJumpObjectSourceId(object) === expanded,
     );
 
@@ -310,7 +372,11 @@ export default function ObjectJumpPalette(props: Props) {
     if (!object) return;
 
     const sourceId = getJumpObjectSourceId(object);
-    setExpandedSourceId((prev) => (prev === sourceId ? null : sourceId));
+    setExpandedSourceId((prev) => {
+      const next = prev === sourceId ? null : sourceId;
+      if (next === sourceId) pushRecent(object);
+      return next;
+    });
   };
 
   const getObjectActionItems = (object: JumpObject): ContextMenuItem[] =>
@@ -383,22 +449,22 @@ export default function ObjectJumpPalette(props: Props) {
       case "ArrowDown":
         event.preventDefault();
         setHighlightedIndex((prev) => {
-          if (searchResults().length === 0) return -1;
-          return prev < searchResults().length - 1 ? prev + 1 : 0;
+          if (displayItems().length === 0) return -1;
+          return prev < displayItems().length - 1 ? prev + 1 : 0;
         });
         break;
       case "ArrowUp":
         event.preventDefault();
         setHighlightedIndex((prev) => {
-          if (searchResults().length === 0) return -1;
-          return prev > 0 ? prev - 1 : searchResults().length - 1;
+          if (displayItems().length === 0) return -1;
+          return prev > 0 ? prev - 1 : displayItems().length - 1;
         });
         break;
       case "ArrowRight":
         event.preventDefault();
         if (highlightedIndex() >= 0) {
           setExpandedSourceId(
-            getJumpObjectSourceId(searchResults()[highlightedIndex()]),
+            getJumpObjectSourceId(displayItems()[highlightedIndex()]),
           );
         }
         break;
@@ -407,7 +473,7 @@ export default function ObjectJumpPalette(props: Props) {
         if (
           highlightedIndex() >= 0 &&
           expandedSourceId() ===
-            getJumpObjectSourceId(searchResults()[highlightedIndex()])
+            getJumpObjectSourceId(displayItems()[highlightedIndex()])
         ) {
           setExpandedSourceId(null);
         }
@@ -415,7 +481,7 @@ export default function ObjectJumpPalette(props: Props) {
       case "Enter":
         event.preventDefault();
         if (highlightedIndex() >= 0) {
-          handleToggleExpanded(searchResults()[highlightedIndex()]);
+          handleToggleExpanded(displayItems()[highlightedIndex()]);
         }
         break;
       case "Escape":
@@ -440,7 +506,13 @@ export default function ObjectJumpPalette(props: Props) {
       ? failedDatabases()
       : props.indexStatus.failed_databases;
   const failedDatabaseCount = () => effectiveFailedDatabases().length;
-  const canShowResults = () => searchResults().length > 0;
+  const isSearching = () => query().trim().length > 0;
+  const displayItems = createMemo<JumpObject[]>(() => {
+    const base = isSearching() ? searchResults() : recents();
+    const filter = typeFilter();
+    return filter ? base.filter((item) => item.object_type === filter) : base;
+  });
+  const canShowResults = () => displayItems().length > 0;
   const hasNoScope = () =>
     !searchLoading() &&
     !searchError() &&
@@ -451,6 +523,17 @@ export default function ObjectJumpPalette(props: Props) {
     effectiveDatabaseCount() === 0
       ? "Indexing objects across the whole server..."
       : "Searching objects across the whole server...";
+  const emptyStateMessage = () => {
+    const filtered = typeFilter() !== null;
+    if (isSearching()) {
+      return filtered
+        ? "No objects matched that search for the selected type."
+        : "No objects matched that search.";
+    }
+    return filtered
+      ? "No recent objects of that type."
+      : "No recent objects yet — type to search across all databases.";
+  };
   const footerStatus = () =>
     effectiveIndexing()
       ? effectiveDatabaseCount() > 0
@@ -478,7 +561,7 @@ export default function ObjectJumpPalette(props: Props) {
               class="dialog-surface flex flex-col shadow-2xl"
               onMouseDown={(event) => event.stopPropagation()}
             >
-              <div class="border-b border-border/50 px-2 py-2">
+              <div class="px-2 py-2">
                 <div class="relative flex items-center">
                   <i class="fa-solid fa-magnifying-glass pointer-events-none absolute left-4 text-text-muted" />
                   <input
@@ -493,11 +576,50 @@ export default function ObjectJumpPalette(props: Props) {
                     class="h-12 w-full bg-transparent pl-11 pr-4 text-base text-text placeholder-text-muted outline-none"
                   />
                 </div>
+                <div class="flex flex-wrap items-center justify-center gap-1.5 px-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setTypeFilter(null)}
+                    class={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] transition-colors ${
+                      typeFilter() === null
+                        ? "border-border bg-surface-active text-text"
+                        : "border-border/50 text-text-muted hover:border-border hover:text-text"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <For each={TYPE_FILTERS}>
+                    {(filter) => (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTypeFilter((prev) =>
+                            prev === filter.value ? null : filter.value,
+                          )
+                        }
+                        class={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] transition-colors ${
+                          typeFilter() === filter.value
+                            ? "border-border bg-surface-active text-text"
+                            : "border-border/50 text-text-muted hover:border-border hover:text-text"
+                        }`}
+                      >
+                        {filter.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </div>
+
+              <div class="relative h-0.5 overflow-hidden">
+                <Show when={showLoader()}>
+                  <div class="absolute inset-0 bg-border/30" />
+                  <div class="jump-palette-loader absolute inset-y-0 w-1/3" />
+                </Show>
               </div>
 
               <div class="max-h-[58vh] overflow-y-auto p-2">
                 <Show
-                  when={!(!canShowResults() && searchLoading())}
+                  when={!(!canShowResults() && showLoader())}
                   fallback={
                     <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
                       <i class="fa-solid fa-spinner animate-spin text-xl" />
@@ -530,16 +652,17 @@ export default function ObjectJumpPalette(props: Props) {
                         fallback={
                           <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
                             <i class="fa-solid fa-compass text-2xl opacity-50" />
-                            <p class="text-m">
-                              {query().trim()
-                                ? "No objects matched that search."
-                                : "Type to search objects across all databases."}
-                            </p>
+                            <p class="text-m">{emptyStateMessage()}</p>
                           </div>
                         }
                       >
                         <div class="space-y-1">
-                          <For each={searchResults()}>
+                          <Show when={!isSearching()}>
+                            <div class="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                              Recent
+                            </div>
+                          </Show>
+                          <For each={displayItems()}>
                             {(object, index) => {
                               const isActive = () =>
                                 index() === highlightedIndex();
@@ -568,6 +691,11 @@ export default function ObjectJumpPalette(props: Props) {
                                       }}
                                       type="button"
                                       onClick={() => {
+                                        setHighlightedIndex(index());
+                                        handleToggleExpanded(object);
+                                      }}
+                                      onContextMenu={(e) => {
+                                        e.preventDefault();
                                         setHighlightedIndex(index());
                                         handleToggleExpanded(object);
                                       }}
@@ -634,26 +762,6 @@ export default function ObjectJumpPalette(props: Props) {
                                             : "-translate-y-2"
                                         }`}
                                       >
-                                        <div class="mb-2 flex items-center justify-between gap-3 px-2">
-                                          <div>
-                                            <p class="text-[10px] uppercase tracking-[0.2em] text-text-muted">
-                                              Explorer Actions
-                                            </p>
-                                            <p class="text-s text-text-muted">
-                                              Same object actions as the
-                                              explorer context menu.
-                                            </p>
-                                          </div>
-                                          <span class="rounded-full border border-border/50 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">
-                                            {
-                                              actionItems.filter(
-                                                (item) => !item.separator,
-                                              ).length
-                                            }{" "}
-                                            groups
-                                          </span>
-                                        </div>
-
                                         <div class="space-y-2">
                                           <For each={actionItems}>
                                             {(item) => {
@@ -774,7 +882,11 @@ export default function ObjectJumpPalette(props: Props) {
               </div>
 
               <div class="flex items-center justify-between gap-3 border-t border-border/50 px-4 py-3 text-s text-text-muted">
-                <span>{`${Math.min(searchResults().length, totalMatches())} of ${totalMatches()} matches`}</span>
+                <span>
+                  {isSearching()
+                    ? `${Math.min(searchResults().length, totalMatches())} of ${totalMatches()} matches`
+                    : `${recents().length} recent`}
+                </span>
                 <span class="flex items-center gap-1.5">
                   <Show when={effectiveIndexing()}>
                     <i class="fa-solid fa-spinner animate-spin text-xs" />

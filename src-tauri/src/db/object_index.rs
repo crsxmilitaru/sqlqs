@@ -202,6 +202,7 @@ pub fn search_server_objects(
     index: &CachedServerObjectIndex,
     query: &str,
     preferred_database: Option<&str>,
+    object_type: Option<&str>,
     limit: usize,
 ) -> ServerObjectSearchResponse {
     let normalized_query = query.trim().to_lowercase();
@@ -210,9 +211,17 @@ pub fn search_server_objects(
         .filter(|term| !term.is_empty())
         .collect();
     let preferred_database = preferred_database.map(str::to_lowercase);
+    let object_type_filter = object_type
+        .map(str::to_uppercase)
+        .filter(|value| !value.is_empty());
     let mut ranked: Vec<(i32, &SearchableServerObject)> = Vec::new();
 
     for object in &index.objects {
+        if let Some(filter) = object_type_filter.as_deref() {
+            if object.object.object_type != filter {
+                continue;
+            }
+        }
         if let Some(score) = get_object_search_score(object, &terms, preferred_database.as_deref())
         {
             ranked.push((score, object));
