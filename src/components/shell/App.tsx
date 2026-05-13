@@ -500,7 +500,7 @@ export default function App() {
 
     const startIndexingInBackground = async () => {
       try {
-          const newStatus = await invoke<ServerObjectIndexStatus>(
+        const newStatus = await invoke<ServerObjectIndexStatus>(
           "start_server_object_indexing",
         );
 
@@ -586,7 +586,7 @@ export default function App() {
 
     const syncIndexStatus = async (startIndexing: boolean) => {
       try {
-          const newStatus = await invoke<ServerObjectIndexStatus>(
+        const newStatus = await invoke<ServerObjectIndexStatus>(
           startIndexing
             ? "start_server_object_indexing"
             : "get_server_object_index_status",
@@ -761,6 +761,7 @@ export default function App() {
                 onAiChatOpenChange={setAiChatOpen}
                 onSave={handleTabSave}
                 onSaveToFile={handleTabSaveToFile}
+                executedQueries={executedQueries()}
               />
             </main>
           </>

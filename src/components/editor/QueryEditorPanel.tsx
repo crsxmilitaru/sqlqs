@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createSignal } from "solid-js";
-import type { QueryTab } from "../../lib/types";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import type { ExecutedQuery, QueryTab } from "../../lib/types";
 import AIChatPanel, {
   type ApplyMode,
   type PendingChatMessage,
@@ -39,6 +39,7 @@ interface Props {
   onAiChatOpenChange: (open: boolean) => void;
   onSave?: (id: string) => void;
   onSaveToFile?: (id: string) => void;
+  executedQueries?: ExecutedQuery[];
 }
 
 export default function QueryEditorPanel(props: Props) {
@@ -422,12 +423,12 @@ export default function QueryEditorPanel(props: Props) {
                 </span>
                 {(activeTab()?.error ||
                   (activeTab()?.result?.result_sets.length ?? 0) > 0) && (
-                  <span class="text-s text-text-muted opacity-60 ml-0.5 leading-none">
-                    {activeTab()?.error
-                      ? "(Error)"
-                      : `(${activeTab()?.result?.result_sets[0]?.rows.length ?? 0} row${(activeTab()?.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
-                  </span>
-                )}
+                    <span class="text-s text-text-muted opacity-60 ml-0.5 leading-none">
+                      {activeTab()?.error
+                        ? "(Error)"
+                        : `(${activeTab()?.result?.result_sets[0]?.rows.length ?? 0} row${(activeTab()?.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
+                    </span>
+                  )}
               </div>
               <div class="flex items-center gap-2">
                 <button
@@ -480,6 +481,32 @@ export default function QueryEditorPanel(props: Props) {
                   <span class="empty-state-btn-label">New file</span>
                 </button>
               </div>
+              <Show when={(props.executedQueries ?? []).length > 0}>
+                <div class="mt-6 w-full max-w-[320px]">
+                  <div class="border-t border-border/30 pt-4">
+                    <p class="text-s font-medium text-text-muted/60 mb-3 text-center flex items-center justify-center gap-1.5">
+                      <i class="fa-solid fa-clock-rotate-left text-xs" />
+                      Recent queries
+                    </p>
+                    <div class="flex flex-col gap-1">
+                      <For each={(props.executedQueries ?? []).slice(0, 5)}>
+                        {(item) => (
+                          <Tooltip content={item.title} placement="top">
+                            <button
+                              onClick={() =>
+                                props.onTabAdd(item.sql, item.title)
+                              }
+                              class="w-full text-left px-3 py-2 rounded-md text-s text-text-muted hover:text-text hover:bg-surface-hover transition-colors cursor-pointer block truncate"
+                            >
+                              {item.title}
+                            </button>
+                          </Tooltip>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+              </Show>
             </>
           ) : (props.isInitializing ?? false) ? (
             <>
