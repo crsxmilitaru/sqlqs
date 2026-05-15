@@ -11,6 +11,7 @@ use db::{
 use settings::{AppSettings, SavedConnection};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
@@ -19,6 +20,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
+const CONNECTION_IDLE_CHECK_AFTER: Duration = Duration::from_secs(30);
 
 fn is_sql_path(path: &Path) -> bool {
     path.extension()
@@ -29,9 +31,17 @@ fn is_sql_path(path: &Path) -> bool {
 
 struct AppState {
     client: Arc<Mutex<Option<SqlClient>>>,
+    active_connection: Arc<Mutex<Option<ActiveConnection>>>,
     cancel_token: Arc<Mutex<Option<CancellationToken>>>,
     server_object_index: Arc<Mutex<CachedServerObjectIndex>>,
     server_object_index_token: Arc<Mutex<Option<CancellationToken>>>,
+}
+
+#[derive(Clone)]
+struct ActiveConnection {
+    config: ConnectionConfig,
+    cached_port: Option<u16>,
+    last_used_at: Instant,
 }
 
 #[derive(serde::Serialize)]
@@ -71,14 +81,113 @@ async fn reset_server_object_index(state: &AppState) {
     *object_index = CachedServerObjectIndex::default();
 }
 
+async fn set_active_connection(
+    state: &AppState,
+    config: ConnectionConfig,
+    cached_port: Option<u16>,
+) {
+    let mut active_lock = state.active_connection.lock().await;
+    *active_lock = Some(ActiveConnection {
+        config,
+        cached_port,
+        last_used_at: Instant::now(),
+    });
+}
+
+async fn mark_connection_used(state: &AppState) {
+    let mut active_lock = state.active_connection.lock().await;
+    if let Some(active) = active_lock.as_mut() {
+        active.last_used_at = Instant::now();
+    }
+}
+
+async fn reconnect_active_connection(
+    state: &AppState,
+    client_slot: &mut Option<SqlClient>,
+) -> Result<(), String> {
+    let active = state
+        .active_connection
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected to a server".to_string())?;
+
+    let (client, resolved_port) = db::connect(&active.config, active.cached_port)
+        .await
+        .map_err(|err| {
+            format!(
+                "Connection was idle and had to be reopened, but reconnect failed: {}",
+                err
+            )
+        })?;
+
+    *client_slot = Some(client);
+
+    let mut active_lock = state.active_connection.lock().await;
+    if let Some(current) = active_lock.as_mut() {
+        current.cached_port = resolved_port;
+        current.last_used_at = Instant::now();
+    }
+
+    Ok(())
+}
+
+async fn ensure_connection_alive(
+    state: &AppState,
+    client_slot: &mut Option<SqlClient>,
+) -> Result<(), String> {
+    let should_check = {
+        let active_lock = state.active_connection.lock().await;
+        active_lock
+            .as_ref()
+            .map(|active| active.last_used_at.elapsed() >= CONNECTION_IDLE_CHECK_AFTER)
+            .unwrap_or(true)
+    };
+
+    if !should_check {
+        return Ok(());
+    }
+
+    let ping_result = match client_slot.as_mut() {
+        Some(client) => db::ping_connection(client).await,
+        None => return Err("Not connected to a server".to_string()),
+    };
+
+    match ping_result {
+        Ok(()) => {
+            mark_connection_used(state).await;
+            Ok(())
+        }
+        Err(err) if db::is_connection_lost_error(&err) => {
+            reconnect_active_connection(state, client_slot).await
+        }
+        Err(err) => Err(format!("Connection check failed: {}", err)),
+    }
+}
+
+macro_rules! with_live_client {
+    ($state:expr, $client:ident, $body:expr) => {{
+        let mut lock = $state.client.lock().await;
+        ensure_connection_alive(&$state, &mut *lock).await?;
+        let $client = lock
+            .as_mut()
+            .ok_or("Not connected to a server".to_string())?;
+        let result = $body;
+        drop(lock);
+        mark_connection_used(&$state).await;
+        result
+    }};
+}
+
 async fn ensure_server_object_indexing_started(
     state: &AppState,
 ) -> Result<ServerObjectIndexStatus, String> {
     {
-        let client_lock = state.client.lock().await;
+        let mut client_lock = state.client.lock().await;
         if client_lock.is_none() {
             return Err("Not connected to a server".to_string());
         }
+        ensure_connection_alive(state, &mut *client_lock).await?;
     }
 
     let should_start = {
@@ -405,6 +514,7 @@ async fn connect_to_server(
     let mut lock = state.client.lock().await;
     *lock = Some(client);
     drop(lock);
+    set_active_connection(&state, resolved_config, resolved_port).await;
     reset_server_object_index(&state).await;
 
     Ok("Connected".to_string())
@@ -415,6 +525,9 @@ async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String
     let mut lock = state.client.lock().await;
     *lock = None;
     drop(lock);
+    let mut active_lock = state.active_connection.lock().await;
+    *active_lock = None;
+    drop(active_lock);
     reset_server_object_index(&state).await;
     Ok(())
 }
@@ -422,22 +535,25 @@ async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String
 #[tauri::command]
 async fn execute_query(state: State<'_, AppState>, sql: String) -> Result<QueryResult, String> {
     let token = CancellationToken::new();
-    {
-        let mut cancel_lock = state.cancel_token.lock().await;
-        *cancel_lock = Some(token.clone());
-    }
 
     let result = {
         let mut lock = state.client.lock().await;
+        ensure_connection_alive(&state, &mut *lock).await?;
         let client = lock
             .as_mut()
             .ok_or("Not connected to a server".to_string())?;
+
+        {
+            let mut cancel_lock = state.cancel_token.lock().await;
+            *cancel_lock = Some(token.clone());
+        }
 
         tokio::select! {
             res = db::execute_query(client, &sql) => res,
             _ = token.cancelled() => Err("Query cancelled by user".to_string()),
         }
     };
+    mark_connection_used(&state).await;
 
     {
         let mut cancel_lock = state.cancel_token.lock().await;
@@ -458,11 +574,7 @@ async fn cancel_query(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_databases(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_databases(client).await
+    with_live_client!(state, client, db::get_databases(client).await)
 }
 
 #[tauri::command]
@@ -470,11 +582,7 @@ async fn get_tables(
     state: State<'_, AppState>,
     database: String,
 ) -> Result<Vec<DatabaseObject>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_tables(client, &database).await
+    with_live_client!(state, client, db::get_tables(client, &database).await)
 }
 
 #[tauri::command]
@@ -527,11 +635,11 @@ async fn get_columns(
     schema: String,
     table: String,
 ) -> Result<Vec<ColumnInfo>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_columns(client, &database, &schema, &table).await
+    with_live_client!(
+        state,
+        client,
+        db::get_columns(client, &database, &schema, &table).await
+    )
 }
 
 #[tauri::command]
@@ -539,11 +647,11 @@ async fn get_database_schema_catalog(
     state: State<'_, AppState>,
     database: String,
 ) -> Result<Vec<DatabaseSchemaCatalogEntry>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_database_schema_catalog(client, &database).await
+    with_live_client!(
+        state,
+        client,
+        db::get_database_schema_catalog(client, &database).await
+    )
 }
 
 #[tauri::command]
@@ -639,15 +747,18 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
     let mut lock = state.client.lock().await;
     *lock = Some(client);
     drop(lock);
+    set_active_connection(&state, config.clone(), resolved_port).await;
     reset_server_object_index(&state).await;
 
     let databases = {
         let mut lock = state.client.lock().await;
+        ensure_connection_alive(&state, &mut *lock).await?;
         match lock.as_mut() {
             Some(client) => db::get_databases(client).await.unwrap_or_default(),
             None => Vec::new(),
         }
     };
+    mark_connection_used(&state).await;
 
     Ok(AutoConnectResult {
         connected: true,
@@ -660,6 +771,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 #[tauri::command]
 async fn change_database(state: State<'_, AppState>, database: String) -> Result<(), String> {
     let mut lock = state.client.lock().await;
+    ensure_connection_alive(&state, &mut *lock).await?;
     let client = lock
         .as_mut()
         .ok_or("Not connected to a server".to_string())?;
@@ -668,16 +780,18 @@ async fn change_database(state: State<'_, AppState>, database: String) -> Result
         .execute(&sql, &[])
         .await
         .map_err(|e| format!("Failed to change database: {}", e))?;
+    drop(lock);
+    mark_connection_used(&state).await;
+    let mut active_lock = state.active_connection.lock().await;
+    if let Some(active) = active_lock.as_mut() {
+        active.config.database = Some(database);
+    }
     Ok(())
 }
 
 #[tauri::command]
 async fn get_backup_defaults(state: State<'_, AppState>) -> Result<BackupDefaults, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_backup_defaults(client).await
+    with_live_client!(state, client, db::get_backup_defaults(client).await)
 }
 
 #[tauri::command]
@@ -685,11 +799,7 @@ async fn backup_database(
     state: State<'_, AppState>,
     request: BackupDatabaseRequest,
 ) -> Result<BackupOperationResult, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::backup_database(client, request).await
+    with_live_client!(state, client, db::backup_database(client, request).await)
 }
 
 #[tauri::command]
@@ -697,11 +807,11 @@ async fn inspect_backup_file(
     state: State<'_, AppState>,
     source_path: String,
 ) -> Result<Vec<BackupFileInfo>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::inspect_backup_file(client, &source_path).await
+    with_live_client!(
+        state,
+        client,
+        db::inspect_backup_file(client, &source_path).await
+    )
 }
 
 #[tauri::command]
@@ -709,11 +819,7 @@ async fn restore_database(
     state: State<'_, AppState>,
     request: RestoreDatabaseRequest,
 ) -> Result<BackupOperationResult, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::restore_database(client, request).await
+    with_live_client!(state, client, db::restore_database(client, request).await)
 }
 
 #[tauri::command]
@@ -721,22 +827,18 @@ async fn create_backup_schedule(
     state: State<'_, AppState>,
     request: BackupScheduleRequest,
 ) -> Result<BackupOperationResult, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::create_backup_schedule(client, request).await
+    with_live_client!(
+        state,
+        client,
+        db::create_backup_schedule(client, request).await
+    )
 }
 
 #[tauri::command]
 async fn list_backup_schedules(
     state: State<'_, AppState>,
 ) -> Result<Vec<BackupScheduleInfo>, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::list_backup_schedules(client).await
+    with_live_client!(state, client, db::list_backup_schedules(client).await)
 }
 
 #[tauri::command]
@@ -744,27 +846,38 @@ async fn delete_backup_schedule(
     state: State<'_, AppState>,
     job_name: String,
 ) -> Result<BackupOperationResult, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::delete_backup_schedule(client, &job_name).await
+    with_live_client!(
+        state,
+        client,
+        db::delete_backup_schedule(client, &job_name).await
+    )
 }
 
 #[tauri::command]
 async fn get_ai_schema_context(state: State<'_, AppState>) -> Result<AiSchemaContext, String> {
     let mut client_lock = state.client.lock().await;
-    if let Some(client) = client_lock.as_mut() {
-        Ok(AiSchemaContext {
-            database: db::get_current_database_name(client).await?,
-            schema_summary: db::get_ai_schema_summary(client).await.unwrap_or_default(),
-        })
-    } else {
-        Ok(AiSchemaContext {
+    if client_lock.is_none() {
+        return Ok(AiSchemaContext {
             database: None,
             schema_summary: String::new(),
-        })
+        });
     }
+
+    ensure_connection_alive(&state, &mut *client_lock).await?;
+    let Some(client) = client_lock.as_mut() else {
+        return Ok(AiSchemaContext {
+            database: None,
+            schema_summary: String::new(),
+        });
+    };
+
+    let context = AiSchemaContext {
+        database: db::get_current_database_name(client).await?,
+        schema_summary: db::get_ai_schema_summary(client).await.unwrap_or_default(),
+    };
+    drop(client_lock);
+    mark_connection_used(&state).await;
+    Ok(context)
 }
 
 #[tauri::command]
@@ -774,11 +887,11 @@ async fn get_indexes(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_indexes(client, &database, &schema, &table).await
+    with_live_client!(
+        state,
+        client,
+        db::get_indexes(client, &database, &schema, &table).await
+    )
 }
 
 #[tauri::command]
@@ -788,11 +901,11 @@ async fn get_foreign_keys(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_foreign_keys(client, &database, &schema, &table).await
+    with_live_client!(
+        state,
+        client,
+        db::get_foreign_keys(client, &database, &schema, &table).await
+    )
 }
 
 #[tauri::command]
@@ -802,11 +915,11 @@ async fn generate_create_script(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::generate_create_script(client, &database, &schema, &table).await
+    with_live_client!(
+        state,
+        client,
+        db::generate_create_script(client, &database, &schema, &table).await
+    )
 }
 
 #[tauri::command]
@@ -816,11 +929,11 @@ async fn get_object_definition(
     schema: String,
     name: String,
 ) -> Result<String, String> {
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_object_definition(client, &database, &schema, &name).await
+    with_live_client!(
+        state,
+        client,
+        db::get_object_definition(client, &database, &schema, &name).await
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -903,11 +1016,11 @@ async fn get_table_identity_columns(
 ) -> Result<Vec<String>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_identity_columns(client, &table_name).await
+    with_live_client!(
+        state,
+        client,
+        db::get_identity_columns(client, &table_name).await
+    )
 }
 
 #[tauri::command]
@@ -917,11 +1030,11 @@ async fn get_primary_key_columns(
 ) -> Result<Vec<String>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_primary_key_columns(client, &table_name).await
+    with_live_client!(
+        state,
+        client,
+        db::get_primary_key_columns(client, &table_name).await
+    )
 }
 
 #[tauri::command]
@@ -931,11 +1044,11 @@ async fn get_table_column_metadata(
 ) -> Result<Vec<ColumnInfo>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    let mut lock = state.client.lock().await;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    db::get_table_column_metadata(client, &table_name).await
+    with_live_client!(
+        state,
+        client,
+        db::get_table_column_metadata(client, &table_name).await
+    )
 }
 
 #[tauri::command]
@@ -1011,13 +1124,11 @@ async fn generate_object_script(
     let needs_columns_for_create = action == "script_create" && object_type == "VIEW";
 
     if needs_columns || needs_columns_for_create {
-        let columns_result = {
-            let mut lock = state.client.lock().await;
-            let client = lock
-                .as_mut()
-                .ok_or("Not connected to a server".to_string())?;
+        let columns_result = with_live_client!(
+            state,
+            client,
             db::get_columns(client, &database, &schema, &name).await
-        };
+        );
         match columns_result {
             Ok(columns) => {
                 let sql = sql_gen::generate_object_script_with_columns(
@@ -1044,13 +1155,11 @@ async fn generate_object_script(
     }
 
     if action == "script_create" && object_type == "TABLE" {
-        let script_result = {
-            let mut lock = state.client.lock().await;
-            let client = lock
-                .as_mut()
-                .ok_or("Not connected to a server".to_string())?;
+        let script_result = with_live_client!(
+            state,
+            client,
             db::generate_create_script(client, &database, &schema, &name).await
-        };
+        );
         match script_result {
             Ok(sql) => return Ok(ObjectScriptResult { sql }),
             Err(_) => {
@@ -1073,13 +1182,11 @@ async fn generate_object_script(
         );
 
     if needs_definition {
-        let def_result = {
-            let mut lock = state.client.lock().await;
-            let client = lock
-                .as_mut()
-                .ok_or("Not connected to a server".to_string())?;
+        let def_result = with_live_client!(
+            state,
+            client,
             db::get_object_definition(client, &database, &schema, &name).await
-        };
+        );
         match def_result {
             Ok(definition) => {
                 let sql = sql_gen::generate_object_script_with_definition(
@@ -1169,6 +1276,7 @@ pub fn run() {
         })
         .manage(AppState {
             client: Arc::new(Mutex::new(None)),
+            active_connection: Arc::new(Mutex::new(None)),
             cancel_token: Arc::new(Mutex::new(None)),
             server_object_index: Arc::new(Mutex::new(CachedServerObjectIndex::default())),
             server_object_index_token: Arc::new(Mutex::new(None)),

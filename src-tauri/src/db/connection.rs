@@ -1,5 +1,8 @@
+use socket2::{SockRef, TcpKeepalive};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
+use tiberius::error::Error as TiberiusError;
 use tiberius::{AuthMethod, Client, Config, EncryptionLevel, SqlBrowser};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
@@ -58,6 +61,29 @@ impl AsyncWrite for TransportStream {
 }
 
 pub type SqlClient = Client<Compat<TransportStream>>;
+
+pub fn is_connection_lost_error(error: &TiberiusError) -> bool {
+    matches!(
+        error,
+        TiberiusError::Io { kind, .. }
+            if matches!(
+                *kind,
+                std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::UnexpectedEof
+            )
+    )
+}
+
+fn configure_tcp_stream(tcp: &TcpStream) {
+    tcp.set_nodelay(true).ok();
+
+    let keepalive = TcpKeepalive::new()
+        .with_time(Duration::from_secs(60))
+        .with_interval(Duration::from_secs(30));
+    SockRef::from(tcp).set_tcp_keepalive(&keepalive).ok();
+}
 
 fn parse_server(server: &str) -> (String, Option<String>, Option<u16>) {
     let (addr, explicit_port) = if let Some(idx) = server.rfind(',') {
@@ -362,7 +388,7 @@ pub async fn connect(
     if instance.is_some() {
         if let Some(cached) = cached_port {
             if let Ok(tcp) = TcpStream::connect(format!("{}:{}", host, cached)).await {
-                tcp.set_nodelay(true).ok();
+                configure_tcp_stream(&tcp);
                 let stream = TransportStream::Tcp(tcp);
                 let mut direct_config = tib_config.clone();
                 direct_config.port(cached);
@@ -423,7 +449,7 @@ pub async fn connect(
     };
 
     let resolved_port = tcp.peer_addr().ok().map(|a| a.port());
-    tcp.set_nodelay(true).ok();
+    configure_tcp_stream(&tcp);
     let stream = TransportStream::Tcp(tcp);
 
     let mut client = Client::connect(tib_config, stream.compat_write())
@@ -453,5 +479,14 @@ async fn init_session(client: &mut SqlClient) -> Result<(), String> {
         .into_results()
         .await
         .map_err(|e| format!("Failed to initialize session: {}", e))?;
+    Ok(())
+}
+
+pub async fn ping_connection(client: &mut SqlClient) -> Result<(), TiberiusError> {
+    client
+        .simple_query("SELECT 1")
+        .await?
+        .into_results()
+        .await?;
     Ok(())
 }

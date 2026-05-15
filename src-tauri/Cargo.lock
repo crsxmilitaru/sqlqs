@@ -4029,6 +4029,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "socket2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

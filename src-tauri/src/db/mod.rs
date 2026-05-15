@@ -11,7 +11,8 @@ pub use backup::{
     inspect_backup_file, list_backup_schedules, restore_database,
 };
 pub use connection::{
-    connect, parse_connection_string, strip_password_from_connection_string, SqlClient,
+    connect, is_connection_lost_error, parse_connection_string, ping_connection,
+    strip_password_from_connection_string, SqlClient,
 };
 pub use object_index::{search_server_objects, CachedServerObjectIndex};
 pub use query::execute_query;
