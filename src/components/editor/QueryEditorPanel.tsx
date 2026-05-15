@@ -88,6 +88,15 @@ export default function QueryEditorPanel(props: Props) {
     }
   });
 
+  const isCompactResult = createMemo(() => {
+    const tab = activeTab();
+    if (!tab) return false;
+    if (tab.isExecuting) return false;
+    if (tab.error) return true;
+    if (tab.result && tab.result.result_sets.length === 0) return true;
+    return false;
+  });
+
   function handleExecute(selectedSql?: string) {
     if (!props.activeTabId || !hasDatabaseSelected()) return;
     setResultsCollapsed(false);
@@ -242,9 +251,11 @@ export default function QueryEditorPanel(props: Props) {
       {activeTab() && props.connected ? (
         <div class="flex flex-col flex-1 min-h-0">
           <div
-            class={`flex flex-row overflow-hidden ${resultsCollapsed() ? "flex-1" : "flex-shrink-0"}`}
+            class={`flex flex-row overflow-hidden ${resultsCollapsed() || isCompactResult() ? "flex-1" : "flex-shrink-0"}`}
             style={
-              resultsCollapsed() ? undefined : { height: `${editorHeight()}px` }
+              resultsCollapsed() || isCompactResult()
+                ? undefined
+                : { height: `${editorHeight()}px` }
             }
           >
             <div class="flex flex-col flex-1 min-w-0 min-h-0">
@@ -409,12 +420,12 @@ export default function QueryEditorPanel(props: Props) {
             )}
           </div>
 
-          {!resultsCollapsed() && (
+          {!resultsCollapsed() && !isCompactResult() && (
             <div class="resizer resizer-v" onMouseDown={handleEditorResize} />
           )}
 
           <div
-            class={`flex flex-col overflow-hidden ${resultsCollapsed() ? "flex-none" : "flex-1"}`}
+            class={`flex flex-col overflow-hidden ${resultsCollapsed() || isCompactResult() ? "flex-none" : "flex-1"}`}
           >
             <div class="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
               <div class="flex items-center gap-2">
@@ -443,7 +454,13 @@ export default function QueryEditorPanel(props: Props) {
               </div>
             </div>
             {!resultsCollapsed() && (
-              <div class="flex-1 min-h-0">
+              <div
+                class={
+                  isCompactResult()
+                    ? "min-h-[200px]"
+                    : "flex-1 min-h-0"
+                }
+              >
                 <ResultsGrid
                   result={activeTab()?.result}
                   error={activeTab()?.error}
