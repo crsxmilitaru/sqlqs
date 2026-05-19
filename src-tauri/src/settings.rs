@@ -90,6 +90,36 @@ pub fn load_password(connection_name: &str) -> Option<String> {
     })
 }
 
+pub fn delete_password(connection_name: &str) -> Result<(), String> {
+    let mut last_err: Option<String> = None;
+    let mut any_progress = false;
+    for service in KEYRING_SERVICES {
+        match keyring::Entry::new(service, connection_name) {
+            Ok(entry) => match entry.delete_credential() {
+                Ok(()) => {
+                    any_progress = true;
+                }
+                Err(keyring::Error::NoEntry) => {
+                    any_progress = true;
+                }
+                Err(e) => {
+                    last_err = Some(format!("Failed to delete password: {}", e));
+                }
+            },
+            Err(e) => {
+                last_err = Some(format!("Keyring error: {}", e));
+            }
+        }
+    }
+    if any_progress {
+        Ok(())
+    } else if let Some(msg) = last_err {
+        Err(msg)
+    } else {
+        Ok(())
+    }
+}
+
 const API_KEY_KEYRING_USER: &str = "gemini_api_key";
 
 pub fn store_api_key(key: &str) -> Result<(), String> {

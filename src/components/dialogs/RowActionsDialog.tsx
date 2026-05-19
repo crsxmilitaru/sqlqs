@@ -7,6 +7,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { loadExecutionPreferences } from "../../lib/settings";
 import type { ResultSet } from "../../lib/types";
 import Tooltip from "../ui/Tooltip";
 
@@ -502,7 +503,11 @@ export default function RowActionsDialog(props: Props) {
           break;
       }
 
-      await invoke("execute_query", { sql });
+      const timeout = loadExecutionPreferences().timeoutSeconds;
+      await invoke("execute_query", {
+        sql,
+        timeoutSeconds: timeout > 0 ? timeout : null,
+      });
       setSuccess(true);
       setTimeout(() => {
         props.onSuccess?.();

@@ -18,8 +18,7 @@ import {
 import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
-
-import { format } from "sql-formatter";
+import { formatSqlWithPrefs } from "../../lib/sql-format";
 
 interface Props {
   tabs: QueryTab[];
@@ -107,10 +106,7 @@ export default function QueryEditorPanel(props: Props) {
     const tab = activeTab();
     if (!tab) return;
     try {
-      const formatted = format(tab.sql, {
-        language: "tsql",
-        keywordCase: "upper",
-      });
+      const formatted = formatSqlWithPrefs(tab.sql);
       props.onTabUpdate(tab.id, { sql: formatted });
     } catch (err) {
       console.error("Failed to format SQL:", err);

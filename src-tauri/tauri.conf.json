@@ -39,6 +39,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Cristian Militaru",
     "createUpdaterArtifacts": true,
     "targets": "all",
     "fileAssociations": [

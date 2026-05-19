@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { loadExecutionPreferences } from "../../lib/settings";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import Tooltip from "../ui/Tooltip";
 
@@ -111,7 +112,11 @@ export default function RenameDialog(props: Props) {
         props.name,
         trimmed,
       );
-      await invoke("execute_query", { sql });
+      const timeout = loadExecutionPreferences().timeoutSeconds;
+      await invoke("execute_query", {
+        sql,
+        timeoutSeconds: timeout > 0 ? timeout : null,
+      });
       setSuccess(true);
       setTimeout(() => {
         props.onSuccess?.(trimmed);

@@ -51,8 +51,16 @@ import {
 } from "@codemirror/view";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { invoke } from "@tauri-apps/api/core";
-import { createEffect, onCleanup, onMount, untrack } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  onCleanup,
+  onMount,
+  untrack,
+} from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
+import { loadEditorPreferences } from "../../lib/settings";
+import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { sqlLinter } from "../../lib/sql-linter";
 import type { DatabaseSchemaCatalogEntry } from "../../lib/types";
 
@@ -1077,6 +1085,40 @@ async function wrappedKeywordSource(
   };
 }
 
+function buildFontTheme(family: string, size: number) {
+  const resolvedFamily = family || "var(--font-mono)";
+  return EditorView.theme({
+    "&": { fontSize: `${size}px` },
+    ".cm-scroller": { fontFamily: resolvedFamily },
+    ".cm-content": { fontFamily: resolvedFamily },
+    ".cm-gutters": { fontFamily: resolvedFamily },
+  });
+}
+
+function buildMinimapExt() {
+  return showMinimap.of({
+    create: () => {
+      const dom = document.createElement("div");
+      dom.className = "cm-minimap-container";
+      return { dom };
+    },
+    showOverlay: "mouse-over",
+  });
+}
+
+function buildAutocompletionExt(
+  source: (context: CompletionContext) => Promise<CompletionResult | null>,
+) {
+  return autocompletion({
+    defaultKeymap: true,
+    closeOnBlur: false,
+    maxRenderedOptions: 80,
+    override: [source],
+    activateOnCompletion: (completion) =>
+      completion.type === "namespace" || completion.type === "constant",
+  });
+}
+
 export default function SqlEditor(props: Props) {
   let containerRef: HTMLDivElement | undefined;
   let viewRef: EditorView | null = null;
@@ -1088,6 +1130,10 @@ export default function SqlEditor(props: Props) {
     generation: schemaCatalogGeneration,
   };
   const wrapCompartment = new Compartment();
+  const lineNumbersCompartment = new Compartment();
+  const minimapCompartment = new Compartment();
+  const autocompleteCompartment = new Compartment();
+  const fontThemeCompartment = new Compartment();
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
 
   let lastSearchString = "";
@@ -1330,11 +1376,29 @@ export default function SqlEditor(props: Props) {
         ? "Select a database to enable the SQL editor."
         : `-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`;
 
+    const initialPrefs = loadEditorPreferences();
+
+    const pasteHandler = EditorView.domEventHandlers({
+      paste(event, view) {
+        if (!loadEditorPreferences().formatOnPaste) return false;
+        const text = event.clipboardData?.getData("text/plain");
+        if (!text) return false;
+        try {
+          const formatted = formatSqlWithPrefs(text);
+          event.preventDefault();
+          view.dispatch(view.state.replaceSelection(formatted));
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+
     const state = EditorState.create({
       doc: untrack(() => props.value),
       extensions: [
         searchScrollbarPlugin,
-        lineNumbers(),
+        lineNumbersCompartment.of(initialPrefs.lineNumbers ? lineNumbers() : []),
         highlightActiveLineGutter(),
         highlightActiveLine(),
         history(),
@@ -1343,19 +1407,19 @@ export default function SqlEditor(props: Props) {
         }),
         bracketMatching(),
         closeBrackets(),
-        autocompletion({
-          defaultKeymap: true,
-          closeOnBlur: false,
-          maxRenderedOptions: 80,
-          override: [combinedCompletionSource],
-          activateOnCompletion: (completion) =>
-            completion.type === "namespace" || completion.type === "constant",
-        }),
+        autocompleteCompartment.of(
+          initialPrefs.autocomplete
+            ? buildAutocompletionExt(combinedCompletionSource)
+            : [],
+        ),
         sql({ dialect: MSSQL, upperCaseKeywords: true }),
         search(),
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         ...(theme.id === "light" || theme.id === "soft-light" ? [] : [oneDark]),
+        fontThemeCompartment.of(
+          buildFontTheme(initialPrefs.fontFamily, initialPrefs.fontSize),
+        ),
         executeKeymap,
         lineMovementKeymap,
         keymap.of([
@@ -1368,16 +1432,12 @@ export default function SqlEditor(props: Props) {
           ...searchKeymap,
         ]),
         updateListener,
+        pasteHandler,
         placeholderExt(placeholderText),
         wrapCompartment.of(props.wrapLines ? EditorView.lineWrapping : []),
-        showMinimap.of({
-          create: () => {
-            const dom = document.createElement("div");
-            dom.className = "cm-minimap-container";
-            return { dom };
-          },
-          showOverlay: "mouse-over",
-        }),
+        minimapCompartment.of(
+          initialPrefs.minimap ? buildMinimapExt() : [],
+        ),
         ...(readOnly
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
           : []),
@@ -1564,6 +1624,50 @@ export default function SqlEditor(props: Props) {
         ),
       });
     }
+  });
+
+  const editorPrefs = createMemo(() => loadEditorPreferences());
+  const prefLineNumbers = createMemo(() => editorPrefs().lineNumbers);
+  const prefMinimap = createMemo(() => editorPrefs().minimap);
+  const prefAutocomplete = createMemo(() => editorPrefs().autocomplete);
+  const prefFontFamily = createMemo(() => editorPrefs().fontFamily);
+  const prefFontSize = createMemo(() => editorPrefs().fontSize);
+
+  createEffect(() => {
+    const enabled = prefLineNumbers();
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: lineNumbersCompartment.reconfigure(enabled ? lineNumbers() : []),
+    });
+  });
+
+  createEffect(() => {
+    const enabled = prefMinimap();
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: minimapCompartment.reconfigure(
+        enabled ? buildMinimapExt() : [],
+      ),
+    });
+  });
+
+  createEffect(() => {
+    const enabled = prefAutocomplete();
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: autocompleteCompartment.reconfigure(
+        enabled ? buildAutocompletionExt(combinedCompletionSource) : [],
+      ),
+    });
+  });
+
+  createEffect(() => {
+    const family = prefFontFamily();
+    const size = prefFontSize();
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: fontThemeCompartment.reconfigure(buildFontTheme(family, size)),
+    });
   });
 
   createEffect(() => {

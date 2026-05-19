@@ -52,12 +52,16 @@ pub struct QueryResult {
     pub rows_affected: u64,
     pub messages: Vec<String>,
     pub elapsed_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_limit_applied: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultSet {
     pub columns: Vec<ColumnInfo>,
     pub rows: Vec<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

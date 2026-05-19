@@ -15,11 +15,13 @@ export interface QueryResult {
   rows_affected: number;
   messages: string[];
   elapsed_ms: number;
+  row_limit_applied?: number | null;
 }
 
 export interface ResultSet {
   columns: ColumnInfo[];
   rows: (string | number | boolean | null)[][];
+  truncated?: boolean;
 }
 
 export interface ColumnInfo {

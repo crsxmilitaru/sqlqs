@@ -85,6 +85,8 @@ function parseConnectionStringPreview(value: string) {
 interface Props {
   onConnect: (config: ConnectionConfig) => void;
   onClose: () => void;
+  editConnection?: SavedConnection;
+  onSaved?: (updated: SavedConnection) => void;
 }
 
 export default function ConnectionDialog(props: Props) {
@@ -108,12 +110,18 @@ export default function ConnectionDialog(props: Props) {
   const [error, setError] = createSignal("");
   const [visible, setVisible] = createSignal(false);
 
+  const isEditMode = () => Boolean(props.editConnection);
+
   onMount(() => {
     loadSavedConnections();
     requestAnimationFrame(() => setVisible(true));
 
     if (!supportsWindowsAuth) {
       setUseWindowsAuth(false);
+    }
+
+    if (props.editConnection) {
+      loadConnection(props.editConnection);
     }
   });
 
@@ -123,7 +131,7 @@ export default function ConnectionDialog(props: Props) {
       setSavedConnections(settings.connections);
       setKeepLoggedIn(settings.keep_logged_in);
 
-      if (settings.last_connection) {
+      if (!props.editConnection && settings.last_connection) {
         const last = settings.connections.find(
           (c) => c.name === settings.last_connection,
         );
@@ -224,6 +232,12 @@ export default function ConnectionDialog(props: Props) {
       rememberPassword() ||
       (keepLoggedIn() && (mode() === "connectionString" || !useWindowsAuth()));
 
+    const editingName = props.editConnection?.name;
+    const isRename =
+      Boolean(editingName) &&
+      Boolean(effectiveSaveName) &&
+      editingName !== effectiveSaveName;
+
     try {
       await invoke("connect_to_server", {
         config,
@@ -231,12 +245,129 @@ export default function ConnectionDialog(props: Props) {
         rememberPassword: effectiveRememberPassword,
         keepLoggedIn: keepLoggedIn(),
       });
+      if (isRename) {
+        try {
+          if (!effectiveRememberPassword) {
+            const existing: string | null = await invoke(
+              "load_saved_password",
+              { connectionName: editingName },
+            );
+            if (existing) {
+              await invoke("set_connection_password", {
+                name: effectiveSaveName,
+                password: existing,
+              });
+            }
+          }
+          await invoke("delete_saved_connection", { name: editingName });
+        } catch (err) {
+          console.error("Failed to remove old connection after rename:", err);
+        }
+      }
       if (keepLoggedIn() && !trimmedSaveName) {
         setSaveName(generatedSaveName);
       }
       props.onConnect(
         connectionPreview ? { ...config, ...connectionPreview } : config,
       );
+    } catch (err: any) {
+      setError(String(err));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function handleSaveOnly() {
+    setError("");
+    const trimmedSaveName = saveName().trim();
+    if (!trimmedSaveName) {
+      setError("Name is required to save.");
+      return;
+    }
+
+    let saveConfig: ConnectionConfig;
+    if (mode() === "connectionString") {
+      const cs = connectionString().trim();
+      if (!cs) {
+        setError("Connection string is required.");
+        return;
+      }
+      saveConfig = {
+        server: "",
+        use_windows_auth: false,
+        encrypt: false,
+        trust_server_certificate: false,
+        connection_string: cs,
+      };
+    } else {
+      saveConfig = {
+        server: server(),
+        database: database() || undefined,
+        username: useWindowsAuth() ? undefined : username(),
+        use_windows_auth: useWindowsAuth(),
+        encrypt: encrypt(),
+        trust_server_certificate: trustCert(),
+      };
+    }
+
+    setConnecting(true);
+    try {
+      const current: AppSettings = await invoke("load_connections");
+      const oldName = props.editConnection?.name;
+      const updated: SavedConnection = {
+        name: trimmedSaveName,
+        config: saveConfig,
+        cached_port: props.editConnection?.cached_port ?? null,
+      };
+
+      const connections = current.connections.slice();
+      if (oldName) {
+        const idx = connections.findIndex((c) => c.name === oldName);
+        if (idx >= 0) connections[idx] = updated;
+        else connections.push(updated);
+      } else {
+        const idx = connections.findIndex((c) => c.name === trimmedSaveName);
+        if (idx >= 0) connections[idx] = updated;
+        else connections.push(updated);
+      }
+
+      const nextLast =
+        current.last_connection === oldName
+          ? trimmedSaveName
+          : current.last_connection;
+
+      await invoke("save_connections_settings", {
+        payload: {
+          connections,
+          last_connection: nextLast,
+          keep_logged_in: current.keep_logged_in,
+        },
+      });
+
+      if (oldName && oldName !== trimmedSaveName) {
+        const existing: string | null = await invoke("load_saved_password", {
+          connectionName: oldName,
+        });
+        if (existing) {
+          await invoke("set_connection_password", {
+            name: trimmedSaveName,
+            password: existing,
+          });
+          await invoke("set_connection_password", {
+            name: oldName,
+            password: "",
+          });
+        }
+      }
+
+      if (rememberPassword() && password()) {
+        await invoke("set_connection_password", {
+          name: trimmedSaveName,
+          password: password(),
+        });
+      }
+
+      props.onSaved?.(updated);
     } catch (err: any) {
       setError(String(err));
     } finally {
@@ -257,7 +388,9 @@ export default function ConnectionDialog(props: Props) {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
-          <h2 class="text-m font-semibold text-text">Connect to Server</h2>
+          <h2 class="text-m font-semibold text-text">
+            {isEditMode() ? "Edit Connection" : "Connect to Server"}
+          </h2>
           <Tooltip content="Close" placement="bottom">
             <button
               onClick={props.onClose}
@@ -269,7 +402,7 @@ export default function ConnectionDialog(props: Props) {
         </div>
 
         <form onSubmit={handleSubmit} class="p-6 flex flex-col gap-4">
-          {savedConnections().length > 0 && (
+          {!isEditMode() && savedConnections().length > 0 && (
             <div class="flex flex-col gap-1.5">
               <label class="text-s font-medium text-text-muted select-none">
                 Saved Connections
@@ -488,12 +621,26 @@ export default function ConnectionDialog(props: Props) {
             >
               Cancel
             </button>
+            {isEditMode() && (
+              <button
+                type="button"
+                onClick={handleSaveOnly}
+                disabled={connecting()}
+                class="btn btn-secondary px-6 py-1.5"
+              >
+                {connecting() ? "Saving..." : "Save"}
+              </button>
+            )}
             <button
               type="submit"
               disabled={connecting()}
               class="btn btn-primary px-6 py-1.5"
             >
-              {connecting() ? "Connecting..." : "Connect"}
+              {connecting()
+                ? "Connecting..."
+                : isEditMode()
+                  ? "Save & Connect"
+                  : "Connect"}
             </button>
           </div>
         </form>

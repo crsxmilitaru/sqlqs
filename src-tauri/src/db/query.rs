@@ -160,6 +160,7 @@ async fn execute_single_batch(client: &mut SqlClient, sql: &str) -> Result<Batch
                     result_sets.push(ResultSet {
                         columns: current_columns,
                         rows: current_rows,
+                        truncated: false,
                     });
                     current_rows = Vec::new();
                 }
@@ -186,6 +187,7 @@ async fn execute_single_batch(client: &mut SqlClient, sql: &str) -> Result<Batch
         result_sets.push(ResultSet {
             columns: current_columns,
             rows: current_rows,
+            truncated: false,
         });
     }
 
@@ -216,7 +218,11 @@ async fn execute_single_batch(client: &mut SqlClient, sql: &str) -> Result<Batch
     }
 }
 
-pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryResult, String> {
+pub async fn execute_query(
+    client: &mut SqlClient,
+    sql: &str,
+    max_rows: Option<u64>,
+) -> Result<QueryResult, String> {
     let start = std::time::Instant::now();
     let batches = split_batches(sql);
 
@@ -237,11 +243,24 @@ pub async fn execute_query(client: &mut SqlClient, sql: &str) -> Result<QueryRes
         all_messages.extend(result.messages);
     }
 
+    let mut row_limit_applied: Option<u64> = None;
+    if let Some(limit) = max_rows.filter(|n| *n > 0) {
+        let limit_usize = limit as usize;
+        for rs in all_result_sets.iter_mut() {
+            if rs.rows.len() > limit_usize {
+                rs.rows.truncate(limit_usize);
+                rs.truncated = true;
+                row_limit_applied = Some(limit);
+            }
+        }
+    }
+
     Ok(QueryResult {
         result_sets: all_result_sets,
         rows_affected: total_rows_affected,
         messages: all_messages,
         elapsed_ms: start.elapsed().as_millis() as u64,
+        row_limit_applied,
     })
 }
 

@@ -2,10 +2,15 @@ import { createSignal, createEffect, onCleanup, For } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
 import { isMacOS } from "../../lib/platform";
+import { loadPreferences } from "../../lib/settings";
 import type { QueryTab, ServerObjectIndexStatus } from "../../lib/types";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import Tooltip from "../ui/Tooltip";
+
+function isTabDirty(tab: QueryTab): boolean {
+  return tab.sql !== tab.savedSql;
+}
 
 function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
   return (
@@ -215,7 +220,35 @@ export default function TitleBar(props: Props) {
       return;
     }
 
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    if (!shouldConfirm || !tab || !isTabDirty(tab)) {
+      props.onTabClose(tabId);
+      return;
+    }
+
     setConfirmClose({ type: "single", tabId });
+  }
+
+  function requestCloseOthers(tabId: string) {
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = props.tabs.some(
+      (t) => t.id !== tabId && !t.pinned && isTabDirty(t),
+    );
+    if (!shouldConfirm || !hasDirty) {
+      props.onTabCloseOthers(tabId);
+      return;
+    }
+    setConfirmClose({ type: "others", tabId });
+  }
+
+  function requestCloseAll() {
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = props.tabs.some((t) => !t.pinned && isTabDirty(t));
+    if (!shouldConfirm || !hasDirty) {
+      props.onTabCloseAll();
+      return;
+    }
+    setConfirmClose({ type: "all" });
   }
 
   function computeDropIndex(
@@ -323,13 +356,13 @@ export default function TitleBar(props: Props) {
         id: "close-others",
         label: "Close Others",
         icon: <i class="fa-solid fa-rectangle-xmark" />,
-        onClick: () => setConfirmClose({ type: "others", tabId }),
+        onClick: () => requestCloseOthers(tabId),
       },
       {
         id: "close-all",
         label: "Close All",
         icon: <i class="fa-solid fa-trash" />,
-        onClick: () => setConfirmClose({ type: "all" }),
+        onClick: () => requestCloseAll(),
       },
       { id: "sep-actions", separator: true },
       {

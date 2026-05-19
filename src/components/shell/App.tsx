@@ -37,6 +37,9 @@ import QueryEditorPanel from "../editor/QueryEditorPanel";
 import RenameDialog from "../dialogs/RenameDialog";
 import { invalidateSchemaCatalog } from "../editor/SqlEditor";
 import SettingsView from "../settings/SettingsView";
+import { loadAutoCheckUpdates, loadExecutionPreferences } from "../../lib/settings";
+import { findUnguardedDestructiveStatements, type UnguardedStatement } from "../../lib/sql-safety";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "../dialogs/UpdateDialog";
 
@@ -111,6 +114,11 @@ export default function App() {
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] =
     createSignal(false);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
+  const [pendingDestructive, setPendingDestructive] = createSignal<{
+    tabId: string;
+    sql: string;
+    findings: UnguardedStatement[];
+  } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
   const [explorerWidth, setExplorerWidth] = createSignal(325);
   const [theme, setTheme] = createSignal(loadTheme());
@@ -216,6 +224,7 @@ export default function App() {
   });
 
   onMount(() => {
+    if (!loadAutoCheckUpdates()) return;
     const timer = setTimeout(() => {
       void checkForUpdates(false);
     }, 5000);
@@ -237,11 +246,31 @@ export default function App() {
     const sqlToExecute = (selectedSql || tab.sql).trim();
     if (!sqlToExecute) return;
 
+    const execPrefs = loadExecutionPreferences();
+    if (execPrefs.confirmDestructive) {
+      const findings = findUnguardedDestructiveStatements(sqlToExecute);
+      if (findings.length > 0) {
+        setPendingDestructive({ tabId, sql: sqlToExecute, findings });
+        return;
+      }
+    }
+
+    await runExecute(tabId, sqlToExecute);
+  }
+
+  async function runExecute(tabId: string, sqlToExecute: string) {
+    const tab = tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+    const execPrefs = loadExecutionPreferences();
+
     updateTab(tabId, { isExecuting: true, error: undefined });
 
     try {
       const result: QueryResult = await invoke("execute_query", {
         sql: sqlToExecute,
+        maxRows: execPrefs.maxRows > 0 ? execPrefs.maxRows : null,
+        timeoutSeconds:
+          execPrefs.timeoutSeconds > 0 ? execPrefs.timeoutSeconds : null,
       });
       const updates: Partial<QueryTab> = { result, isExecuting: false };
       if (!tab.userTitle) {
@@ -258,6 +287,18 @@ export default function App() {
     } catch (err: any) {
       updateTab(tabId, { error: String(err), isExecuting: false });
     }
+  }
+
+  function describeDestructive(findings: UnguardedStatement[]): string {
+    const counts = findings.reduce(
+      (acc, f) => {
+        acc[f.kind] = (acc[f.kind] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+    const parts = Object.entries(counts).map(([kind, n]) => `${n} ${kind}`);
+    return parts.join(", ");
   }
 
   function handleOpenQueryTab({
@@ -859,6 +900,25 @@ export default function App() {
             name={target().name}
             objectType={target().objectType}
             onClose={() => setDependenciesTarget(null)}
+          />
+        )}
+      </Show>
+
+      <Show when={pendingDestructive()}>
+        {(pending) => (
+          <ConfirmDialog
+            title="Run destructive query?"
+            message={`This query contains ${describeDestructive(
+              pending().findings,
+            )} statement(s) without a WHERE clause. This may affect every row. Proceed?`}
+            confirmLabel="Run anyway"
+            variant="danger"
+            onConfirm={() => {
+              const p = pending();
+              setPendingDestructive(null);
+              void runExecute(p.tabId, p.sql);
+            }}
+            onCancel={() => setPendingDestructive(null)}
           />
         )}
       </Show>

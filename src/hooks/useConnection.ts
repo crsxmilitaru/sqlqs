@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createSignal, createEffect, onMount, batch } from "solid-js";
+import { loadPreferences } from "../lib/settings";
 import type { ConnectionConfig } from "../lib/types";
 
 const STORAGE_KEY_LAST_DATABASE = "sqlqs_last_database";
@@ -83,6 +84,10 @@ export function useConnection() {
 
   onMount(async () => {
     let cancelled = false;
+    if (!loadPreferences().autoConnectStartup) {
+      setIsInitializing(false);
+      return;
+    }
     try {
       const result = await invoke<AutoConnectResult>("try_auto_connect");
       if (cancelled) return;

@@ -533,7 +533,12 @@ async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
-async fn execute_query(state: State<'_, AppState>, sql: String) -> Result<QueryResult, String> {
+async fn execute_query(
+    state: State<'_, AppState>,
+    sql: String,
+    max_rows: Option<u64>,
+    timeout_seconds: Option<u64>,
+) -> Result<QueryResult, String> {
     let token = CancellationToken::new();
 
     let result = {
@@ -548,9 +553,26 @@ async fn execute_query(state: State<'_, AppState>, sql: String) -> Result<QueryR
             *cancel_lock = Some(token.clone());
         }
 
+        let exec_future = db::execute_query(client, &sql, max_rows);
+        let timeout = timeout_seconds.filter(|s| *s > 0);
+
+        let timeout_future = async {
+            match timeout {
+                Some(secs) => {
+                    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                    secs
+                }
+                None => std::future::pending::<u64>().await,
+            }
+        };
+
         tokio::select! {
-            res = db::execute_query(client, &sql) => res,
+            res = exec_future => res,
             _ = token.cancelled() => Err("Query cancelled by user".to_string()),
+            secs = timeout_future => {
+                token.cancel();
+                Err(format!("Query timed out after {}s", secs))
+            }
         }
     };
     mark_connection_used(&state).await;
@@ -662,6 +684,32 @@ async fn load_connections() -> Result<AppSettings, String> {
 #[tauri::command]
 async fn load_saved_password(connection_name: String) -> Result<Option<String>, String> {
     Ok(settings::load_password(&connection_name))
+}
+
+#[tauri::command]
+async fn save_connections_settings(payload: AppSettings) -> Result<(), String> {
+    settings::save_settings(&payload)
+}
+
+#[tauri::command]
+async fn set_connection_password(name: String, password: String) -> Result<(), String> {
+    if password.is_empty() {
+        settings::delete_password(&name)
+    } else {
+        settings::store_password(&name, &password)
+    }
+}
+
+#[tauri::command]
+async fn delete_saved_connection(name: String) -> Result<AppSettings, String> {
+    let mut current = settings::load_settings();
+    current.connections.retain(|c| c.name != name);
+    if current.last_connection.as_deref() == Some(name.as_str()) {
+        current.last_connection = None;
+    }
+    settings::save_settings(&current)?;
+    let _ = settings::delete_password(&name);
+    Ok(current)
 }
 
 #[tauri::command]
@@ -1299,6 +1347,9 @@ pub fn run() {
             generate_create_script,
             load_connections,
             load_saved_password,
+            save_connections_settings,
+            set_connection_password,
+            delete_saved_connection,
             try_auto_connect,
             change_database,
             get_backup_defaults,

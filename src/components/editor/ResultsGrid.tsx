@@ -9,7 +9,112 @@ import {
   Show,
 } from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
+import { loadExecutionPreferences, type DateFormat } from "../../lib/settings";
 import type { QueryResult, ResultSet } from "../../lib/types";
+
+const NAIVE_DATE_TYPES = new Set([
+  "date",
+  "datetime",
+  "datetime2",
+  "smalldatetime",
+]);
+const ALL_DATE_TYPES = new Set([...NAIVE_DATE_TYPES, "datetimeoffset"]);
+
+const SQL_TIMESTAMP_RE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?/;
+
+interface SqlTimestampParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  hasTime: boolean;
+  hasOffset: boolean;
+}
+
+function parseSqlTimestamp(str: string): SqlTimestampParts | null {
+  const m = SQL_TIMESTAMP_RE.exec(str);
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: m[4] ? Number(m[4]) : 0,
+    minute: m[5] ? Number(m[5]) : 0,
+    second: m[6] ? Number(m[6]) : 0,
+    hasTime: m[4] != null,
+    hasOffset: m[7] != null,
+  };
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+function formatParts(p: SqlTimestampParts, withTime: boolean): string {
+  const date = `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+  if (!withTime) return date;
+  return `${date} ${pad2(p.hour)}:${pad2(p.minute)}:${pad2(p.second)}`;
+}
+
+function formatCellValue(
+  val: unknown,
+  typeName: string,
+  dateFormat: DateFormat,
+): string {
+  if (val == null) return "NULL";
+  const str = String(val);
+
+  const baseType = typeName.split("(")[0].toLowerCase();
+  if (!ALL_DATE_TYPES.has(baseType)) return str;
+
+  const parsed = parseSqlTimestamp(str);
+  if (!parsed) return str;
+
+  const isDateOnly = baseType === "date";
+  const withTime = !isDateOnly && parsed.hasTime;
+
+  // Naive types (date, datetime, datetime2, smalldatetime) carry no timezone
+  // information from SQL Server. Never round-trip through Date, which would
+  // reinterpret them as local time and produce shifted output.
+  if (!parsed.hasOffset) {
+    if (dateFormat === "local") {
+      const d = new Date(
+        parsed.year,
+        parsed.month - 1,
+        parsed.day,
+        parsed.hour,
+        parsed.minute,
+        parsed.second,
+      );
+      if (Number.isNaN(d.getTime())) return formatParts(parsed, withTime);
+      return isDateOnly ? d.toLocaleDateString() : d.toLocaleString();
+    }
+    return formatParts(parsed, withTime);
+  }
+
+  // datetimeoffset has an explicit timezone — safe to use Date for conversion.
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return formatParts(parsed, withTime);
+
+  if (dateFormat === "local") {
+    return isDateOnly ? d.toLocaleDateString() : d.toLocaleString();
+  }
+  if (dateFormat === "utc") {
+    const utcParts: SqlTimestampParts = {
+      year: d.getUTCFullYear(),
+      month: d.getUTCMonth() + 1,
+      day: d.getUTCDate(),
+      hour: d.getUTCHours(),
+      minute: d.getUTCMinutes(),
+      second: d.getUTCSeconds(),
+      hasTime: true,
+      hasOffset: true,
+    };
+    return `${formatParts(utcParts, withTime)} UTC`;
+  }
+  return formatParts(parsed, withTime);
+}
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import EmptyState from "../ui/EmptyState";
@@ -72,9 +177,8 @@ function ErrorSection(props: {
           </Show>
           <button
             onClick={handleCopy}
-            class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${
-              copied() ? "text-success border-success/30 bg-success/5" : ""
-            }`}
+            class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied() ? "text-success border-success/30 bg-success/5" : ""
+              }`}
           >
             <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
             <span>{copied() ? "Copied!" : "Copy Error"}</span>
@@ -98,6 +202,7 @@ function VirtualGrid(props: {
   let columnSelectorButtonRef: HTMLButtonElement | undefined;
   const [scrollTop, setScrollTop] = createSignal(0);
   const [containerHeight, setContainerHeight] = createSignal(0);
+  const dateFormat = createMemo(() => loadExecutionPreferences().dateFormat);
 
   const [sortConfig, setSortConfig] = createSignal<{
     colIndex: number;
@@ -380,9 +485,8 @@ function VirtualGrid(props: {
           <div class="flex items-center gap-2">
             <button
               onClick={copyAsMarkdown}
-              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${
-                copied() ? "text-success border-success/30 bg-success/5" : ""
-              }`}
+              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${copied() ? "text-success border-success/30 bg-success/5" : ""
+                }`}
               title="Copy table as Markdown"
             >
               <i
@@ -394,9 +498,8 @@ function VirtualGrid(props: {
             </button>
             <button
               onClick={handleExportClick}
-              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${
-                exportMenuPos() ? "bg-surface-active text-text" : ""
-              }`}
+              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${exportMenuPos() ? "bg-surface-active text-text" : ""
+                }`}
               title="Export results"
             >
               <i class="fa-solid fa-download text-[10px]" />
@@ -404,9 +507,8 @@ function VirtualGrid(props: {
                 Export
               </span>
               <i
-                class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${
-                  exportMenuPos() ? "rotate-180" : ""
-                }`}
+                class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${exportMenuPos() ? "rotate-180" : ""
+                  }`}
               />
             </button>
             <Show when={exportMenuPos()}>
@@ -445,9 +547,8 @@ function VirtualGrid(props: {
               <button
                 ref={columnSelectorButtonRef}
                 onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen())}
-                class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${
-                  isColumnSelectorOpen() ? "bg-surface-active text-text" : ""
-                }`}
+                class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${isColumnSelectorOpen() ? "bg-surface-active text-text" : ""
+                  }`}
                 title="Column visibility"
               >
                 <i class="fa-solid fa-table-columns text-[10px]" />
@@ -458,9 +559,8 @@ function VirtualGrid(props: {
                   </span>
                 </Show>
                 <i
-                  class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${
-                    isColumnSelectorOpen() ? "rotate-180" : ""
-                  }`}
+                  class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${isColumnSelectorOpen() ? "rotate-180" : ""
+                    }`}
                 />
               </button>
               <Show when={isColumnSelectorOpen()}>
@@ -496,11 +596,10 @@ function VirtualGrid(props: {
                 <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
                   <button
                     onClick={() => setShowFilters(!showFilters())}
-                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${
-                      Object.values(filters()).some((v) => v.trim())
+                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${Object.values(filters()).some((v) => v.trim())
                         ? "text-accent"
                         : "text-text-muted/60"
-                    }`}
+                      }`}
                     title="Toggle filters"
                   >
                     <i class="fa-solid fa-filter text-[10px]" />
@@ -533,11 +632,10 @@ function VirtualGrid(props: {
                             }
                           >
                             <i
-                              class={`fa-solid ${
-                                sortConfig()!.direction === "asc"
+                              class={`fa-solid ${sortConfig()!.direction === "asc"
                                   ? "fa-sort-up mt-1"
                                   : "fa-sort-down mb-1"
-                              } text-accent text-[10px] w-2 flex justify-center`}
+                                } text-accent text-[10px] w-2 flex justify-center`}
                             />
                           </Show>
                         </div>
@@ -596,13 +694,20 @@ function VirtualGrid(props: {
                     <For each={visibleColIndices()}>
                       {(ci) => {
                         const cell = row[ci];
+                        const col = props.resultSet.columns[ci];
+                        const formattedValue = formatCellValue(
+                          cell,
+                          col.type_name,
+                          dateFormat(),
+                        );
+
                         return (
                           <td
-                            title={cell != null ? String(cell) : "NULL"}
+                            title={formattedValue}
                             class="border-r border-border/5"
                           >
                             {cell != null ? (
-                              String(cell)
+                              formattedValue
                             ) : (
                               <span class="text-text-muted/40 italic">
                                 NULL
@@ -825,19 +930,34 @@ export default function ResultsGrid(props: Props) {
                 >
                   <For each={result().result_sets}>
                     {(rs, i) => (
-                      <VirtualGrid
-                        resultSet={rs}
-                        selectedRowIndex={
-                          rowContextMenu()?.resultSetIndex === i()
-                            ? rowContextMenu()!.rowIndex
-                            : null
-                        }
-                        onContextMenu={(e, ri) => handleContextMenu(e, ri, i())}
-                        onRowDoubleClick={(ri) => {
-                          if (!canDoRowActions()) return;
-                          openActionDialogForRow("edit", ri, i());
-                        }}
-                      />
+                      <>
+                        <Show when={rs.truncated}>
+                          <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md">
+                            <i class="fa-solid fa-circle-exclamation" />
+                            {result().result_sets.length > 1
+                              ? `Result set ${i() + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
+                              : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}
+                            {" "}(Execution row limit in Settings → Execution).
+                          </div>
+                        </Show>
+                        <VirtualGrid
+                          resultSet={rs}
+                          selectedRowIndex={
+                            rowContextMenu()?.resultSetIndex === i()
+                              ? rowContextMenu()!.rowIndex
+                              : null
+                          }
+                          onContextMenu={(e, ri) =>
+                            handleContextMenu(e, ri, i())
+                          }
+                          onRowDoubleClick={(ri) => {
+                            if (!loadExecutionPreferences().doubleClickEditRow)
+                              return;
+                            if (!canDoRowActions()) return;
+                            openActionDialogForRow("edit", ri, i());
+                          }}
+                        />
+                      </>
                     )}
                   </For>
                 </Show>
