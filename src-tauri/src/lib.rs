@@ -296,6 +296,92 @@ async fn ensure_server_object_indexing_started(
     Ok(object_index.status())
 }
 
+fn conversations_dir() -> PathBuf {
+    let dir = settings::app_data_dir().join("conversations");
+    fs::create_dir_all(&dir).ok();
+    dir
+}
+
+fn is_valid_conversation_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn conversation_path(id: &str) -> Result<PathBuf, String> {
+    if !is_valid_conversation_id(id) {
+        return Err("Invalid conversation id".to_string());
+    }
+    Ok(conversations_dir().join(format!("{}.json", id)))
+}
+
+use std::fs;
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct ConversationMeta {
+    id: String,
+    title: String,
+    created_at: u64,
+    updated_at: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ConversationData {
+    meta: ConversationMeta,
+    messages: serde_json::Value,
+}
+
+#[tauri::command]
+fn list_conversations() -> Result<Vec<ConversationMeta>, String> {
+    let dir = conversations_dir();
+    let mut conversations: Vec<ConversationMeta> = Vec::new();
+
+    let entries =
+        fs::read_dir(&dir).map_err(|e| format!("Failed to read conversations dir: {}", e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            if let Ok(data) = fs::read_to_string(&path) {
+                if let Ok(conv) = serde_json::from_str::<ConversationData>(&data) {
+                    conversations.push(conv.meta);
+                }
+            }
+        }
+    }
+
+    conversations.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(conversations)
+}
+
+#[tauri::command]
+fn load_conversation(id: String) -> Result<ConversationData, String> {
+    let path = conversation_path(&id)?;
+    let data =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to load conversation: {}", e))?;
+    serde_json::from_str(&data).map_err(|e| format!("Failed to parse conversation: {}", e))
+}
+
+#[tauri::command]
+fn save_conversation(data: ConversationData) -> Result<(), String> {
+    let dir = conversations_dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create conversations dir: {}", e))?;
+    let path = conversation_path(&data.meta.id)?;
+    let json = serde_json::to_string_pretty(&data)
+        .map_err(|e| format!("Failed to serialize conversation: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write conversation: {}", e))
+}
+
+#[tauri::command]
+fn delete_conversation(id: String) -> Result<(), String> {
+    let path = conversation_path(&id)?;
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete conversation: {}", e))?;
+    }
+    Ok(())
+}
+
 fn extract_startup_sql_file_path() -> Option<String> {
     std::env::args_os().skip(1).find_map(|arg| {
         let path = PathBuf::from(arg);
@@ -723,6 +809,113 @@ async fn store_api_key(key: String) -> Result<(), String> {
 #[tauri::command]
 async fn load_api_key() -> Result<Option<String>, String> {
     Ok(settings::load_api_key())
+}
+
+#[tauri::command]
+async fn store_brave_search_key(key: String) -> Result<(), String> {
+    if key.is_empty() {
+        return settings::delete_brave_api_key();
+    }
+    settings::store_brave_api_key(&key)
+}
+
+#[tauri::command]
+async fn load_brave_search_key() -> Result<Option<String>, String> {
+    Ok(settings::load_brave_api_key())
+}
+
+#[derive(serde::Serialize)]
+struct BraveSearchResult {
+    title: String,
+    url: String,
+    description: String,
+}
+
+#[tauri::command]
+async fn brave_search(query: String, count: Option<u32>) -> Result<Vec<BraveSearchResult>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("query is required".to_string());
+    }
+
+    let api_key = settings::load_brave_api_key()
+        .ok_or_else(|| "Brave Search API key not configured".to_string())?;
+
+    let count = count.unwrap_or(5).clamp(1, 20);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let response = client
+        .get("https://api.search.brave.com/res/v1/web/search")
+        .query(&[("q", query), ("count", &count.to_string())])
+        .header("X-Subscription-Token", api_key)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Brave Search request failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Brave Search HTTP {}: {}", status.as_u16(), body));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Brave Search response: {}", e))?;
+
+    let results = body
+        .get("web")
+        .and_then(|w| w.get("results"))
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let parsed = results
+        .into_iter()
+        .map(|item| BraveSearchResult {
+            title: strip_html(
+                item.get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default(),
+            ),
+            url: item
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            description: strip_html(
+                item.get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default(),
+            ),
+        })
+        .filter(|r| !r.url.is_empty())
+        .collect();
+
+    Ok(parsed)
+}
+
+fn strip_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 }
 
 #[derive(serde::Serialize)]
@@ -1369,6 +1562,9 @@ pub fn run() {
             set_mica_theme,
             store_api_key,
             load_api_key,
+            store_brave_search_key,
+            load_brave_search_key,
+            brave_search,
             minimize_window,
             maximize_window,
             close_window,
@@ -1382,6 +1578,10 @@ pub fn run() {
             export_results_json,
             export_results_xlsx,
             generate_object_script,
+            list_conversations,
+            load_conversation,
+            save_conversation,
+            delete_conversation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

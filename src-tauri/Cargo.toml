@@ -32,6 +32,7 @@ tauri-plugin-fs = "2.5.0"
 tauri-plugin-notification = "2"
 rust_xlsxwriter = "0.78"
 socket2 = "0.6"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }

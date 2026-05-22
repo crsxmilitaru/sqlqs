@@ -48,7 +48,8 @@ export default function QueryEditorPanel(props: Props) {
   const [aiChatWidth, setAiChatWidth] = createSignal(
     (() => {
       const saved = localStorage.getItem("sqlqs_ai_chat_width");
-      return saved ? parseInt(saved, 10) : 320;
+      const parsed = saved ? parseInt(saved, 10) : 350;
+      return Math.max(350, Number.isFinite(parsed) ? parsed : 350);
     })(),
   );
 
@@ -94,6 +95,23 @@ export default function QueryEditorPanel(props: Props) {
     if (tab.error) return true;
     if (tab.result && tab.result.result_sets.length === 0) return true;
     return false;
+  });
+
+  const currentResultMessage = createMemo(() => {
+    const tab = activeTab();
+    if (!tab) return undefined;
+    if (tab.error) return tab.error;
+    const result = tab.result;
+    if (!result) return undefined;
+    const hasRows = result.result_sets.some((rs) => rs.rows.length > 0);
+    if (hasRows) return undefined;
+    const lines: string[] = ["Query executed successfully."];
+    if (result.rows_affected > 0) {
+      lines.push(`${result.rows_affected} row(s) affected.`);
+    }
+    lines.push(`Execution time: ${result.elapsed_ms}ms`);
+    for (const msg of result.messages) lines.push(msg);
+    return lines.join("\n");
   });
 
   function handleExecute(selectedSql?: string) {
@@ -170,8 +188,7 @@ export default function QueryEditorPanel(props: Props) {
     setPendingChatMessage({
       id: Date.now(),
       content: selectedText,
-      references: ["editor", "selected"],
-      selectedCode: selectedText,
+      references: ["selected"],
     });
   }
 
@@ -183,7 +200,7 @@ export default function QueryEditorPanel(props: Props) {
       id: Date.now(),
       content: error,
       references: ["result"],
-      resultError: error,
+      resultMessage: error,
     });
   }
 
@@ -207,7 +224,7 @@ export default function QueryEditorPanel(props: Props) {
       { id: "sep-1", separator: true },
       {
         id: "send-selection-to-chat",
-        label: "Send Selection to Chat",
+        label: "Send to Chat",
         icon: <i class="fa-solid fa-comment-dots" />,
         onClick: handleSendSelectionToChat,
         disabled: !hasSelectedText,
@@ -402,7 +419,7 @@ export default function QueryEditorPanel(props: Props) {
               <AIChatPanel
                 currentCode={activeTab()!.sql}
                 currentDatabase={props.currentDatabase}
-                currentResultError={activeTab()!.error}
+                currentResultMessage={currentResultMessage()}
                 onApplyCode={handleGeneratedRowSql}
                 width={aiChatWidth()}
                 onWidthChange={setAiChatWidth}

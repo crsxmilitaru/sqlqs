@@ -26,15 +26,19 @@ const KEYRING_SERVICE: &str = "SQL Query Studio";
 const LEGACY_KEYRING_SERVICE: &str = "sqlqs";
 const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE, LEGACY_KEYRING_SERVICE];
 
-fn settings_path() -> PathBuf {
-    let dir = dirs_next()
+pub fn app_data_dir() -> PathBuf {
+    let dir = platform_config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("sqlqs");
     fs::create_dir_all(&dir).ok();
-    dir.join("settings.json")
+    dir
 }
 
-fn dirs_next() -> Option<PathBuf> {
+fn settings_path() -> PathBuf {
+    app_data_dir().join("settings.json")
+}
+
+fn platform_config_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         std::env::var("APPDATA").ok().map(PathBuf::from)
@@ -121,6 +125,7 @@ pub fn delete_password(connection_name: &str) -> Result<(), String> {
 }
 
 const API_KEY_KEYRING_USER: &str = "gemini_api_key";
+const BRAVE_API_KEY_KEYRING_USER: &str = "brave_search_api_key";
 
 pub fn store_api_key(key: &str) -> Result<(), String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, API_KEY_KEYRING_USER)
@@ -140,6 +145,30 @@ pub fn load_api_key() -> Option<String> {
 pub fn delete_api_key() -> Result<(), String> {
     for service in KEYRING_SERVICES {
         if let Ok(entry) = keyring::Entry::new(service, API_KEY_KEYRING_USER) {
+            let _ = entry.delete_credential();
+        }
+    }
+    Ok(())
+}
+
+pub fn store_brave_api_key(key: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, BRAVE_API_KEY_KEYRING_USER)
+        .map_err(|e| format!("Keyring error: {}", e))?;
+    entry
+        .set_password(key)
+        .map_err(|e| format!("Failed to store Brave API key: {}", e))
+}
+
+pub fn load_brave_api_key() -> Option<String> {
+    KEYRING_SERVICES.iter().find_map(|service| {
+        let entry = keyring::Entry::new(service, BRAVE_API_KEY_KEYRING_USER).ok()?;
+        entry.get_password().ok()
+    })
+}
+
+pub fn delete_brave_api_key() -> Result<(), String> {
+    for service in KEYRING_SERVICES {
+        if let Ok(entry) = keyring::Entry::new(service, BRAVE_API_KEY_KEYRING_USER) {
             let _ = entry.delete_credential();
         }
     }

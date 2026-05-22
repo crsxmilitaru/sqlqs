@@ -747,19 +747,34 @@ export default function TitleBar(props: Props) {
               </button>
             </Tooltip>
           )}
-          {!props.hideAppContent && hasAiKey() && props.connected && (
-            <div class="flex items-center px-1">
-              <Tooltip content="AI Chat" placement="bottom">
+          {!props.hideAppContent && (
+            <div class="flex items-center self-center">
+              <Tooltip
+                content={
+                  !hasAiKey()
+                    ? "AI Chat • Add a Gemini API key in Settings"
+                    : !props.connected
+                      ? "AI Chat • Connect to a server"
+                      : "AI Chat"
+                }
+                placement="bottom"
+              >
                 <button
                   onClick={props.onToggleAiChat}
-                  disabled={props.tabs.length === 0}
-                  class={`flex items-center gap-1.5 px-2.5 h-8 rounded-md text-s transition-colors ${props.tabs.length === 0 ? "opacity-50 cursor-default" : "cursor-pointer"} ${props.aiChatOpen ? "text-text font-medium bg-surface-header enabled:hover:bg-surface-active" : "text-text-muted font-normal enabled:hover:text-text enabled:hover:bg-surface-hover"}`}
+                  disabled={
+                    !hasAiKey() ||
+                    !props.connected ||
+                    props.tabs.length === 0
+                  }
+                  class={`w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-default enabled:cursor-pointer ${props.aiChatOpen ? "bg-surface-header text-text enabled:hover:bg-surface-active" : "text-text-muted enabled:hover:text-text enabled:hover:bg-surface-hover"}`}
                 >
-                  <i class="fa-solid fa-message" />
-                  <span>Chat</span>
+                  <i class="fa-solid fa-message text-m" />
                 </button>
               </Tooltip>
             </div>
+          )}
+          {!isMac && (
+            <div class="w-px h-4 bg-overlay-sm mx-2.5 flex-shrink-0 self-center" />
           )}
           {!isMac && (
             <div class="flex h-full relative z-[9999]">

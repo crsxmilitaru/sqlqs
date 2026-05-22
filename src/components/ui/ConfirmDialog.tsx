@@ -45,7 +45,11 @@ export default function ConfirmDialog(props: Props) {
           <button
             type="button"
             onClick={props.onConfirm}
-            class="btn btn-primary px-6 py-1.5"
+            class={
+              props.variant === "danger"
+                ? "btn px-6 py-1.5 bg-error border-error text-white hover:!bg-error/90 hover:!border-error/90"
+                : "btn btn-primary px-6 py-1.5"
+            }
           >
             {props.confirmLabel ?? "Confirm"}
           </button>

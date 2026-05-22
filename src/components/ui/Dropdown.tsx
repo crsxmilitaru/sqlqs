@@ -156,6 +156,7 @@ export default function Dropdown(props: Props) {
         e.key === " "
       ) {
         e.preventDefault();
+        updatePosition();
         setIsOpen(true);
       }
       return;
@@ -199,7 +200,11 @@ export default function Dropdown(props: Props) {
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => !disabled() && setIsOpen(!isOpen())}
+        onClick={() => {
+          if (disabled()) return;
+          if (!isOpen()) updatePosition();
+          setIsOpen(!isOpen());
+        }}
         disabled={disabled()}
         class={`
           dropdown-trigger

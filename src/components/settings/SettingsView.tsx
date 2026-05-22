@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { createMemo, createSignal, onMount, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
-import { AiService } from "../../lib/ai";
+import { AiService, BraveSearchService } from "../../lib/ai";
 import {
   DATE_FORMAT_OPTIONS,
   DEFAULT_DATE_FORMAT,
@@ -172,8 +172,10 @@ export default function SettingsView(props: Props) {
     hasKey: false,
   });
   const [apiKey, setApiKey] = createSignal("");
-  const [modelId, setModelId] = createSignal(AiService.getModel());
   const [showApiKey, setShowApiKey] = createSignal(false);
+  const [braveKey, setBraveKey] = createSignal("");
+  const [showBraveKey, setShowBraveKey] = createSignal(false);
+  const [braveHasKey, setBraveHasKey] = createSignal(false);
   const [, setVisible] = createSignal(false);
 
   onMount(() => {
@@ -185,6 +187,12 @@ export default function SettingsView(props: Props) {
       if (key) setApiKey(key);
     });
     AiService.getStatus().then(setGeminiStatus);
+    BraveSearchService.getApiKey().then((key) => {
+      if (key) {
+        setBraveKey(key);
+        setBraveHasKey(true);
+      }
+    });
     void refreshConnections();
   });
 
@@ -342,8 +350,12 @@ export default function SettingsView(props: Props) {
 
   const handleSaveAiSettings = async () => {
     await AiService.setApiKey(apiKey());
-    AiService.setModel(modelId());
     setGeminiStatus(await AiService.getStatus());
+  };
+
+  const handleSaveBraveSettings = async () => {
+    await BraveSearchService.setApiKey(braveKey());
+    setBraveHasKey(await BraveSearchService.hasKey());
   };
 
   const updateMessageClass = () =>
@@ -1144,13 +1156,13 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-api",
       tab: "ai",
-      title: "API Configuration",
-      keywords: "ai api gemini google key model assistant",
+      title: "Configuration",
+      keywords: "ai api gemini google key assistant",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center gap-3 mb-4">
             <div>
-              <h4 class="text-s font-medium text-text">API Configuration</h4>
+              <h4 class="text-s font-medium text-text">Configuration</h4>
               <p class="text-s text-text-muted mt-0.5">Google Gemini</p>
             </div>
             <div class="ml-auto">
@@ -1167,19 +1179,6 @@ export default function SettingsView(props: Props) {
           </div>
 
           <div class="space-y-3.5">
-            <div>
-              <label class="text-s font-medium text-text-muted block mb-1.5">
-                Gemini Model ID
-              </label>
-              <Input
-                type="text"
-                value={modelId()}
-                onInput={(e) =>
-                  setModelId((e.target as HTMLInputElement).value)
-                }
-                placeholder="e.g. gemini-flash-latest"
-              />
-            </div>
             <div>
               <label class="text-s font-medium text-text-muted block mb-1.5">
                 Gemini API Key
@@ -1224,6 +1223,83 @@ export default function SettingsView(props: Props) {
                   }}
                 >
                   Google AI Studio
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "ai-brave-search",
+      tab: "ai",
+      title: "Brave Search API",
+      keywords: "ai brave search web key tool",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center gap-3 mb-4">
+            <div>
+              <h4 class="text-s font-medium text-text">Web Search</h4>
+              <p class="text-s text-text-muted mt-0.5">Brave Search API</p>
+            </div>
+            <div class="ml-auto">
+              {braveHasKey() ? (
+                <span class="px-2.5 py-1 bg-success/10 text-success text-s font-semibold rounded-full border border-success/20">
+                  CONFIGURED
+                </span>
+              ) : (
+                <span class="px-2.5 py-1 bg-overlay-md/40 text-text-muted text-s font-semibold rounded-full border border-border">
+                  OPTIONAL
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div class="space-y-3.5">
+            <div>
+              <label class="text-s font-medium text-text-muted block mb-1.5">
+                Brave Search API Key
+              </label>
+              <div class="flex gap-2">
+                <div class="relative flex-1">
+                  <Input
+                    type={showBraveKey() ? "text" : "password"}
+                    value={braveKey()}
+                    onInput={(e) =>
+                      setBraveKey((e.target as HTMLInputElement).value)
+                    }
+                    placeholder="Paste your Brave Search API key here..."
+                    class="pr-9"
+                  />
+                  <button
+                    onClick={() => setShowBraveKey(!showBraveKey())}
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                  >
+                    <i
+                      class={`fa-solid ${showBraveKey() ? "fa-eye-slash" : "fa-eye"} text-s`}
+                    />
+                  </button>
+                </div>
+                <button
+                  onClick={handleSaveBraveSettings}
+                  class="btn btn-primary px-4"
+                >
+                  Save
+                </button>
+              </div>
+              <p class="text-s text-text-muted mt-2">
+                Lets the AI search the web. Get a free key at{" "}
+                <a
+                  href="https://api-dashboard.search.brave.com/app/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-accent hover:underline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void open("https://api-dashboard.search.brave.com/app/keys");
+                  }}
+                >
+                  Brave Search API
                 </a>
               </p>
             </div>
