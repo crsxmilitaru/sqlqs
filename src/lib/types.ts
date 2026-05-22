@@ -142,7 +142,7 @@ export interface SavedConnection {
 export interface AppSettings {
   connections: SavedConnection[];
   last_connection?: string;
-  keep_logged_in: boolean;
+  auto_connect_startup: boolean;
 }
 
 export interface QueryTab {

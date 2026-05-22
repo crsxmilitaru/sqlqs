@@ -460,10 +460,17 @@ export default function SettingsView(props: Props) {
               </p>
             </div>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const next = !autoConnectStartup();
                 setAutoConnectStartup(next);
                 saveAutoConnectStartup(next);
+                try {
+                  const settings: AppSettings = await invoke("load_connections");
+                  settings.auto_connect_startup = next;
+                  await invoke("save_connections_settings", { payload: settings });
+                } catch (err) {
+                  const _unused = err;
+                }
               }}
               class="settings-toggle"
               data-checked={autoConnectStartup()}

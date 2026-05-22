@@ -120,7 +120,7 @@ function readConfirmCloseUnsavedFromStorage(): boolean {
 
 function readAutoConnectStartupFromStorage(): boolean {
   const raw = localStorage.getItem(STORAGE_KEY_AUTO_CONNECT_STARTUP);
-  return raw === null ? false : raw === "true";
+  return raw === null ? true : raw === "true";
 }
 
 function readMaxHistoryItemsFromStorage(): number {

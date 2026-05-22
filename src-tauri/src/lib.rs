@@ -529,7 +529,6 @@ async fn connect_to_server(
     config: ConnectionConfig,
     save_connection: Option<String>,
     remember_password: bool,
-    keep_logged_in: bool,
 ) -> Result<String, String> {
     let resolved_config = if let Some(ref conn_str) = config.connection_string {
         if !conn_str.trim().is_empty() {
@@ -588,10 +587,7 @@ async fn connect_to_server(
         settings_changed = true;
     }
 
-    if settings.keep_logged_in != keep_logged_in {
-        settings.keep_logged_in = keep_logged_in;
-        settings_changed = true;
-    }
+
 
     if settings_changed {
         settings::save_settings(&settings)?;
@@ -937,7 +933,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 
     let mut settings = settings::load_settings();
 
-    if !settings.keep_logged_in {
+    if !settings.auto_connect_startup {
         return Ok(not_connected);
     }
 

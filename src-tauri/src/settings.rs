@@ -12,11 +12,26 @@ pub struct SavedConnection {
     pub cached_port: Option<u16>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub connections: Vec<SavedConnection>,
     pub last_connection: Option<String>,
-    pub keep_logged_in: bool,
+    #[serde(default = "default_true")]
+    pub auto_connect_startup: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            connections: Vec::new(),
+            last_connection: None,
+            auto_connect_startup: true,
+        }
+    }
 }
 
 // Writes always go to KEYRING_SERVICE. Reads check LEGACY_KEYRING_SERVICE too

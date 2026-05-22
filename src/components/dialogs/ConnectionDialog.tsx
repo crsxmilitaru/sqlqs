@@ -102,7 +102,6 @@ export default function ConnectionDialog(props: Props) {
   const [connectionString, setConnectionString] = createSignal("");
   const [saveName, setSaveName] = createSignal("");
   const [rememberPassword, setRememberPassword] = createSignal(false);
-  const [keepLoggedIn, setKeepLoggedIn] = createSignal(true);
   const [savedConnections, setSavedConnections] = createSignal<
     SavedConnection[]
   >([]);
@@ -129,7 +128,6 @@ export default function ConnectionDialog(props: Props) {
     try {
       const settings: AppSettings = await invoke("load_connections");
       setSavedConnections(settings.connections);
-      setKeepLoggedIn(settings.keep_logged_in);
 
       if (!props.editConnection && settings.last_connection) {
         const last = settings.connections.find(
@@ -139,7 +137,7 @@ export default function ConnectionDialog(props: Props) {
           loadConnection(last);
         }
       }
-    } catch {}
+    } catch { }
   }
 
   async function loadConnection(saved: SavedConnection) {
@@ -172,7 +170,7 @@ export default function ConnectionDialog(props: Props) {
         setPassword(pass);
         setRememberPassword(true);
       }
-    } catch {}
+    } catch { }
   }
 
   function generateSaveName(srv: string, user: string, winAuth: boolean) {
@@ -219,18 +217,8 @@ export default function ConnectionDialog(props: Props) {
       mode() === "connectionString"
         ? parseConnectionStringPreview(connectionString())
         : null;
-    const generatedSaveName =
-      mode() === "connectionString"
-        ? connectionPreview?.server || "Connection"
-        : database().trim()
-          ? `${server().trim()} (${database().trim()})`
-          : server().trim();
-    const effectiveSaveName = keepLoggedIn()
-      ? trimmedSaveName || generatedSaveName
-      : trimmedSaveName || null;
-    const effectiveRememberPassword =
-      rememberPassword() ||
-      (keepLoggedIn() && (mode() === "connectionString" || !useWindowsAuth()));
+    const effectiveSaveName = trimmedSaveName || null;
+    const effectiveRememberPassword = rememberPassword();
 
     const editingName = props.editConnection?.name;
     const isRename =
@@ -243,7 +231,6 @@ export default function ConnectionDialog(props: Props) {
         config,
         saveConnection: effectiveSaveName,
         rememberPassword: effectiveRememberPassword,
-        keepLoggedIn: keepLoggedIn(),
       });
       if (isRename) {
         try {
@@ -263,9 +250,6 @@ export default function ConnectionDialog(props: Props) {
         } catch (err) {
           console.error("Failed to remove old connection after rename:", err);
         }
-      }
-      if (keepLoggedIn() && !trimmedSaveName) {
-        setSaveName(generatedSaveName);
       }
       props.onConnect(
         connectionPreview ? { ...config, ...connectionPreview } : config,
@@ -340,7 +324,7 @@ export default function ConnectionDialog(props: Props) {
         payload: {
           connections,
           last_connection: nextLast,
-          keep_logged_in: current.keep_logged_in,
+          auto_connect_startup: current.auto_connect_startup,
         },
       });
 
@@ -466,6 +450,14 @@ export default function ConnectionDialog(props: Props) {
                     onInput={(e) => setPassword(e.currentTarget.value)}
                     placeholder="Override password from string"
                   />
+                  <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer mt-1.5 select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberPassword()}
+                      onChange={(e) => setRememberPassword(e.currentTarget.checked)}
+                    />
+                    <span>Remember password</span>
+                  </label>
                 </div>
               </div>
             </>
@@ -538,6 +530,14 @@ export default function ConnectionDialog(props: Props) {
                       value={password()}
                       onInput={(e) => setPassword(e.currentTarget.value)}
                     />
+                    <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer mt-1 select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberPassword()}
+                        onChange={(e) => setRememberPassword(e.currentTarget.checked)}
+                      />
+                      <span>Remember password</span>
+                    </label>
                   </div>
                 </div>
               )}
@@ -564,46 +564,15 @@ export default function ConnectionDialog(props: Props) {
           )}
 
           <div class="border-t border-border mt-1 pt-4 flex flex-col gap-3">
-            <div class="flex gap-4 items-start">
-              <div class="flex-1 flex flex-col gap-1.5">
-                <label class="text-s font-medium text-text-muted select-none">
-                  Save as (optional)
-                </label>
-                <Input
-                  value={saveName()}
-                  onInput={(e) => setSaveName(e.currentTarget.value)}
-                  placeholder="My Server"
-                />
-              </div>
-              <div class="flex flex-col gap-2 mt-[22px]">
-                <label
-                  class={`flex items-center gap-2.5 text-m text-text-muted select-none ${keepLoggedIn() ? "opacity-50 cursor-default" : "cursor-pointer"}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={rememberPassword() || keepLoggedIn()}
-                    disabled={keepLoggedIn()}
-                    onChange={(e) =>
-                      setRememberPassword(e.currentTarget.checked)
-                    }
-                  />
-                  <span>Remember password</span>
-                </label>
-                <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={keepLoggedIn()}
-                    onChange={(e) => {
-                      const next = e.currentTarget.checked;
-                      setKeepLoggedIn(next);
-                      if (next && !useWindowsAuth()) {
-                        setRememberPassword(true);
-                      }
-                    }}
-                  />
-                  <span>Keep me logged in</span>
-                </label>
-              </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="text-s font-medium text-text-muted select-none">
+                Save as (optional)
+              </label>
+              <Input
+                value={saveName()}
+                onInput={(e) => setSaveName(e.currentTarget.value)}
+                placeholder="My Server"
+              />
             </div>
           </div>
 
