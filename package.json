@@ -1,6 +1,6 @@
 {
   "name": "sqlqs",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "SQL Query Studio - A lightweight SQL editor",
   "author": "Cristian Militaru",
   "publisher": "crsx",
