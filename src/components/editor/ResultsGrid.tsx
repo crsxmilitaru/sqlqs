@@ -9,112 +9,9 @@ import {
   Show,
 } from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
-import { loadExecutionPreferences, type DateFormat } from "../../lib/settings";
+import { loadExecutionPreferences } from "../../lib/settings";
+import { formatSqlDateValue } from "../../lib/sql-date";
 import type { QueryResult, ResultSet } from "../../lib/types";
-
-const NAIVE_DATE_TYPES = new Set([
-  "date",
-  "datetime",
-  "datetime2",
-  "smalldatetime",
-]);
-const ALL_DATE_TYPES = new Set([...NAIVE_DATE_TYPES, "datetimeoffset"]);
-
-const SQL_TIMESTAMP_RE =
-  /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?/;
-
-interface SqlTimestampParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-  hasTime: boolean;
-  hasOffset: boolean;
-}
-
-function parseSqlTimestamp(str: string): SqlTimestampParts | null {
-  const m = SQL_TIMESTAMP_RE.exec(str);
-  if (!m) return null;
-  return {
-    year: Number(m[1]),
-    month: Number(m[2]),
-    day: Number(m[3]),
-    hour: m[4] ? Number(m[4]) : 0,
-    minute: m[5] ? Number(m[5]) : 0,
-    second: m[6] ? Number(m[6]) : 0,
-    hasTime: m[4] != null,
-    hasOffset: m[7] != null,
-  };
-}
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-function formatParts(p: SqlTimestampParts, withTime: boolean): string {
-  const date = `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
-  if (!withTime) return date;
-  return `${date} ${pad2(p.hour)}:${pad2(p.minute)}:${pad2(p.second)}`;
-}
-
-function formatCellValue(
-  val: unknown,
-  typeName: string,
-  dateFormat: DateFormat,
-): string {
-  if (val == null) return "NULL";
-  const str = String(val);
-
-  const baseType = typeName.split("(")[0].toLowerCase();
-  if (!ALL_DATE_TYPES.has(baseType)) return str;
-
-  const parsed = parseSqlTimestamp(str);
-  if (!parsed) return str;
-
-  const isDateOnly = baseType === "date";
-  const withTime = !isDateOnly && parsed.hasTime;
-
-  // Naive types (date, datetime, datetime2, smalldatetime) carry no timezone
-  // information from SQL Server. Never round-trip through Date, which would
-  // reinterpret them as local time and produce shifted output.
-  if (!parsed.hasOffset) {
-    if (dateFormat === "local") {
-      const d = new Date(
-        parsed.year,
-        parsed.month - 1,
-        parsed.day,
-        parsed.hour,
-        parsed.minute,
-        parsed.second,
-      );
-      if (Number.isNaN(d.getTime())) return formatParts(parsed, withTime);
-      return isDateOnly ? d.toLocaleDateString() : d.toLocaleString();
-    }
-    return formatParts(parsed, withTime);
-  }
-
-  // datetimeoffset has an explicit timezone — safe to use Date for conversion.
-  const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return formatParts(parsed, withTime);
-
-  if (dateFormat === "local") {
-    return isDateOnly ? d.toLocaleDateString() : d.toLocaleString();
-  }
-  if (dateFormat === "utc") {
-    const utcParts: SqlTimestampParts = {
-      year: d.getUTCFullYear(),
-      month: d.getUTCMonth() + 1,
-      day: d.getUTCDate(),
-      hour: d.getUTCHours(),
-      minute: d.getUTCMinutes(),
-      second: d.getUTCSeconds(),
-      hasTime: true,
-      hasOffset: true,
-    };
-    return `${formatParts(utcParts, withTime)} UTC`;
-  }
-  return formatParts(parsed, withTime);
-}
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import EmptyState from "../ui/EmptyState";
@@ -202,7 +99,9 @@ function VirtualGrid(props: {
   let columnSelectorButtonRef: HTMLButtonElement | undefined;
   const [scrollTop, setScrollTop] = createSignal(0);
   const [containerHeight, setContainerHeight] = createSignal(0);
-  const dateFormat = createMemo(() => loadExecutionPreferences().dateFormat);
+  const dateFormat = createMemo(
+    () => loadExecutionPreferences().resultsDateFormat,
+  );
 
   const [sortConfig, setSortConfig] = createSignal<{
     colIndex: number;
@@ -695,7 +594,7 @@ function VirtualGrid(props: {
                       {(ci) => {
                         const cell = row[ci];
                         const col = props.resultSet.columns[ci];
-                        const formattedValue = formatCellValue(
+                        const formattedValue = formatSqlDateValue(
                           cell,
                           col.type_name,
                           dateFormat(),

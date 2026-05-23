@@ -1221,6 +1221,54 @@ fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), Stri
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct SystemLocaleInfo {
+    locale: String,
+    short_date_pattern: Option<String>,
+    short_time_pattern: Option<String>,
+    long_time_pattern: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn get_system_locale() -> SystemLocaleInfo {
+    use windows::core::PCWSTR;
+    use windows::Win32::Globalization::GetLocaleInfoEx;
+
+    const LOCALE_SNAME: u32 = 0x0000005c;
+    const LOCALE_SSHORTDATE: u32 = 0x0000001f;
+    const LOCALE_SSHORTTIME: u32 = 0x00000079;
+    const LOCALE_STIMEFORMAT: u32 = 0x00001003;
+
+    fn query(lctype: u32) -> Option<String> {
+        let mut buf = [0u16; 256];
+        let len = unsafe { GetLocaleInfoEx(PCWSTR::null(), lctype, Some(&mut buf)) };
+        if len <= 0 {
+            return None;
+        }
+        let len = (len - 1) as usize;
+        String::from_utf16(&buf[..len]).ok()
+    }
+
+    SystemLocaleInfo {
+        locale: query(LOCALE_SNAME).unwrap_or_else(|| "en-US".to_string()),
+        short_date_pattern: query(LOCALE_SSHORTDATE),
+        short_time_pattern: query(LOCALE_SSHORTTIME),
+        long_time_pattern: query(LOCALE_STIMEFORMAT),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn get_system_locale() -> SystemLocaleInfo {
+    SystemLocaleInfo {
+        locale: sys_locale::get_locale().unwrap_or_else(|| "en-US".to_string()),
+        short_date_pattern: None,
+        short_time_pattern: None,
+        long_time_pattern: None,
+    }
+}
+
 #[tauri::command]
 fn extract_table_name(sql: String) -> Option<String> {
     sql_gen::extract_table_name(&sql)
@@ -1564,6 +1612,7 @@ pub fn run() {
             minimize_window,
             maximize_window,
             close_window,
+            get_system_locale,
             extract_table_name,
             build_row_sql,
             build_row_update_with_edits,

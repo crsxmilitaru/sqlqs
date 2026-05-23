@@ -649,6 +649,12 @@ pub fn generate_object_script_static(
                 "EXEC {qdb}.sys.sp_executesql N'SELECT DISTINCT ISNULL(referenced_database_name, N'''') AS [Database], ISNULL(referenced_schema_name, N'''') AS [Schema], referenced_entity_name AS [Name], referenced_class_desc AS [Class] FROM sys.dm_sql_referenced_entities(@target, N''OBJECT'') WHERE referenced_entity_name IS NOT NULL ORDER BY 2, 3', N'@target NVARCHAR(517)', @target = {target_lit}"
             ))
         }
+        ("DATABASE", "properties") => {
+            let qdb = quote_identifier(database);
+            Some(format!(
+                "EXEC {qdb}.sys.sp_executesql N'DECLARE @AllocatedMB DECIMAL(18, 2) = NULL;\nDECLARE @UsedMB DECIMAL(18, 2) = NULL;\n\nIF EXISTS (SELECT 1 FROM sys.all_views WHERE name = ''dm_db_xtp_memory_consumers'' AND schema_id = SCHEMA_ID(''sys''))\nBEGIN\n\tBEGIN TRY\n\t\tDECLARE @inner NVARCHAR(MAX) = N''SELECT @A = ISNULL(SUM(allocated_bytes) / 1024.0 / 1024.0, 0), @U = ISNULL(SUM(used_bytes) / 1024.0 / 1024.0, 0) FROM sys.dm_db_xtp_memory_consumers'';\n\t\tEXEC sp_executesql @inner, N''@A DECIMAL(18, 2) OUTPUT, @U DECIMAL(18, 2) OUTPUT'', @A = @AllocatedMB OUTPUT, @U = @UsedMB OUTPUT;\n\tEND TRY\n\tBEGIN CATCH\n\t\tSET @AllocatedMB = NULL;\n\t\tSET @UsedMB = NULL;\n\tEND CATCH\nEND;\n\nSELECT\n\td.name AS [Name],\n\tCONVERT(NVARCHAR(60), DATABASEPROPERTYEX(d.name, ''Status'')) AS [Status],\n\tSUSER_SNAME(d.owner_sid) AS [Owner],\n\td.create_date AS [CreatedDate],\n\tCAST(f.SizeMB AS DECIMAL(18, 2)) AS [SizeMB],\n\tCAST(f.SpaceAvailableMB AS DECIMAL(18, 2)) AS [SpaceAvailableMB],\n\t(SELECT COUNT(*) FROM sys.database_principals WHERE type IN (''S'', ''U'', ''G'') AND principal_id > 4) AS [NumberOfUsers],\n\t@AllocatedMB AS [MemoryAllocatedToMemoryOptimizedObjectsMB],\n\t@UsedMB AS [MemoryUsedByMemoryOptimizedObjectsMB]\nFROM sys.databases d\nCROSS APPLY (\n\tSELECT\n\t\tSUM(CAST(size AS BIGINT)) * 8.0 / 1024 AS SizeMB,\n\t\tSUM(CASE WHEN type = 0 THEN CAST(size AS BIGINT) - CAST(FILEPROPERTY(name, ''SpaceUsed'') AS BIGINT) ELSE 0 END) * 8.0 / 1024 AS SpaceAvailableMB\n\tFROM sys.database_files\n) f\nWHERE d.name = DB_NAME();'",
+            ))
+        }
         ("TYPE", "properties") => {
             let qdb = quote_identifier(database);
             Some(format!(

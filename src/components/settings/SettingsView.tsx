@@ -6,6 +6,7 @@ import { AiService, BraveSearchService } from "../../lib/ai";
 import {
   DATE_FORMAT_OPTIONS,
   DEFAULT_DATE_FORMAT,
+  DEFAULT_RESULTS_DATE_FORMAT,
   DEFAULT_EDITOR_FONT_SIZE,
   DEFAULT_FORMAT_INDENT_SIZE,
   DEFAULT_MAX_HISTORY,
@@ -29,10 +30,11 @@ import {
   saveEditorLineNumbers,
   saveEditorMinimap,
   saveExecConfirmDestructive,
-  saveExecDateFormat,
+  saveAppDateFormat,
   saveExecDoubleClickEditRow,
   saveExecMaxRows,
   saveExecTimeoutSeconds,
+  saveResultsDateFormat,
   saveFormatIndentSize,
   saveFormatKeywordCase,
   saveFormatMaxLineLength,
@@ -142,9 +144,13 @@ export default function SettingsView(props: Props) {
   const [execDoubleClickEditRow, setExecDoubleClickEditRow] = createSignal(
     prefs.execution.doubleClickEditRow,
   );
-  const [execDateFormat, setExecDateFormatSignal] = createSignal<DateFormat>(
-    prefs.execution.dateFormat || DEFAULT_DATE_FORMAT,
+  const [appDateFormat, setAppDateFormatSignal] = createSignal<DateFormat>(
+    prefs.execution.appDateFormat || DEFAULT_DATE_FORMAT,
   );
+  const [resultsDateFormat, setResultsDateFormatSignal] =
+    createSignal<DateFormat>(
+      prefs.execution.resultsDateFormat || DEFAULT_RESULTS_DATE_FORMAT,
+    );
 
   const [formatIndentSize, setFormatIndentSize] = createSignal(
     prefs.format.indentSize,
@@ -200,7 +206,7 @@ export default function SettingsView(props: Props) {
     try {
       const settings: AppSettings = await invoke("load_connections");
       setConnections(settings.connections);
-    } catch {}
+    } catch { }
   }
 
   async function moveConnection(index: number, direction: -1 | 1) {
@@ -876,30 +882,64 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "exec-date-format",
-      tab: "execution",
-      title: "Date & time format",
-      keywords: "execution date time format local utc result grid",
+      id: "app-date-format",
+      tab: "general",
+      title: "App date & time format",
+      keywords: "app date time format local utc region locale properties chat history dialogs",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-m font-medium text-text">Date & time format</h4>
+              <h4 class="text-m font-medium text-text">App date & time format</h4>
               <p class="text-s text-text-muted mt-0.5">
-                How dates appear in the results grid
+                Format used for dates in the app outside the results grid
               </p>
             </div>
             <div class="min-w-[180px]">
               <Dropdown
-                value={execDateFormat()}
+                value={appDateFormat()}
                 options={DATE_FORMAT_OPTIONS.map((o) => ({
                   value: o.value,
                   label: o.label,
                 }))}
                 onChange={(val) => {
                   const next = val as DateFormat;
-                  setExecDateFormatSignal(next);
-                  saveExecDateFormat(next);
+                  setAppDateFormatSignal(next);
+                  saveAppDateFormat(next);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "results-date-format",
+      tab: "execution",
+      title: "Results date & time format",
+      keywords: "execution results grid date time format local utc region locale cell",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-m font-medium text-text">
+                Results date & time format
+              </h4>
+              <p class="text-s text-text-muted mt-0.5">
+                Format applied to date and timestamp cells in the results grid
+              </p>
+            </div>
+            <div class="min-w-[180px]">
+              <Dropdown
+                value={resultsDateFormat()}
+                options={DATE_FORMAT_OPTIONS.map((o) => ({
+                  value: o.value,
+                  label: o.label,
+                }))}
+                onChange={(val) => {
+                  const next = val as DateFormat;
+                  setResultsDateFormatSignal(next);
+                  saveResultsDateFormat(next);
                 }}
               />
             </div>
@@ -1019,9 +1059,8 @@ export default function SettingsView(props: Props) {
           <Show when={importMessage()}>
             {(msg) => (
               <p
-                class={`text-s mb-3 ${
-                  msg().tone === "error" ? "text-error" : "text-success"
-                }`}
+                class={`text-s mb-3 ${msg().tone === "error" ? "text-error" : "text-success"
+                  }`}
               >
                 {msg().text}
               </p>
@@ -1107,11 +1146,10 @@ export default function SettingsView(props: Props) {
             <For each={THEMES}>{(theme) => (
               <button
                 onClick={() => handleThemeChange(theme.id)}
-                class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${
-                  themeId() === theme.id
-                    ? "border-accent bg-accent/8 ring-1 ring-accent/25"
-                    : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
-                }`}
+                class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${themeId() === theme.id
+                  ? "border-accent bg-accent/8 ring-1 ring-accent/25"
+                  : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
+                  }`}
               >
                 <div class="font-medium text-m flex items-center justify-between">
                   {theme.name}
@@ -1534,9 +1572,8 @@ export default function SettingsView(props: Props) {
               setActiveTab(tab.id);
               setSearch("");
             }}
-            class={`settings-nav-btn ${
-              !isSearching() && activeTab() === tab.id ? "active" : ""
-            }`}
+            class={`settings-nav-btn ${!isSearching() && activeTab() === tab.id ? "active" : ""
+              }`}
           >
             <i class={tab.icon} />
             {tab.label}

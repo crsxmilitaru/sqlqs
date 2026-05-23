@@ -31,6 +31,7 @@ import {
 } from "../../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../../lib/ai-tools";
 import { loadAiNotifications, loadExecutionPreferences } from "../../lib/settings";
+import { formatTimestamp } from "../../lib/sql-date";
 import { useConversationHistory } from "../../hooks/useConversationHistory";
 import ToolsPopup from "./ToolsPopup";
 import ModelPickerPopup, { getModelIcon } from "./ModelPickerPopup";
@@ -554,7 +555,9 @@ export default function AIChatPanel(props: Props) {
     return all.filter(
       (c) =>
         c.title.toLowerCase().includes(q) ||
-        new Date(c.updated_at).toLocaleString().toLowerCase().includes(q),
+        formatTimestamp(c.updated_at, loadExecutionPreferences().appDateFormat)
+          .toLowerCase()
+          .includes(q),
     );
   });
 
@@ -1800,29 +1803,8 @@ export default function AIChatPanel(props: Props) {
                   </Show>
                   <For each={filteredConversations()}>
                     {(conv, index) => {
-                      const formatDate = (ts: number) => {
-                        const d = new Date(ts);
-                        const fmt = loadExecutionPreferences().dateFormat;
-                        if (fmt === "local") {
-                          return d.toLocaleString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          });
-                        }
-                        if (fmt === "utc") {
-                          return d.toLocaleString(undefined, {
-                            timeZone: "UTC",
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          });
-                        }
-                        const pad = (n: number) => String(n).padStart(2, "0");
-                        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                      };
+                      const formatDate = (ts: number) =>
+                        formatTimestamp(ts, loadExecutionPreferences().appDateFormat);
                       const isActive = () => history.activeId() === conv.id;
                       const isFocused = () => historyFocusIndex() === index();
                       return (

@@ -11,7 +11,8 @@ const STORAGE_KEY_EXEC_MAX_ROWS = "sqlqs_exec_max_rows";
 const STORAGE_KEY_EXEC_TIMEOUT_SECONDS = "sqlqs_exec_timeout_seconds";
 const STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE = "sqlqs_exec_confirm_destructive";
 const STORAGE_KEY_EXEC_DOUBLE_CLICK_EDIT = "sqlqs_exec_double_click_edit_row";
-const STORAGE_KEY_EXEC_DATE_FORMAT = "sqlqs_exec_date_format";
+const STORAGE_KEY_APP_DATE_FORMAT = "sqlqs_app_date_format";
+const STORAGE_KEY_RESULTS_DATE_FORMAT = "sqlqs_results_date_format";
 const STORAGE_KEY_FORMAT_INDENT_SIZE = "sqlqs_format_indent_size";
 const STORAGE_KEY_FORMAT_KEYWORD_CASE = "sqlqs_format_keyword_case";
 const STORAGE_KEY_FORMAT_MAX_LINE_LENGTH = "sqlqs_format_max_line_length";
@@ -52,7 +53,14 @@ export interface EditorPreferences {
 }
 
 export type SqlKeywordCase = "upper" | "lower" | "preserve";
-export type DateFormat = "YYYY-MM-DD HH:mm:ss" | "local" | "utc";
+export type DateFormat =
+  | "local"
+  | "YYYY-MM-DD HH:mm:ss"
+  | "DD/MM/YYYY HH:mm:ss"
+  | "MM/DD/YYYY HH:mm:ss"
+  | "DD.MM.YYYY HH:mm:ss"
+  | "iso"
+  | "utc";
 
 export interface SqlFormatPreferences {
   indentSize: number;
@@ -65,17 +73,23 @@ export interface ExecutionPreferences {
   timeoutSeconds: number;
   confirmDestructive: boolean;
   doubleClickEditRow: boolean;
-  dateFormat: DateFormat;
+  appDateFormat: DateFormat;
+  resultsDateFormat: DateFormat;
 }
 
 export const DEFAULT_EXEC_MAX_ROWS = 0;
 export const DEFAULT_EXEC_TIMEOUT_SECONDS = 0;
 export const MAX_EXEC_TIMEOUT_SECONDS = 3600;
-export const DEFAULT_DATE_FORMAT: DateFormat = "YYYY-MM-DD HH:mm:ss";
+export const DEFAULT_DATE_FORMAT: DateFormat = "local";
+export const DEFAULT_RESULTS_DATE_FORMAT: DateFormat = "iso";
 
 export const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = [
-  { value: "YYYY-MM-DD HH:mm:ss", label: "YYYY-MM-DD HH:mm:ss" },
   { value: "local", label: "Local Machine Format" },
+  { value: "YYYY-MM-DD HH:mm:ss", label: "YYYY-MM-DD HH:mm:ss" },
+  { value: "MM/DD/YYYY HH:mm:ss", label: "MM/DD/YYYY HH:mm:ss" },
+  { value: "DD/MM/YYYY HH:mm:ss", label: "DD/MM/YYYY HH:mm:ss" },
+  { value: "DD.MM.YYYY HH:mm:ss", label: "DD.MM.YYYY HH:mm:ss" },
+  { value: "iso", label: "ISO 8601" },
   { value: "utc", label: "UTC Time" },
 ];
 
@@ -90,10 +104,10 @@ export const FORMAT_KEYWORD_CASE_OPTIONS: {
   value: SqlKeywordCase;
   label: string;
 }[] = [
-  { value: "upper", label: "UPPER CASE" },
-  { value: "lower", label: "lower case" },
-  { value: "preserve", label: "Preserve" },
-];
+    { value: "upper", label: "UPPER CASE" },
+    { value: "lower", label: "lower case" },
+    { value: "preserve", label: "Preserve" },
+  ];
 export const DEFAULT_FORMAT_MAX_LINE_LENGTH = 0;
 
 export interface AppPreferences {
@@ -183,10 +197,27 @@ function readKeywordCaseFromStorage(): SqlKeywordCase {
   return DEFAULT_FORMAT_KEYWORD_CASE;
 }
 
-function readDateFormatFromStorage(): DateFormat {
-  const raw = localStorage.getItem(STORAGE_KEY_EXEC_DATE_FORMAT);
-  if (raw === "YYYY-MM-DD HH:mm:ss" || raw === "local" || raw === "utc") return raw;
+function readAppDateFormatFromStorage(): DateFormat {
+  let raw = localStorage.getItem(STORAGE_KEY_APP_DATE_FORMAT);
+  if (!raw) {
+    raw = localStorage.getItem("sqlqs_exec_date_format");
+    if (raw) {
+      localStorage.setItem(STORAGE_KEY_APP_DATE_FORMAT, raw);
+      localStorage.removeItem("sqlqs_exec_date_format");
+    }
+  }
+  if (raw && DATE_FORMAT_OPTIONS.some((o) => o.value === raw)) {
+    return raw as DateFormat;
+  }
   return DEFAULT_DATE_FORMAT;
+}
+
+function readResultsDateFormatFromStorage(): DateFormat {
+  const raw = localStorage.getItem(STORAGE_KEY_RESULTS_DATE_FORMAT);
+  if (raw && DATE_FORMAT_OPTIONS.some((o) => o.value === raw)) {
+    return raw as DateFormat;
+  }
+  return DEFAULT_RESULTS_DATE_FORMAT;
 }
 
 function readExecutionPreferencesFromStorage(): ExecutionPreferences {
@@ -210,7 +241,8 @@ function readExecutionPreferencesFromStorage(): ExecutionPreferences {
       STORAGE_KEY_EXEC_DOUBLE_CLICK_EDIT,
       true,
     ),
-    dateFormat: readDateFormatFromStorage(),
+    appDateFormat: readAppDateFormatFromStorage(),
+    resultsDateFormat: readResultsDateFormatFromStorage(),
   };
 }
 
@@ -300,11 +332,19 @@ export function saveExecDoubleClickEditRow(value: boolean) {
   }));
 }
 
-export function saveExecDateFormat(value: DateFormat) {
-  localStorage.setItem(STORAGE_KEY_EXEC_DATE_FORMAT, value);
+export function saveResultsDateFormat(value: DateFormat) {
+  localStorage.setItem(STORAGE_KEY_RESULTS_DATE_FORMAT, value);
   setPreferences((prev) => ({
     ...prev,
-    execution: { ...prev.execution, dateFormat: value },
+    execution: { ...prev.execution, resultsDateFormat: value },
+  }));
+}
+
+export function saveAppDateFormat(value: DateFormat) {
+  localStorage.setItem(STORAGE_KEY_APP_DATE_FORMAT, value);
+  setPreferences((prev) => ({
+    ...prev,
+    execution: { ...prev.execution, appDateFormat: value },
   }));
 }
 
@@ -439,7 +479,7 @@ export interface SavedTab {
 export function saveTabs(tabs: SavedTab[]) {
   try {
     localStorage.setItem(STORAGE_KEY_SAVED_TABS, JSON.stringify(tabs));
-  } catch {}
+  } catch { }
 }
 
 export function loadSavedTabs(): SavedTab[] {

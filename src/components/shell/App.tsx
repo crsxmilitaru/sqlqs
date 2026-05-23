@@ -32,7 +32,7 @@ import ObjectJumpPalette, {
 } from "../explorer/ObjectJumpPalette";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import BackupRestoreDialog from "../dialogs/BackupRestoreDialog";
-import PropertiesDialog from "../dialogs/PropertiesDialog";
+import PropertiesDialog, { type PropertiesObjectType } from "../dialogs/PropertiesDialog";
 import QueryEditorPanel from "../editor/QueryEditorPanel";
 import RenameDialog from "../dialogs/RenameDialog";
 import { invalidateSchemaCatalog } from "../editor/SqlEditor";
@@ -135,7 +135,7 @@ export default function App() {
     database: string;
     schema: string;
     name: string;
-    objectType: ExplorerObjectType;
+    objectType: PropertiesObjectType;
   } | null>(null);
   const [renameTarget, setRenameTarget] = createSignal<{
     database: string;
@@ -160,7 +160,7 @@ export default function App() {
     database: string,
     schema: string,
     name: string,
-    objectType: ExplorerObjectType,
+    objectType: PropertiesObjectType,
   ) => {
     setPropertiesTarget({ database, schema, name, objectType });
   };
