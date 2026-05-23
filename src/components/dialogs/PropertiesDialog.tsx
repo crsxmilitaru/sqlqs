@@ -1,14 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { loadExecutionPreferences } from "../../lib/settings";
+import { formatSqlDateValue } from "../../lib/sql-date";
 import type { QueryResult } from "../../lib/types";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import Tooltip from "../ui/Tooltip";
+
+export type PropertiesObjectType = ExplorerObjectType | "DATABASE";
 
 interface Props {
   database: string;
   schema: string;
   name: string;
-  objectType: ExplorerObjectType;
+  objectType: PropertiesObjectType;
   onClose: () => void;
 }
 
@@ -18,7 +22,7 @@ interface PropertyEntry {
   raw: string | number | boolean | null;
 }
 
-function objectTypeLabel(type: ExplorerObjectType): string {
+function objectTypeLabel(type: PropertiesObjectType): string {
   switch (type) {
     case "TABLE":
       return "Table";
@@ -32,10 +36,12 @@ function objectTypeLabel(type: ExplorerObjectType): string {
       return "Trigger";
     case "TYPE":
       return "Type";
+    case "DATABASE":
+      return "Database";
   }
 }
 
-function objectTypeIcon(type: ExplorerObjectType): string {
+function objectTypeIcon(type: PropertiesObjectType): string {
   switch (type) {
     case "TABLE":
       return "fa-table";
@@ -49,13 +55,17 @@ function objectTypeIcon(type: ExplorerObjectType): string {
       return "fa-bolt";
     case "TYPE":
       return "fa-shapes";
+    case "DATABASE":
+      return "fa-database";
   }
 }
 
 function formatColumnLabel(name: string): string {
   return name
+    .replace(/MB$/, "")
     .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
-    .replace(/([a-z])([A-Z])/g, "$1 $2");
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
 }
 
 function formatCellValue(
@@ -87,10 +97,12 @@ function formatCellValue(
   const str = String(value);
 
   if (/Date$/.test(name)) {
-    const parsed = new Date(str);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toLocaleString();
-    }
+    const formatted = formatSqlDateValue(
+      str,
+      "datetime",
+      loadExecutionPreferences().appDateFormat,
+    );
+    if (formatted !== "NULL") return formatted;
   }
 
   if (/^(0|1)$/.test(str) && /^Is[A-Z]|^Uses[A-Z]|^With/.test(name)) {
@@ -157,7 +169,9 @@ export default function PropertiesDialog(props: Props) {
   });
 
   const fullName = () =>
-    `[${props.database}].[${props.schema}].[${props.name}]`;
+    props.objectType === "DATABASE"
+      ? `[${props.database}]`
+      : `[${props.database}].[${props.schema}].[${props.name}]`;
 
   const handleCopy = () => {
     const lines = entries().map((e) => `${e.label}: ${e.value}`);

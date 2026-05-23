@@ -44,7 +44,7 @@ interface Props {
     database: string,
     schema: string,
     name: string,
-    objectType: ExplorerObjectType,
+    objectType: ExplorerObjectType | "DATABASE",
   ) => void;
   onShowRename?: (
     database: string,
@@ -681,6 +681,14 @@ export default function ObjectExplorer(props: Props) {
             });
             loadTables(database, true);
           },
+        },
+        { id: "sep-db-2", separator: true },
+        {
+          id: "properties",
+          label: "Properties",
+          icon: <i class="fa-solid fa-circle-info" />,
+          onClick: () =>
+            props.onShowProperties?.(database, "", database, "DATABASE"),
         },
       ];
     }
