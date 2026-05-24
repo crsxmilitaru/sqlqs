@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { batch, createEffect, createSignal, For } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { loadRevealCurrentDatabaseInExplorer } from "../../lib/settings";
 import type { JSX } from "solid-js";
 import type { SavedQuery } from "../../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../../lib/types";
@@ -20,6 +21,7 @@ import {
   type ExplorerObjectType,
 } from "./ObjectMenu";
 import Tooltip from "../ui/Tooltip";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 interface Props {
   databases: string[];
@@ -92,6 +94,14 @@ const ROOT_SECTIONS = [
   "root:queries",
   "root:history",
 ] as const;
+type RootSectionId = (typeof ROOT_SECTIONS)[number];
+const ROOT_SECTION_OBJECT_TYPE = {
+  "root:databases": "DATABASE_FOLDER",
+  "root:queries": "QUERIES_FOLDER",
+  "root:history": "HISTORY_FOLDER",
+} as const satisfies Record<RootSectionId, string>;
+type RootSectionObjectType =
+  (typeof ROOT_SECTION_OBJECT_TYPE)[RootSectionId];
 const MIN_SECTION_HEIGHT = 160;
 const DEFAULT_SECTION_HEIGHTS: ExplorerSectionHeights = {
   saved: 160,
@@ -142,9 +152,15 @@ function FilterInput(props: {
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
+  focusOnMount?: boolean;
 }) {
+  let inputRef: HTMLInputElement | undefined;
+  onMount(() => {
+    if (props.focusOnMount) inputRef?.focus();
+  });
   return (
     <input
+      ref={inputRef}
       type="text"
       placeholder={props.placeholder}
       value={props.value}
@@ -338,6 +354,14 @@ export default function ObjectExplorer(props: Props) {
   const [activeResizer, setActiveResizer] =
     createSignal<ResizableSection | null>(null);
   let containerRef: HTMLDivElement | undefined;
+  const dbRowRefs = new Map<string, HTMLDivElement>();
+
+  const [confirm, setConfirm] = createSignal<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const [contextMenu, setContextMenu] = createSignal<{
     visible: boolean;
@@ -356,7 +380,7 @@ export default function ObjectExplorer(props: Props) {
     | "TYPE"
     | "DATABASE"
     | "HISTORY"
-    | "DATABASE_FOLDER"
+    | RootSectionObjectType
     | "SAVED_QUERY"
     | "FOLDER";
     savedQueryFilePath?: string;
@@ -366,13 +390,81 @@ export default function ObjectExplorer(props: Props) {
     setFolderFilters((f) => ({ ...f, [folderId]: value }));
   }
 
-  createEffect(() => {
+  function persistSectionHeights() {
     try {
       localStorage.setItem(
         EXPLORER_SECTION_HEIGHTS_KEY,
         JSON.stringify(sectionHeights()),
       );
-    } catch {}
+    } catch (err) {
+      void err;
+    }
+  }
+
+  function persistCollapsedSections(expandedSet: Set<string>) {
+    try {
+      const collapsed = ROOT_SECTIONS.filter((s) => !expandedSet.has(s));
+      localStorage.setItem(
+        EXPLORER_COLLAPSED_KEY,
+        JSON.stringify(collapsed),
+      );
+    } catch (err) {
+      void err;
+    }
+  }
+
+  function confirmClearHistory() {
+    if (!props.onClearHistory) return;
+    setConfirm({
+      title: "Clear history",
+      message: "Remove all queries from history? This cannot be undone.",
+      confirmLabel: "Clear all",
+      onConfirm: () => props.onClearHistory!(),
+    });
+  }
+
+  const databaseFilterLower = createMemo(() =>
+    (folderFilters()["root:databases"] || "").toLowerCase(),
+  );
+  const filteredDatabases = createMemo(() => {
+    const f = databaseFilterLower();
+    if (!f) return props.databases;
+    return props.databases.filter((db) => db.toLowerCase().includes(f));
+  });
+
+  const savedQueriesIndexed = createMemo(() =>
+    (props.savedQueries ?? []).map((item) => ({
+      item,
+      titleLower: item.title.toLowerCase(),
+    })),
+  );
+  const savedQueryFilterLower = createMemo(() =>
+    (folderFilters()["root:queries"] || "").toLowerCase(),
+  );
+  const filteredSavedQueries = createMemo(() => {
+    const f = savedQueryFilterLower();
+    const indexed = savedQueriesIndexed();
+    if (!f) return indexed.map((e) => e.item);
+    return indexed.filter((e) => e.titleLower.includes(f)).map((e) => e.item);
+  });
+
+  const executedQueriesIndexed = createMemo(() =>
+    (props.executedQueries ?? []).map((item) => ({
+      item,
+      sqlLower: item.sql.toLowerCase(),
+      titleLower: item.title.toLowerCase(),
+    })),
+  );
+  const historyFilterLower = createMemo(() =>
+    (folderFilters()["root:history"] || "").toLowerCase(),
+  );
+  const filteredHistory = createMemo(() => {
+    const f = historyFilterLower();
+    const indexed = executedQueriesIndexed();
+    if (!f) return indexed.map((e) => e.item);
+    return indexed
+      .filter((e) => e.sqlLower.includes(f) || e.titleLower.includes(f))
+      .map((e) => e.item);
   });
 
   /**
@@ -421,6 +513,7 @@ export default function ObjectExplorer(props: Props) {
         setActiveResizer(null);
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
+        persistSectionHeights();
       };
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
@@ -448,6 +541,7 @@ export default function ObjectExplorer(props: Props) {
         setActiveResizer(null);
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
+        persistSectionHeights();
       };
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
@@ -473,25 +567,57 @@ export default function ObjectExplorer(props: Props) {
     }
   }
 
-  function toggle(nodeId: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
-      if ((ROOT_SECTIONS as readonly string[]).includes(nodeId)) {
-        try {
-          const collapsed = ROOT_SECTIONS.filter((s) => !next.has(s));
-          localStorage.setItem(
-            EXPLORER_COLLAPSED_KEY,
-            JSON.stringify(collapsed),
+  createEffect(
+    on(
+      () => [props.currentDatabase, props.databases] as const,
+      ([db, dbs]) => {
+        if (!db) return;
+        if (!loadRevealCurrentDatabaseInExplorer()) return;
+        if (!(dbs ?? []).includes(db)) return;
+
+        const prevExpanded = expanded();
+        const needsTransition =
+          !prevExpanded.has("root:databases") || !prevExpanded.has(db);
+
+        batch(() => {
+          const next = new Set(prevExpanded);
+          next.add("root:databases");
+          next.add(db);
+          setExpanded(next);
+          persistCollapsedSections(next);
+          setFolderFilters((f) =>
+            f["root:databases"] ? { ...f, "root:databases": "" } : f,
           );
-        } catch {}
-      }
-      return next;
-    });
+        });
+
+        void loadTables(db);
+
+        const scroll = () =>
+          dbRowRefs.get(db)?.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+
+        if (needsTransition) {
+          setTimeout(scroll, 320);
+        } else {
+          requestAnimationFrame(scroll);
+        }
+      },
+    ),
+  );
+
+  function toggle(nodeId: string) {
+    const next = new Set(expanded());
+    if (next.has(nodeId)) {
+      next.delete(nodeId);
+    } else {
+      next.add(nodeId);
+    }
+    setExpanded(next);
+    if ((ROOT_SECTIONS as readonly string[]).includes(nodeId)) {
+      persistCollapsedSections(next);
+    }
   }
 
   function handleDbClick(db: string) {
@@ -525,7 +651,7 @@ export default function ObjectExplorer(props: Props) {
       | "TYPE"
       | "DATABASE"
       | "HISTORY"
-      | "DATABASE_FOLDER"
+      | RootSectionObjectType
       | "SAVED_QUERY"
       | "FOLDER",
     sql?: string,
@@ -546,6 +672,55 @@ export default function ObjectExplorer(props: Props) {
     });
   }
 
+  function getRootSectionMenu(
+    type: RootSectionObjectType,
+  ): ContextMenuItem[] {
+    switch (type) {
+      case "DATABASE_FOLDER":
+        return [
+          {
+            id: "refresh-databases",
+            label: "Refresh List",
+            icon: <i class="fa-solid fa-rotate" />,
+            onClick: () => props.onRefreshDatabases?.(),
+          },
+        ];
+      case "QUERIES_FOLDER":
+        return [
+          {
+            id: "open-queries-folder",
+            label: "Open Folder",
+            icon: <i class="fa-regular fa-folder-open" />,
+            disabled: !props.onOpenSavedQueriesFolder,
+            onClick: () => props.onOpenSavedQueriesFolder?.(),
+          },
+        ];
+      case "HISTORY_FOLDER":
+        return [
+          {
+            id: "clear-history",
+            label: "Clear All",
+            icon: <i class="fa-solid fa-trash-can" />,
+            disabled:
+              !props.onClearHistory ||
+              (props.executedQueries ?? []).length === 0,
+            onClick: () => confirmClearHistory(),
+          },
+        ];
+      default: {
+        const _exhaustive: never = type;
+        return _exhaustive;
+      }
+    }
+  }
+
+  function openSectionHeaderContextMenu(
+    sectionId: RootSectionId,
+    e: MouseEvent,
+  ) {
+    handleContextMenu(e, "", "", "", ROOT_SECTION_OBJECT_TYPE[sectionId]);
+  }
+
   function getContextMenuItems(): ContextMenuItem[] {
     const ctx = contextMenu();
     if (!ctx) return [];
@@ -556,15 +731,12 @@ export default function ObjectExplorer(props: Props) {
     const select = (sql: string, execute?: boolean) =>
       props.onSelect(sql, execute, undefined, database);
 
-    if (objectType === "DATABASE_FOLDER") {
-      return [
-        {
-          id: "refresh-all",
-          label: "Refresh List",
-          icon: <i class="fa-solid fa-rotate" />,
-          onClick: () => props.onRefreshDatabases?.(),
-        },
-      ];
+    if (
+      objectType === "DATABASE_FOLDER" ||
+      objectType === "QUERIES_FOLDER" ||
+      objectType === "HISTORY_FOLDER"
+    ) {
+      return getRootSectionMenu(objectType);
     }
 
     if (objectType === "FOLDER") {
@@ -607,7 +779,13 @@ export default function ObjectExplorer(props: Props) {
           id: "delete-saved",
           label: "Delete",
           icon: <i class="fa-solid fa-trash-can" />,
-          onClick: () => props.onDeleteSavedQuery?.(queryId),
+          onClick: () =>
+            setConfirm({
+              title: "Delete saved query",
+              message: `Delete "${title}"? This cannot be undone.`,
+              confirmLabel: "Delete",
+              onConfirm: () => props.onDeleteSavedQuery?.(queryId),
+            }),
         },
       ];
     }
@@ -640,7 +818,13 @@ export default function ObjectExplorer(props: Props) {
           id: "delete-history",
           label: "Delete",
           icon: <i class="fa-solid fa-trash-can" />,
-          onClick: () => props.onDeleteHistory(sqlValue),
+          onClick: () =>
+            setConfirm({
+              title: "Delete history item",
+              message: `Remove "${table}" from history?`,
+              confirmLabel: "Delete",
+              onConfirm: () => props.onDeleteHistory(sqlValue),
+            }),
         },
       ];
     }
@@ -751,7 +935,22 @@ export default function ObjectExplorer(props: Props) {
             expanded={expanded().has("root:databases")}
             onToggle={() => toggle("root:databases")}
             onContextMenu={(e) =>
-              handleContextMenu(e, "", "", "", "DATABASE_FOLDER")
+              openSectionHeaderContextMenu("root:databases", e)
+            }
+            actions={
+              props.onRefreshDatabases && (
+                <Tooltip content="Refresh" placement="top">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onRefreshDatabases!();
+                    }}
+                    class="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+                  >
+                    <i class="fa-solid fa-rotate text-s" />
+                  </button>
+                </Tooltip>
+              )
             }
           />
 
@@ -775,18 +974,13 @@ export default function ObjectExplorer(props: Props) {
             )}
 
             <div class="flex-1 overflow-y-auto overflow-x-hidden pb-2 scrollbar-gutter-stable">
-              <For
-                each={props.databases.filter((db) =>
-                  db
-                    .toLowerCase()
-                    .includes(
-                      (folderFilters()["root:databases"] || "").toLowerCase(),
-                    ),
-                )}
-              >
-                {(db) => (
+              <For each={filteredDatabases()}>
+                {(db) => {
+                  onCleanup(() => dbRowRefs.delete(db));
+                  return (
                   <div style={{ display: "flex", "flex-direction": "column" }}>
                     <div
+                      ref={(el) => dbRowRefs.set(db, el)}
                       class={`tree-node cursor-pointer ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.objectType === "DATABASE" ? "bg-surface-active" : ""}`}
                       style={{ "--depth": "0" }}
                       onClick={() => handleDbClick(db)}
@@ -813,9 +1007,20 @@ export default function ObjectExplorer(props: Props) {
                       class={`accordion-content ${expanded().has(db) ? "expanded" : ""}`}
                     >
                       <div class="accordion-inner">
-                        {tableCache()[db] ? (
+                        <Show
+                          when={tableCache()[db]}
+                          fallback={
+                            <Show when={expanded().has(db)}>
+                              <div class="tree-node" style={{ "--depth": "1" }}>
+                                <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
+                                  Loading objects...
+                                </span>
+                              </div>
+                            </Show>
+                          }
+                        >
                           <div>
-                            <For each={groupDatabaseObjects(tableCache()[db])}>
+                            <For each={groupDatabaseObjects(tableCache()[db] ?? [])}>
                               {(group) => {
                                 const folderId = `${db}:${group.key}`;
                                 const isOpen = () => expanded().has(folderId);
@@ -863,7 +1068,7 @@ export default function ObjectExplorer(props: Props) {
                                       </span>
                                       <Chevron expanded={isOpen()} />
                                     </div>
-                                    {isOpen() && (
+                                    <Show when={isOpen()}>
                                       <div class="accordion-content expanded">
                                         <div class="accordion-inner">
                                           <div class="explorer-filter-nested mb-1 h-7 flex-shrink-0">
@@ -875,6 +1080,7 @@ export default function ObjectExplorer(props: Props) {
                                               onChange={(v) =>
                                                 updateFilter(folderId, v)
                                               }
+                                              focusOnMount
                                             />
                                           </div>
                                           <For each={filtered()}>
@@ -913,25 +1119,18 @@ export default function ObjectExplorer(props: Props) {
                                           </For>
                                         </div>
                                       </div>
-                                    )}
+                                    </Show>
                                   </div>
                                 );
                               }}
                             </For>
                           </div>
-                        ) : (
-                          expanded().has(db) && (
-                            <div class="tree-node" style={{ "--depth": "1" }}>
-                              <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
-                                Loading objects...
-                              </span>
-                            </div>
-                          )
-                        )}
+                        </Show>
                       </div>
                     </div>
                   </div>
-                )}
+                  );
+                }}
               </For>
             </div>
           </div>
@@ -967,6 +1166,9 @@ export default function ObjectExplorer(props: Props) {
             title="Queries"
             expanded={expanded().has("root:queries")}
             onToggle={() => toggle("root:queries")}
+            onContextMenu={(e) =>
+              openSectionHeaderContextMenu("root:queries", e)
+            }
             actions={
               props.onOpenSavedQueriesFolder && (
                 <Tooltip content="Open folder" placement="top">
@@ -1012,17 +1214,9 @@ export default function ObjectExplorer(props: Props) {
                     <p class="text-[12px]">No queries</p>
                   </div>
                 ) : (
-                  <For
-                    each={(props.savedQueries ?? []).filter((item) =>
-                      item.title
-                        .toLowerCase()
-                        .includes(
-                          (folderFilters()["root:queries"] || "").toLowerCase(),
-                        ),
-                    )}
-                  >
+                  <For each={filteredSavedQueries()}>
                     {(item) => (
-                      <Tooltip content={item.filePath} placement="right">
+                      <Tooltip content={item.title} placement="right">
                         <div
                           class={`${LIST_ROW} ${contextMenu()?.visible && contextMenu()!.sql === item.id ? "bg-white/10" : "hover:bg-surface-hover"}`}
                           onClick={() =>
@@ -1041,21 +1235,9 @@ export default function ObjectExplorer(props: Props) {
                           }
                         >
                           <div class="flex items-center justify-between text-s">
-                            <span
-                              class="truncate flex-1 min-w-0"
-                              title={item.title}
-                            >
+                            <span class="truncate flex-1 min-w-0">
                               {item.title}
                             </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                props.onDeleteSavedQuery?.(item.id);
-                              }}
-                              class="w-5 h-5 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                            >
-                              <i class="fa-solid fa-trash-can text-s" />
-                            </button>
                           </div>
                         </div>
                       </Tooltip>
@@ -1097,6 +1279,9 @@ export default function ObjectExplorer(props: Props) {
             title="History"
             expanded={expanded().has("root:history")}
             onToggle={() => toggle("root:history")}
+            onContextMenu={(e) =>
+              openSectionHeaderContextMenu("root:history", e)
+            }
             actions={
               props.onClearHistory &&
               (props.executedQueries ?? []).length > 0 && (
@@ -1104,7 +1289,7 @@ export default function ObjectExplorer(props: Props) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      props.onClearHistory!();
+                      confirmClearHistory();
                     }}
                     class="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error transition-colors cursor-pointer"
                   >
@@ -1143,25 +1328,7 @@ export default function ObjectExplorer(props: Props) {
                     <p class="text-s">No history yet</p>
                   </div>
                 ) : (
-                  <For
-                    each={(props.executedQueries ?? []).filter(
-                      (item) =>
-                        item.sql
-                          .toLowerCase()
-                          .includes(
-                            (
-                              folderFilters()["root:history"] || ""
-                            ).toLowerCase(),
-                          ) ||
-                        item.title
-                          .toLowerCase()
-                          .includes(
-                            (
-                              folderFilters()["root:history"] || ""
-                            ).toLowerCase(),
-                          ),
-                    )}
-                  >
+                  <For each={filteredHistory()}>
                     {(item) => (
                       <Tooltip content={item.sql} placement="right">
                         <div
@@ -1210,14 +1377,28 @@ export default function ObjectExplorer(props: Props) {
         </div>
       </div>
 
-      {contextMenu()?.visible && (
+      <Show when={contextMenu()?.visible}>
         <ContextMenu
           items={getContextMenuItems()}
           x={contextMenu()!.x}
           y={contextMenu()!.y}
           onClose={() => setContextMenu(null)}
         />
-      )}
+      </Show>
+
+      <Show when={confirm()}>
+        <ConfirmDialog
+          title={confirm()!.title}
+          message={confirm()!.message}
+          confirmLabel={confirm()!.confirmLabel}
+          variant="danger"
+          onConfirm={() => {
+            confirm()!.onConfirm();
+            setConfirm(null);
+          }}
+          onCancel={() => setConfirm(null)}
+        />
+      </Show>
     </div>
   );
 }

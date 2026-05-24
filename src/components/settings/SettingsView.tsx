@@ -40,6 +40,7 @@ import {
   saveFormatMaxLineLength,
   saveMaxHistoryItems,
   savePersistTabs,
+  saveRevealCurrentDatabaseInExplorer,
   type DateFormat,
   type SqlKeywordCase,
 } from "../../lib/settings";
@@ -120,6 +121,9 @@ export default function SettingsView(props: Props) {
   );
   const [autoCheckUpdates, setAutoCheckUpdates] = createSignal(
     prefs.autoCheckUpdates,
+  );
+  const [revealCurrentDb, setRevealCurrentDb] = createSignal(
+    prefs.revealCurrentDatabaseInExplorer,
   );
 
   const [fontFamily, setFontFamily] = createSignal(prefs.editor.fontFamily);
@@ -480,6 +484,37 @@ export default function SettingsView(props: Props) {
               }}
               class="settings-toggle"
               data-checked={autoConnectStartup()}
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "reveal-current-database",
+      tab: "editor",
+      title: "Reveal current database in explorer",
+      keywords:
+        "reveal current database explorer sidebar expand scroll focus auto",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-m font-medium text-text">
+                Reveal current database in explorer
+              </h4>
+              <p class="text-s text-text-muted mt-0.5">
+                When you switch databases from the editor, expand and scroll to
+                that database in the left panel
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !revealCurrentDb();
+                setRevealCurrentDb(next);
+                saveRevealCurrentDatabaseInExplorer(next);
+              }}
+              class="settings-toggle"
+              data-checked={revealCurrentDb()}
             />
           </div>
         </div>

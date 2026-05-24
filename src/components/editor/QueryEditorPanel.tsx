@@ -316,6 +316,8 @@ export default function QueryEditorPanel(props: Props) {
                   </button>
                 </Tooltip>
 
+                <div class="toolbar-sep" />
+
                 <Tooltip content="Format SQL" placement="bottom">
                   <button
                     onClick={handleFormatSql}
@@ -342,29 +344,36 @@ export default function QueryEditorPanel(props: Props) {
                   </button>
                 </Tooltip>
 
-                {props.onSave && (
-                  <Tooltip content="Save SQL" placement="bottom">
-                    <button
-                      onClick={() => props.onSave!(activeTab()!.id)}
-                      disabled={!activeTab()!.sql.trim()}
-                      class="btn btn-secondary"
-                    >
-                      <IconSave class="w-3.5 h-3.5" />
-                    </button>
-                  </Tooltip>
+                {(props.onSave || props.onSaveToFile) && (
+                  <>
+                    <div class="toolbar-sep" />
+                    {props.onSave && (
+                      <Tooltip content="Save SQL" placement="bottom">
+                        <button
+                          onClick={() => props.onSave!(activeTab()!.id)}
+                          disabled={!activeTab()!.sql.trim()}
+                          class="btn btn-secondary"
+                        >
+                          <IconSave class="w-3.5 h-3.5" />
+                        </button>
+                      </Tooltip>
+                    )}
+
+                    {props.onSaveToFile && (
+                      <Tooltip content="Save SQL to file" placement="bottom">
+                        <button
+                          onClick={() => props.onSaveToFile!(activeTab()!.id)}
+                          disabled={!activeTab()!.sql.trim()}
+                          class="btn btn-secondary"
+                        >
+                          <IconFloppy class="w-3.5 h-3.5" />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </>
                 )}
 
-                {props.onSaveToFile && (
-                  <Tooltip content="Save SQL to file" placement="bottom">
-                    <button
-                      onClick={() => props.onSaveToFile!(activeTab()!.id)}
-                      disabled={!activeTab()!.sql.trim()}
-                      class="btn btn-secondary"
-                    >
-                      <IconFloppy class="w-3.5 h-3.5" />
-                    </button>
-                  </Tooltip>
-                )}
+                <div class="toolbar-sep" />
 
                 <Tooltip content="Find" placement="bottom">
                   <button

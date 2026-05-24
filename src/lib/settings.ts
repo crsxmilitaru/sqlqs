@@ -22,6 +22,7 @@ const STORAGE_KEY_EDITOR_LINE_NUMBERS = "sqlqs_editor_line_numbers";
 const STORAGE_KEY_EDITOR_MINIMAP = "sqlqs_editor_minimap";
 const STORAGE_KEY_EDITOR_AUTOCOMPLETE = "sqlqs_editor_autocomplete";
 const STORAGE_KEY_EDITOR_FORMAT_ON_PASTE = "sqlqs_editor_format_on_paste";
+const STORAGE_KEY_REVEAL_DB_IN_EXPLORER = "sqlqs_reveal_current_db_in_explorer";
 
 export const DEFAULT_MAX_HISTORY = 50;
 export const MIN_MAX_HISTORY = 10;
@@ -117,6 +118,7 @@ export interface AppPreferences {
   maxHistoryItems: number;
   aiNotifications: boolean;
   autoCheckUpdates: boolean;
+  revealCurrentDatabaseInExplorer: boolean;
   editor: EditorPreferences;
   execution: ExecutionPreferences;
   format: SqlFormatPreferences;
@@ -269,6 +271,10 @@ function readPreferencesFromStorage(): AppPreferences {
     maxHistoryItems: readMaxHistoryItemsFromStorage(),
     aiNotifications: readAiNotificationsFromStorage(),
     autoCheckUpdates: readBoolWithDefault(STORAGE_KEY_AUTO_CHECK_UPDATES, true),
+    revealCurrentDatabaseInExplorer: readBoolWithDefault(
+      STORAGE_KEY_REVEAL_DB_IN_EXPLORER,
+      true,
+    ),
     editor: readEditorPreferencesFromStorage(),
     execution: readExecutionPreferencesFromStorage(),
     format: readFormatPreferencesFromStorage(),
@@ -390,6 +396,18 @@ export function loadAutoCheckUpdates(): boolean {
 export function saveAutoCheckUpdates(value: boolean) {
   localStorage.setItem(STORAGE_KEY_AUTO_CHECK_UPDATES, String(value));
   setPreferences((prev) => ({ ...prev, autoCheckUpdates: value }));
+}
+
+export function loadRevealCurrentDatabaseInExplorer(): boolean {
+  return preferences().revealCurrentDatabaseInExplorer;
+}
+
+export function saveRevealCurrentDatabaseInExplorer(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_REVEAL_DB_IN_EXPLORER, String(value));
+  setPreferences((prev) => ({
+    ...prev,
+    revealCurrentDatabaseInExplorer: value,
+  }));
 }
 
 export function savePersistTabs(value: boolean) {
