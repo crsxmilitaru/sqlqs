@@ -137,7 +137,7 @@ export default function ConnectionDialog(props: Props) {
           loadConnection(last);
         }
       }
-    } catch { }
+    } catch {}
   }
 
   async function loadConnection(saved: SavedConnection) {
@@ -170,7 +170,7 @@ export default function ConnectionDialog(props: Props) {
         setPassword(pass);
         setRememberPassword(true);
       }
-    } catch { }
+    } catch {}
   }
 
   function generateSaveName(srv: string, user: string, winAuth: boolean) {
@@ -301,7 +301,6 @@ export default function ConnectionDialog(props: Props) {
       const updated: SavedConnection = {
         name: trimmedSaveName,
         config: saveConfig,
-        cached_port: props.editConnection?.cached_port ?? null,
       };
 
       const connections = current.connections.slice();
@@ -454,7 +453,9 @@ export default function ConnectionDialog(props: Props) {
                     <input
                       type="checkbox"
                       checked={rememberPassword()}
-                      onChange={(e) => setRememberPassword(e.currentTarget.checked)}
+                      onChange={(e) =>
+                        setRememberPassword(e.currentTarget.checked)
+                      }
                     />
                     <span>Remember password</span>
                   </label>
@@ -534,7 +535,9 @@ export default function ConnectionDialog(props: Props) {
                       <input
                         type="checkbox"
                         checked={rememberPassword()}
-                        onChange={(e) => setRememberPassword(e.currentTarget.checked)}
+                        onChange={(e) =>
+                          setRememberPassword(e.currentTarget.checked)
+                        }
                       />
                       <span>Remember password</span>
                     </label>

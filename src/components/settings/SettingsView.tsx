@@ -159,9 +159,8 @@ export default function SettingsView(props: Props) {
   const [formatIndentSize, setFormatIndentSize] = createSignal(
     prefs.format.indentSize,
   );
-  const [formatKeywordCase, setFormatKeywordCase] = createSignal<SqlKeywordCase>(
-    prefs.format.keywordCase,
-  );
+  const [formatKeywordCase, setFormatKeywordCase] =
+    createSignal<SqlKeywordCase>(prefs.format.keywordCase);
   const [formatMaxLineLength, setFormatMaxLineLength] = createSignal(
     prefs.format.maxLineLength,
   );
@@ -210,7 +209,7 @@ export default function SettingsView(props: Props) {
     try {
       const settings: AppSettings = await invoke("load_connections");
       setConnections(settings.connections);
-    } catch { }
+    } catch {}
   }
 
   async function moveConnection(index: number, direction: -1 | 1) {
@@ -231,10 +230,7 @@ export default function SettingsView(props: Props) {
         return;
       }
       const [movedFresh] = fresh.splice(fromIdx, 1);
-      const toIdx = Math.max(
-        0,
-        Math.min(fresh.length, fromIdx + direction),
-      );
+      const toIdx = Math.max(0, Math.min(fresh.length, fromIdx + direction));
       fresh.splice(toIdx, 0, movedFresh);
       await invoke("save_connections_settings", {
         payload: { ...settings, connections: fresh },
@@ -330,7 +326,6 @@ export default function SettingsView(props: Props) {
         const stripped: SavedConnection = {
           name: String(candidate.name),
           config: { ...candidate.config, password: undefined },
-          cached_port: candidate.cached_port ?? null,
         };
         const idx = merged.findIndex((c) => c.name === stripped.name);
         if (idx >= 0) {
@@ -475,9 +470,12 @@ export default function SettingsView(props: Props) {
                 setAutoConnectStartup(next);
                 saveAutoConnectStartup(next);
                 try {
-                  const settings: AppSettings = await invoke("load_connections");
+                  const settings: AppSettings =
+                    await invoke("load_connections");
                   settings.auto_connect_startup = next;
-                  await invoke("save_connections_settings", { payload: settings });
+                  await invoke("save_connections_settings", {
+                    payload: settings,
+                  });
                 } catch (err) {
                   const _unused = err;
                 }
@@ -769,9 +767,10 @@ export default function SettingsView(props: Props) {
                 options={FORMAT_INDENT_OPTIONS}
                 onChange={(val) => {
                   const n = Number.parseInt(val, 10);
-                  const safe = Number.isFinite(n) && n > 0
-                    ? n
-                    : DEFAULT_FORMAT_INDENT_SIZE;
+                  const safe =
+                    Number.isFinite(n) && n > 0
+                      ? n
+                      : DEFAULT_FORMAT_INDENT_SIZE;
                   setFormatIndentSize(safe);
                   saveFormatIndentSize(safe);
                 }}
@@ -920,12 +919,15 @@ export default function SettingsView(props: Props) {
       id: "app-date-format",
       tab: "general",
       title: "App date & time format",
-      keywords: "app date time format local utc region locale properties chat history dialogs",
+      keywords:
+        "app date time format local utc region locale properties chat history dialogs",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between">
             <div>
-              <h4 class="text-m font-medium text-text">App date & time format</h4>
+              <h4 class="text-m font-medium text-text">
+                App date & time format
+              </h4>
               <p class="text-s text-text-muted mt-0.5">
                 Format used for dates in the app outside the results grid
               </p>
@@ -952,7 +954,8 @@ export default function SettingsView(props: Props) {
       id: "results-date-format",
       tab: "execution",
       title: "Results date & time format",
-      keywords: "execution results grid date time format local utc region locale cell",
+      keywords:
+        "execution results grid date time format local utc region locale cell",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between">
@@ -1094,8 +1097,9 @@ export default function SettingsView(props: Props) {
           <Show when={importMessage()}>
             {(msg) => (
               <p
-                class={`text-s mb-3 ${msg().tone === "error" ? "text-error" : "text-success"
-                  }`}
+                class={`text-s mb-3 ${
+                  msg().tone === "error" ? "text-error" : "text-success"
+                }`}
               >
                 {msg().text}
               </p>
@@ -1178,57 +1182,60 @@ export default function SettingsView(props: Props) {
             Theme
           </h4>
           <div class="grid grid-cols-2 gap-2.5">
-            <For each={THEMES}>{(theme) => (
-              <button
-                onClick={() => handleThemeChange(theme.id)}
-                class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${themeId() === theme.id
-                  ? "border-accent bg-accent/8 ring-1 ring-accent/25"
-                  : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
+            <For each={THEMES}>
+              {(theme) => (
+                <button
+                  onClick={() => handleThemeChange(theme.id)}
+                  class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${
+                    themeId() === theme.id
+                      ? "border-accent bg-accent/8 ring-1 ring-accent/25"
+                      : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
                   }`}
-              >
-                <div class="font-medium text-m flex items-center justify-between">
-                  {theme.name}
-                  {themeId() === theme.id && (
-                    <i class="fa-solid fa-check text-accent text-s" />
-                  )}
-                </div>
-                <div
-                  class="flex h-10 w-full rounded-md overflow-hidden border border-border/50"
-                  style={{
-                    "background-color": theme.colors["--color-surface-panel"],
-                  }}
                 >
-                  <div
-                    class="w-10 h-full border-r border-border/30"
-                    style={{
-                      "background-color": theme.colors["--color-surface"],
-                    }}
-                  />
-                  <div class="flex-1 p-2 flex flex-col gap-1.5 relative">
-                    <div
-                      class="h-1.5 w-1/2 rounded-full"
-                      style={{
-                        "background-color":
-                          theme.colors["--color-surface-active"],
-                      }}
-                    />
-                    <div
-                      class="h-1.5 w-3/4 rounded-full"
-                      style={{
-                        "background-color":
-                          theme.colors["--color-surface-hover"],
-                      }}
-                    />
-                    <div
-                      class="absolute bottom-2 right-2 w-3 h-3 rounded-full"
-                      style={{
-                        "background-color": theme.colors["--color-accent"],
-                      }}
-                    />
+                  <div class="font-medium text-m flex items-center justify-between">
+                    {theme.name}
+                    {themeId() === theme.id && (
+                      <i class="fa-solid fa-check text-accent text-s" />
+                    )}
                   </div>
-                </div>
-              </button>
-            )}</For>
+                  <div
+                    class="flex h-10 w-full rounded-md overflow-hidden border border-border/50"
+                    style={{
+                      "background-color": theme.colors["--color-surface-panel"],
+                    }}
+                  >
+                    <div
+                      class="w-10 h-full border-r border-border/30"
+                      style={{
+                        "background-color": theme.colors["--color-surface"],
+                      }}
+                    />
+                    <div class="flex-1 p-2 flex flex-col gap-1.5 relative">
+                      <div
+                        class="h-1.5 w-1/2 rounded-full"
+                        style={{
+                          "background-color":
+                            theme.colors["--color-surface-active"],
+                        }}
+                      />
+                      <div
+                        class="h-1.5 w-3/4 rounded-full"
+                        style={{
+                          "background-color":
+                            theme.colors["--color-surface-hover"],
+                        }}
+                      />
+                      <div
+                        class="absolute bottom-2 right-2 w-3 h-3 rounded-full"
+                        style={{
+                          "background-color": theme.colors["--color-accent"],
+                        }}
+                      />
+                    </div>
+                  </div>
+                </button>
+              )}
+            </For>
           </div>
         </div>
       ),
@@ -1376,7 +1383,9 @@ export default function SettingsView(props: Props) {
                   class="text-accent hover:underline"
                   onClick={(e) => {
                     e.preventDefault();
-                    void open("https://api-dashboard.search.brave.com/app/keys");
+                    void open(
+                      "https://api-dashboard.search.brave.com/app/keys",
+                    );
                   }}
                 >
                   Brave Search API
@@ -1554,10 +1563,7 @@ export default function SettingsView(props: Props) {
   ];
 
   const searchTokens = createMemo(() =>
-    search()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean),
+    search().toLowerCase().split(/\s+/).filter(Boolean),
   );
 
   const isSearching = () => searchTokens().length > 0;
@@ -1565,7 +1571,8 @@ export default function SettingsView(props: Props) {
   function sectionMatches(s: Section): boolean {
     const tokens = searchTokens();
     if (tokens.length === 0) return true;
-    const haystack = `${s.title} ${s.keywords} ${tabLabel(s.tab)}`.toLowerCase();
+    const haystack =
+      `${s.title} ${s.keywords} ${tabLabel(s.tab)}`.toLowerCase();
     return tokens.every((t) => haystack.includes(t));
   }
 
@@ -1601,19 +1608,22 @@ export default function SettingsView(props: Props) {
         </div>
       </div>
       <div class="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pb-4">
-        <For each={TABS}>{(tab) => (
-          <button
-            onClick={() => {
-              setActiveTab(tab.id);
-              setSearch("");
-            }}
-            class={`settings-nav-btn ${!isSearching() && activeTab() === tab.id ? "active" : ""
+        <For each={TABS}>
+          {(tab) => (
+            <button
+              onClick={() => {
+                setActiveTab(tab.id);
+                setSearch("");
+              }}
+              class={`settings-nav-btn ${
+                !isSearching() && activeTab() === tab.id ? "active" : ""
               }`}
-          >
-            <i class={tab.icon} />
-            {tab.label}
-          </button>
-        )}</For>
+            >
+              <i class={tab.icon} />
+              {tab.label}
+            </button>
+          )}
+        </For>
       </div>
     </>
   );

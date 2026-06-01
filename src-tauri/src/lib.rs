@@ -1,26 +1,28 @@
+mod backup_schedules;
+mod conn_string;
 mod db;
 mod settings;
+pub mod sidecar;
 mod sql_gen;
 
 use db::{
     BackupDatabaseRequest, BackupDefaults, BackupFileInfo, BackupOperationResult,
     BackupScheduleInfo, BackupScheduleRequest, CachedServerObjectIndex, ColumnInfo,
     ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult,
-    RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse, SqlClient,
+    RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse,
 };
 use settings::{AppSettings, SavedConnection};
+use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
-const CONNECTION_IDLE_CHECK_AFTER: Duration = Duration::from_secs(30);
 
 fn is_sql_path(path: &Path) -> bool {
     path.extension()
@@ -29,19 +31,178 @@ fn is_sql_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+struct CancelSlot {
+    token: Option<CancellationToken>,
+    generation: u64,
+}
+
 struct AppState {
-    client: Arc<Mutex<Option<SqlClient>>>,
     active_connection: Arc<Mutex<Option<ActiveConnection>>>,
-    cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+    cancel_token: Arc<Mutex<CancelSlot>>,
+    cancel_generation: std::sync::atomic::AtomicU64,
     server_object_index: Arc<Mutex<CachedServerObjectIndex>>,
     server_object_index_token: Arc<Mutex<Option<CancellationToken>>>,
+    sidecar: Arc<RwLock<Option<Arc<SidecarHandle>>>>,
+    sidecar_connection_id: Arc<Mutex<Option<String>>>,
+    last_sidecar_error: Arc<Mutex<Option<String>>>,
+}
+
+/// Returns a running sidecar handle, lazily spawning (or respawning) the
+/// sidecar process if it has never started or has since crashed. Spawning is
+/// serialized behind the write lock so concurrent callers can't start duplicate
+/// processes.
+async fn spawn_or_reuse_sidecar(
+    sidecar: &Arc<RwLock<Option<Arc<SidecarHandle>>>>,
+    connection_id: &Arc<Mutex<Option<String>>>,
+    last_error: &Arc<Mutex<Option<String>>>,
+) -> Result<Arc<SidecarHandle>, String> {
+    // Fast path: an existing, still-running sidecar.
+    {
+        let guard = sidecar.read().await;
+        if let Some(handle) = guard.as_ref() {
+            if handle.is_alive().await {
+                return Ok(Arc::clone(handle));
+            }
+        }
+    }
+
+    let mut guard = sidecar.write().await;
+    // Re-check under the write lock in case another caller just spawned one.
+    if let Some(handle) = guard.as_ref() {
+        if handle.is_alive().await {
+            return Ok(Arc::clone(handle));
+        }
+    }
+
+    // A previously-spawned sidecar has died: drop it and invalidate the stale
+    // connection id so the app knows it must reconnect.
+    if guard.take().is_some() {
+        *connection_id.lock().await = None;
+    }
+
+    match SidecarSupervisor::spawn().await {
+        Ok(handle) => {
+            let handle = Arc::new(handle);
+            *guard = Some(Arc::clone(&handle));
+            *last_error.lock().await = None;
+            eprintln!("[sidecar] spawned at {}", handle.binary_path().display());
+            Ok(handle)
+        }
+        Err(err) => {
+            let message = format!("Failed to start the SQL engine (sidecar): {err}");
+            *last_error.lock().await = Some(message.clone());
+            eprintln!("[sidecar] {message}");
+            Err(message)
+        }
+    }
+}
+
+async fn ensure_sidecar(state: &AppState) -> Result<Arc<SidecarHandle>, String> {
+    spawn_or_reuse_sidecar(
+        &state.sidecar,
+        &state.sidecar_connection_id,
+        &state.last_sidecar_error,
+    )
+    .await
+}
+
+async fn sidecar_rpc(state: &AppState) -> Result<Arc<sidecar::JsonRpcClient>, String> {
+    Ok(ensure_sidecar(state).await?.rpc())
+}
+
+async fn close_sidecar_connection(rpc: &sidecar::JsonRpcClient, connection_id: String) {
+    if let Err(err) = sidecar::commands::connection::close(rpc, &connection_id).await {
+        eprintln!("[sidecar] failed to close connection {connection_id}: {err}");
+    }
+}
+
+fn close_sidecar_connection_later(rpc: Arc<sidecar::JsonRpcClient>, connection_id: String) {
+    tauri::async_runtime::spawn(async move {
+        close_sidecar_connection(&rpc, connection_id).await;
+    });
+}
+
+async fn cancel_current_query(state: &AppState) {
+    let mut slot = state.cancel_token.lock().await;
+    if let Some(token) = slot.token.take() {
+        token.cancel();
+    }
+}
+
+async fn sidecar_connection_id(state: &AppState) -> Result<String, String> {
+    // Ensure the sidecar is alive before reading the id: if it died and
+    // respawned, the slot was cleared and we return "Not connected" instead
+    // of a stale id that the new sidecar instance won't recognise.
+    let _ = ensure_sidecar(state).await?;
+    state
+        .sidecar_connection_id
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "Not connected to a server".to_string())
+}
+
+async fn sidecar_run_query(
+    state: &AppState,
+    sql: &str,
+) -> Result<sidecar::contracts::query::ExecuteSqlResponse, String> {
+    let id = sidecar_connection_id(state).await?;
+    let rpc = sidecar_rpc(state).await?;
+    sidecar::commands::query::execute(&rpc, &id, sql, None)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn open_sidecar_connection_with_timeout(
+    rpc: &Arc<sidecar::JsonRpcClient>,
+    config: sidecar::contracts::connection::SqlConnectionConfig,
+    timeout: std::time::Duration,
+) -> Result<sidecar::contracts::connection::OpenConnectionResponse, String> {
+    let cancel = CancellationToken::new();
+    let rpc_for_open = Arc::clone(rpc);
+    let cancel_for_open = cancel.clone();
+    let mut open_task = tauri::async_runtime::spawn(async move {
+        sidecar::commands::connection::open_cancellable(&rpc_for_open, config, cancel_for_open)
+            .await
+    });
+
+    match tokio::time::timeout(timeout, &mut open_task).await {
+        Ok(joined) => joined
+            .map_err(|err| format!("Connection task failed: {err}"))?
+            .map_err(|err| err.to_string()),
+        Err(_) => {
+            cancel.cancel();
+            let rpc_for_cleanup = Arc::clone(rpc);
+            tauri::async_runtime::spawn(async move {
+                match open_task.await {
+                    Ok(Ok(opened)) => {
+                        close_sidecar_connection(&rpc_for_cleanup, opened.connection_id).await;
+                    }
+                    Ok(Err(_)) | Err(_) => {}
+                }
+            });
+            Err("Connection attempt timed out".to_string())
+        }
+    }
+}
+
+fn first_result_set(
+    response: sidecar::contracts::query::ExecuteSqlResponse,
+) -> Option<sidecar::contracts::query::ResultSetData> {
+    response.result_sets.into_iter().next()
+}
+
+fn extract_string_cell(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Null => None,
+        other => Some(other.to_string()),
+    }
 }
 
 #[derive(Clone)]
 struct ActiveConnection {
     config: ConnectionConfig,
-    cached_port: Option<u16>,
-    last_used_at: Instant,
 }
 
 #[derive(serde::Serialize)]
@@ -55,16 +216,6 @@ struct OpenedSqlFile {
 struct AiSchemaContext {
     database: Option<String>,
     schema_summary: String,
-}
-
-fn same_saved_server(left: &ConnectionConfig, right: &ConnectionConfig) -> bool {
-    match (&left.connection_string, &right.connection_string) {
-        (Some(l), Some(r)) => db::strip_password_from_connection_string(l)
-            .trim()
-            .eq_ignore_ascii_case(db::strip_password_from_connection_string(r).trim()),
-        (Some(_), None) | (None, Some(_)) => false,
-        _ => left.server.trim().eq_ignore_ascii_case(right.server.trim()),
-    }
 }
 
 async fn reset_server_object_index(state: &AppState) {
@@ -81,114 +232,15 @@ async fn reset_server_object_index(state: &AppState) {
     *object_index = CachedServerObjectIndex::default();
 }
 
-async fn set_active_connection(
-    state: &AppState,
-    config: ConnectionConfig,
-    cached_port: Option<u16>,
-) {
+async fn set_active_connection(state: &AppState, config: ConnectionConfig) {
     let mut active_lock = state.active_connection.lock().await;
-    *active_lock = Some(ActiveConnection {
-        config,
-        cached_port,
-        last_used_at: Instant::now(),
-    });
-}
-
-async fn mark_connection_used(state: &AppState) {
-    let mut active_lock = state.active_connection.lock().await;
-    if let Some(active) = active_lock.as_mut() {
-        active.last_used_at = Instant::now();
-    }
-}
-
-async fn reconnect_active_connection(
-    state: &AppState,
-    client_slot: &mut Option<SqlClient>,
-) -> Result<(), String> {
-    let active = state
-        .active_connection
-        .lock()
-        .await
-        .clone()
-        .ok_or_else(|| "Not connected to a server".to_string())?;
-
-    let (client, resolved_port) = db::connect(&active.config, active.cached_port)
-        .await
-        .map_err(|err| {
-            format!(
-                "Connection was idle and had to be reopened, but reconnect failed: {}",
-                err
-            )
-        })?;
-
-    *client_slot = Some(client);
-
-    let mut active_lock = state.active_connection.lock().await;
-    if let Some(current) = active_lock.as_mut() {
-        current.cached_port = resolved_port;
-        current.last_used_at = Instant::now();
-    }
-
-    Ok(())
-}
-
-async fn ensure_connection_alive(
-    state: &AppState,
-    client_slot: &mut Option<SqlClient>,
-) -> Result<(), String> {
-    let should_check = {
-        let active_lock = state.active_connection.lock().await;
-        active_lock
-            .as_ref()
-            .map(|active| active.last_used_at.elapsed() >= CONNECTION_IDLE_CHECK_AFTER)
-            .unwrap_or(true)
-    };
-
-    if !should_check {
-        return Ok(());
-    }
-
-    let ping_result = match client_slot.as_mut() {
-        Some(client) => db::ping_connection(client).await,
-        None => return Err("Not connected to a server".to_string()),
-    };
-
-    match ping_result {
-        Ok(()) => {
-            mark_connection_used(state).await;
-            Ok(())
-        }
-        Err(err) if db::is_connection_lost_error(&err) => {
-            reconnect_active_connection(state, client_slot).await
-        }
-        Err(err) => Err(format!("Connection check failed: {}", err)),
-    }
-}
-
-macro_rules! with_live_client {
-    ($state:expr, $client:ident, $body:expr) => {{
-        let mut lock = $state.client.lock().await;
-        ensure_connection_alive(&$state, &mut *lock).await?;
-        let $client = lock
-            .as_mut()
-            .ok_or("Not connected to a server".to_string())?;
-        let result = $body;
-        drop(lock);
-        mark_connection_used(&$state).await;
-        result
-    }};
+    *active_lock = Some(ActiveConnection { config });
 }
 
 async fn ensure_server_object_indexing_started(
     state: &AppState,
 ) -> Result<ServerObjectIndexStatus, String> {
-    {
-        let mut client_lock = state.client.lock().await;
-        if client_lock.is_none() {
-            return Err("Not connected to a server".to_string());
-        }
-        ensure_connection_alive(state, &mut *client_lock).await?;
-    }
+    let connection_id = sidecar_connection_id(state).await?;
 
     let should_start = {
         let mut object_index = state.server_object_index.lock().await;
@@ -216,26 +268,22 @@ async fn ensure_server_object_indexing_started(
         }
     }
 
-    let client = Arc::clone(&state.client);
+    let rpc = sidecar_rpc(state).await?;
     let object_index = Arc::clone(&state.server_object_index);
 
     tauri::async_runtime::spawn(async move {
-        let databases = {
-            let mut client_lock = client.lock().await;
-            let Some(client) = client_lock.as_mut() else {
+        let databases = match sidecar::commands::schema::list_databases(&rpc, &connection_id).await
+        {
+            Ok(response) => response
+                .databases
+                .into_iter()
+                .map(|d| d.name)
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                eprintln!("Failed to start server object indexing: {}", error);
                 let mut object_index = object_index.lock().await;
                 object_index.finish();
                 return;
-            };
-
-            match db::get_databases(client).await {
-                Ok(databases) => databases,
-                Err(error) => {
-                    eprintln!("Failed to start server object indexing: {}", error);
-                    let mut object_index = object_index.lock().await;
-                    object_index.finish();
-                    return;
-                }
             }
         };
 
@@ -253,13 +301,8 @@ async fn ensure_server_object_indexing_started(
                 break;
             }
 
-            let result = {
-                let mut client_lock = client.lock().await;
-                let Some(client) = client_lock.as_mut() else {
-                    break;
-                };
-                db::get_tables(client, &database).await
-            };
+            let result =
+                sidecar::commands::schema::list_tables(&rpc, &connection_id, &database).await;
 
             if token.is_cancelled() {
                 break;
@@ -272,8 +315,17 @@ async fn ensure_server_object_indexing_started(
                 }
 
                 match result {
-                    Ok(database_objects) => {
-                        object_index.add_database_objects(database.clone(), database_objects);
+                    Ok(response) => {
+                        let objects = response
+                            .objects
+                            .into_iter()
+                            .map(|o| DatabaseObject {
+                                schema_name: o.schema_name,
+                                name: o.name,
+                                object_type: o.object_type,
+                            })
+                            .collect();
+                        object_index.add_database_objects(database.clone(), objects);
                     }
                     Err(error) => {
                         eprintln!(
@@ -532,7 +584,7 @@ async fn connect_to_server(
 ) -> Result<String, String> {
     let resolved_config = if let Some(ref conn_str) = config.connection_string {
         if !conn_str.trim().is_empty() {
-            let mut parsed = db::parse_connection_string(conn_str)?;
+            let mut parsed = conn_string::parse_connection_string(conn_str)?;
             parsed.password = config.password.clone().or(parsed.password);
             parsed
         } else {
@@ -544,21 +596,16 @@ async fn connect_to_server(
 
     let mut settings = settings::load_settings();
 
-    let cached_port = save_connection
-        .as_ref()
-        .and_then(|name| settings.connections.iter().find(|c| &c.name == name))
-        .and_then(|c| c.cached_port)
-        .or_else(|| {
-            settings
-                .connections
-                .iter()
-                .filter(|c| same_saved_server(&c.config, &resolved_config))
-                .find_map(|c| c.cached_port)
-        });
+    let rpc = sidecar_rpc(&state).await?;
 
-    let (client, resolved_port) = db::connect(&resolved_config, cached_port).await?;
+    let config_payload: sidecar::contracts::connection::SqlConnectionConfig =
+        (&resolved_config).into();
+    let response = sidecar::commands::connection::open(&rpc, config_payload)
+        .await
+        .map_err(|err| err.to_string())?;
+    let new_connection_id = response.connection_id.clone();
+
     let mut settings_changed = false;
-
     if let Some(name) = &save_connection {
         let mut save_config = resolved_config.clone();
 
@@ -570,43 +617,56 @@ async fn connect_to_server(
         save_config.password = None;
         if let Some(conn_str) = &save_config.connection_string {
             save_config.connection_string =
-                Some(db::strip_password_from_connection_string(conn_str));
+                Some(conn_string::strip_password_from_connection_string(conn_str));
         }
 
         if let Some(existing) = settings.connections.iter_mut().find(|c| &c.name == name) {
             existing.config = save_config;
-            existing.cached_port = resolved_port;
         } else {
             settings.connections.push(SavedConnection {
                 name: name.clone(),
                 config: save_config,
-                cached_port: resolved_port,
             });
         }
         settings.last_connection = Some(name.clone());
         settings_changed = true;
     }
 
-
-
     if settings_changed {
-        settings::save_settings(&settings)?;
+        if let Err(err) = settings::save_settings(&settings) {
+            close_sidecar_connection(&rpc, new_connection_id).await;
+            return Err(err);
+        }
     }
 
-    let mut lock = state.client.lock().await;
-    *lock = Some(client);
-    drop(lock);
-    set_active_connection(&state, resolved_config, resolved_port).await;
+    let previous_connection_id = {
+        let mut lock = state.sidecar_connection_id.lock().await;
+        lock.replace(new_connection_id)
+    };
+    if let Some(previous_connection_id) = previous_connection_id {
+        cancel_current_query(&state).await;
+        close_sidecar_connection_later(Arc::clone(&rpc), previous_connection_id);
+    }
+
+    set_active_connection(&state, resolved_config).await;
     reset_server_object_index(&state).await;
+    eprintln!(
+        "[backend] connected via SIDECAR (server={}, version={})",
+        response.server_name, response.server_version
+    );
 
     Ok("Connected".to_string())
 }
 
 #[tauri::command]
 async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String> {
-    let mut lock = state.client.lock().await;
-    *lock = None;
-    drop(lock);
+    cancel_current_query(&state).await;
+    let sidecar_id = state.sidecar_connection_id.lock().await.take();
+    if let Some(id) = sidecar_id {
+        if let Ok(rpc) = sidecar_rpc(&state).await {
+            close_sidecar_connection_later(rpc, id);
+        }
+    }
     let mut active_lock = state.active_connection.lock().await;
     *active_lock = None;
     drop(active_lock);
@@ -621,47 +681,91 @@ async fn execute_query(
     max_rows: Option<u64>,
     timeout_seconds: Option<u64>,
 ) -> Result<QueryResult, String> {
-    let token = CancellationToken::new();
+    let id = sidecar_connection_id(&state).await?;
+    execute_query_via_sidecar(&state, &id, sql, max_rows, timeout_seconds).await
+}
 
-    let result = {
-        let mut lock = state.client.lock().await;
-        ensure_connection_alive(&state, &mut *lock).await?;
-        let client = lock
-            .as_mut()
-            .ok_or("Not connected to a server".to_string())?;
+async fn execute_query_via_sidecar(
+    state: &AppState,
+    connection_id: &str,
+    sql: String,
+    max_rows: Option<u64>,
+    timeout_seconds: Option<u64>,
+) -> Result<QueryResult, String> {
+    use db::ResultSet;
 
-        {
-            let mut cancel_lock = state.cancel_token.lock().await;
-            *cancel_lock = Some(token.clone());
-        }
+    let rpc = sidecar_rpc(state).await?;
+    let start = std::time::Instant::now();
+    let batches = db::split_batches(&sql);
 
-        let exec_future = db::execute_query(client, &sql, max_rows);
-        let timeout = timeout_seconds.filter(|s| *s > 0);
+    let cancel = CancellationToken::new();
+    let cancel_gen = state
+        .cancel_generation
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .wrapping_add(1);
+    {
+        let mut slot = state.cancel_token.lock().await;
+        slot.token = Some(cancel.clone());
+        slot.generation = cancel_gen;
+    }
 
-        let timeout_future = async {
-            match timeout {
-                Some(secs) => {
-                    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-                    secs
-                }
-                None => std::future::pending::<u64>().await,
+    let timeout = timeout_seconds.filter(|s| *s > 0);
+    let timeout_future = async {
+        match timeout {
+            Some(secs) => {
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                secs
             }
-        };
-
-        tokio::select! {
-            res = exec_future => res,
-            _ = token.cancelled() => Err("Query cancelled by user".to_string()),
-            secs = timeout_future => {
-                token.cancel();
-                Err(format!("Query timed out after {}s", secs))
-            }
+            None => std::future::pending::<u64>().await,
         }
     };
-    mark_connection_used(&state).await;
+    tokio::pin!(timeout_future);
+
+    let exec_future = sidecar::commands::query::execute_batches_cancellable(
+        &rpc,
+        connection_id,
+        batches,
+        max_rows,
+        cancel.clone(),
+    );
+
+    let result = tokio::select! {
+        res = exec_future => {
+            let response = res.map_err(|err| {
+                if cancel.is_cancelled() {
+                    "Query cancelled by user".to_string()
+                } else {
+                    format!("Query failed: {}", err)
+                }
+            })?;
+            Ok(QueryResult {
+                result_sets: response.result_sets.into_iter().map(|rs| ResultSet {
+                    columns: rs.columns.into_iter().map(|c| ColumnInfo {
+                        name: c.name,
+                        type_name: c.type_name,
+                        is_identity: c.is_identity,
+                        is_nullable: c.is_nullable,
+                    }).collect(),
+                    rows: rs.rows,
+                    truncated: rs.truncated,
+                }).collect(),
+                rows_affected: response.rows_affected,
+                messages: response.messages,
+                elapsed_ms: start.elapsed().as_millis() as u64,
+                row_limit_applied: response.row_limit_applied,
+            })
+        }
+        secs = &mut timeout_future => {
+            cancel.cancel();
+            Err(format!("Query timed out after {}s", secs))
+        }
+    };
 
     {
-        let mut cancel_lock = state.cancel_token.lock().await;
-        *cancel_lock = None;
+        let mut slot = state.cancel_token.lock().await;
+        if slot.generation == cancel_gen {
+            slot.token = None;
+        }
     }
 
     result
@@ -669,16 +773,18 @@ async fn execute_query(
 
 #[tauri::command]
 async fn cancel_query(state: State<'_, AppState>) -> Result<(), String> {
-    let mut cancel_lock = state.cancel_token.lock().await;
-    if let Some(token) = cancel_lock.take() {
-        token.cancel();
-    }
+    cancel_current_query(&state).await;
     Ok(())
 }
 
 #[tauri::command]
 async fn get_databases(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    with_live_client!(state, client, db::get_databases(client).await)
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::schema::list_databases(&rpc, &id)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(response.databases.into_iter().map(|d| d.name).collect())
 }
 
 #[tauri::command]
@@ -686,7 +792,20 @@ async fn get_tables(
     state: State<'_, AppState>,
     database: String,
 ) -> Result<Vec<DatabaseObject>, String> {
-    with_live_client!(state, client, db::get_tables(client, &database).await)
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::schema::list_tables(&rpc, &id, &database)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(response
+        .objects
+        .into_iter()
+        .map(|o| DatabaseObject {
+            schema_name: o.schema_name,
+            name: o.name,
+            object_type: o.object_type,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -722,12 +841,7 @@ async fn start_server_object_indexing(
 async fn get_server_object_index_status(
     state: State<'_, AppState>,
 ) -> Result<ServerObjectIndexStatus, String> {
-    let client_lock = state.client.lock().await;
-    if client_lock.is_none() {
-        return Err("Not connected to a server".to_string());
-    }
-    drop(client_lock);
-
+    sidecar_connection_id(&state).await?;
     let object_index = state.server_object_index.lock().await;
     Ok(object_index.status())
 }
@@ -739,11 +853,7 @@ async fn get_columns(
     schema: String,
     table: String,
 ) -> Result<Vec<ColumnInfo>, String> {
-    with_live_client!(
-        state,
-        client,
-        db::get_columns(client, &database, &schema, &table).await
-    )
+    get_columns_via_sidecar(&state, &database, &schema, &table).await
 }
 
 #[tauri::command]
@@ -751,11 +861,20 @@ async fn get_database_schema_catalog(
     state: State<'_, AppState>,
     database: String,
 ) -> Result<Vec<DatabaseSchemaCatalogEntry>, String> {
-    with_live_client!(
-        state,
-        client,
-        db::get_database_schema_catalog(client, &database).await
-    )
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::schema::list_schema_catalog(&rpc, &id, &database)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(response
+        .entries
+        .into_iter()
+        .map(|e| DatabaseSchemaCatalogEntry {
+            table_name: e.table_name,
+            schema_name: e.schema_name,
+            columns: e.columns,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -931,7 +1050,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         databases: vec![],
     };
 
-    let mut settings = settings::load_settings();
+    let settings = settings::load_settings();
 
     if !settings.auto_connect_startup {
         return Ok(not_connected);
@@ -950,7 +1069,7 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
     let password = settings::load_password(&last_name);
     let config = match &saved.config.connection_string {
         Some(conn_str) if !conn_str.trim().is_empty() => {
-            let mut parsed = db::parse_connection_string(conn_str)?;
+            let mut parsed = conn_string::parse_connection_string(conn_str)?;
             parsed.password = password.or(parsed.password);
             parsed
         }
@@ -960,42 +1079,32 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
         },
     };
 
-    let (client, resolved_port) = match tokio::time::timeout(
+    let rpc = match sidecar_rpc(&state).await {
+        Ok(rpc) => rpc,
+        Err(_) => return Ok(not_connected),
+    };
+    let config_payload: sidecar::contracts::connection::SqlConnectionConfig = (&config).into();
+    let opened = match open_sidecar_connection_with_timeout(
+        &rpc,
+        config_payload,
         std::time::Duration::from_secs(10),
-        db::connect(&config, saved.cached_port),
     )
     .await
     {
-        Ok(Ok(result)) => result,
-        _ => return Ok(not_connected),
+        Ok(response) => response,
+        Err(_) => return Ok(not_connected),
     };
+    *state.sidecar_connection_id.lock().await = Some(opened.connection_id.clone());
 
-    if resolved_port != saved.cached_port {
-        if let Some(conn) = settings
-            .connections
-            .iter_mut()
-            .find(|c| c.name == last_name)
-        {
-            conn.cached_port = resolved_port;
-            settings::save_settings(&settings).ok();
-        }
-    }
+    let _ = settings;
 
-    let mut lock = state.client.lock().await;
-    *lock = Some(client);
-    drop(lock);
-    set_active_connection(&state, config.clone(), resolved_port).await;
+    set_active_connection(&state, config.clone()).await;
     reset_server_object_index(&state).await;
 
-    let databases = {
-        let mut lock = state.client.lock().await;
-        ensure_connection_alive(&state, &mut *lock).await?;
-        match lock.as_mut() {
-            Some(client) => db::get_databases(client).await.unwrap_or_default(),
-            None => Vec::new(),
-        }
-    };
-    mark_connection_used(&state).await;
+    let databases = sidecar::commands::schema::list_databases(&rpc, &opened.connection_id)
+        .await
+        .map(|r| r.databases.into_iter().map(|d| d.name).collect())
+        .unwrap_or_default();
 
     Ok(AutoConnectResult {
         connected: true,
@@ -1007,18 +1116,11 @@ async fn try_auto_connect(state: State<'_, AppState>) -> Result<AutoConnectResul
 
 #[tauri::command]
 async fn change_database(state: State<'_, AppState>, database: String) -> Result<(), String> {
-    let mut lock = state.client.lock().await;
-    ensure_connection_alive(&state, &mut *lock).await?;
-    let client = lock
-        .as_mut()
-        .ok_or("Not connected to a server".to_string())?;
-    let sql = format!("USE [{}]", database.replace(']', "]]"));
-    client
-        .execute(&sql, &[])
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    sidecar::commands::connection::change_database(&rpc, &id, &database)
         .await
-        .map_err(|e| format!("Failed to change database: {}", e))?;
-    drop(lock);
-    mark_connection_used(&state).await;
+        .map_err(|err| err.to_string())?;
     let mut active_lock = state.active_connection.lock().await;
     if let Some(active) = active_lock.as_mut() {
         active.config.database = Some(database);
@@ -1028,7 +1130,16 @@ async fn change_database(state: State<'_, AppState>, database: String) -> Result
 
 #[tauri::command]
 async fn get_backup_defaults(state: State<'_, AppState>) -> Result<BackupDefaults, String> {
-    with_live_client!(state, client, db::get_backup_defaults(client).await)
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::backup::defaults(&rpc, &id)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(BackupDefaults {
+        backup_directory: response.backup_directory,
+        data_directory: response.data_directory,
+        log_directory: response.log_directory,
+    })
 }
 
 #[tauri::command]
@@ -1036,7 +1147,27 @@ async fn backup_database(
     state: State<'_, AppState>,
     request: BackupDatabaseRequest,
 ) -> Result<BackupOperationResult, String> {
-    with_live_client!(state, client, db::backup_database(client, request).await)
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::backup::run(
+        &rpc,
+        sidecar::contracts::backup::BackupRequest {
+            connection_id: id,
+            database: request.database,
+            destination_path: request.destination_path,
+            backup_type: request.backup_type,
+            overwrite: request.overwrite,
+            copy_only: request.copy_only,
+            compression: request.compression,
+            checksum: request.checksum,
+        },
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    Ok(BackupOperationResult {
+        message: response.message,
+        elapsed_ms: response.elapsed_ms,
+    })
 }
 
 #[tauri::command]
@@ -1044,11 +1175,21 @@ async fn inspect_backup_file(
     state: State<'_, AppState>,
     source_path: String,
 ) -> Result<Vec<BackupFileInfo>, String> {
-    with_live_client!(
-        state,
-        client,
-        db::inspect_backup_file(client, &source_path).await
-    )
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::backup::inspect(&rpc, &id, &source_path)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(response
+        .files
+        .into_iter()
+        .map(|f| BackupFileInfo {
+            logical_name: f.logical_name,
+            physical_name: f.physical_name,
+            file_type: f.file_type,
+            size_bytes: f.size_bytes,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1056,7 +1197,33 @@ async fn restore_database(
     state: State<'_, AppState>,
     request: RestoreDatabaseRequest,
 ) -> Result<BackupOperationResult, String> {
-    with_live_client!(state, client, db::restore_database(client, request).await)
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::backup::restore(
+        &rpc,
+        sidecar::contracts::backup::RestoreRequest {
+            connection_id: id,
+            source_path: request.source_path,
+            target_database: request.target_database,
+            replace_existing: request.replace_existing,
+            recovery: request.recovery,
+            restricted_user: request.restricted_user,
+            file_moves: request
+                .file_moves
+                .into_iter()
+                .map(|m| sidecar::contracts::backup::RestoreFileMoveDto {
+                    logical_name: m.logical_name,
+                    physical_name: m.physical_name,
+                })
+                .collect(),
+        },
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    Ok(BackupOperationResult {
+        message: response.message,
+        elapsed_ms: response.elapsed_ms,
+    })
 }
 
 #[tauri::command]
@@ -1064,18 +1231,43 @@ async fn create_backup_schedule(
     state: State<'_, AppState>,
     request: BackupScheduleRequest,
 ) -> Result<BackupOperationResult, String> {
-    with_live_client!(
-        state,
-        client,
-        db::create_backup_schedule(client, request).await
-    )
+    let sql = backup_schedules::build_create_schedule_sql(&request)?;
+    let start = std::time::Instant::now();
+    sidecar_run_query(&state, &sql).await?;
+    Ok(BackupOperationResult {
+        message: "Schedule creation completed successfully.".to_string(),
+        elapsed_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 #[tauri::command]
 async fn list_backup_schedules(
     state: State<'_, AppState>,
 ) -> Result<Vec<BackupScheduleInfo>, String> {
-    with_live_client!(state, client, db::list_backup_schedules(client).await)
+    let response = sidecar_run_query(&state, backup_schedules::LIST_SCHEDULES_SQL).await?;
+    let Some(result_set) = first_result_set(response) else {
+        return Ok(Vec::new());
+    };
+    Ok(result_set
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            let mut iter = row.into_iter();
+            let job_id = extract_string_cell(&iter.next()?)?;
+            let job_name = extract_string_cell(&iter.next()?).unwrap_or_default();
+            let enabled = iter.next().and_then(|v| v.as_bool()).unwrap_or(false);
+            let schedule_name = iter.next().and_then(|v| extract_string_cell(&v));
+            let next_run_date = iter.next().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let next_run_time = iter.next().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            Some(BackupScheduleInfo {
+                job_id,
+                job_name,
+                enabled,
+                schedule_name,
+                next_run: backup_schedules::format_sql_agent_datetime(next_run_date, next_run_time),
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1083,38 +1275,139 @@ async fn delete_backup_schedule(
     state: State<'_, AppState>,
     job_name: String,
 ) -> Result<BackupOperationResult, String> {
-    with_live_client!(
-        state,
-        client,
-        db::delete_backup_schedule(client, &job_name).await
-    )
+    let sql = backup_schedules::build_delete_schedule_sql(&job_name)?;
+    let start = std::time::Instant::now();
+    sidecar_run_query(&state, &sql).await?;
+    Ok(BackupOperationResult {
+        message: "Schedule deletion completed successfully.".to_string(),
+        elapsed_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 #[tauri::command]
 async fn get_ai_schema_context(state: State<'_, AppState>) -> Result<AiSchemaContext, String> {
-    let mut client_lock = state.client.lock().await;
-    if client_lock.is_none() {
+    if state.sidecar_connection_id.lock().await.is_none() {
         return Ok(AiSchemaContext {
             database: None,
             schema_summary: String::new(),
         });
     }
 
-    ensure_connection_alive(&state, &mut *client_lock).await?;
-    let Some(client) = client_lock.as_mut() else {
-        return Ok(AiSchemaContext {
-            database: None,
-            schema_summary: String::new(),
-        });
-    };
+    let database = sidecar_run_query(&state, "SELECT DB_NAME()")
+        .await
+        .ok()
+        .and_then(first_result_set)
+        .and_then(|rs| rs.rows.into_iter().next())
+        .and_then(|row| row.into_iter().next())
+        .and_then(|c| extract_string_cell(&c));
 
-    let context = AiSchemaContext {
-        database: db::get_current_database_name(client).await?,
-        schema_summary: db::get_ai_schema_summary(client).await.unwrap_or_default(),
-    };
-    drop(client_lock);
-    mark_connection_used(&state).await;
-    Ok(context)
+    let schema_summary = sidecar_run_query(&state, AI_SCHEMA_SUMMARY_SQL)
+        .await
+        .ok()
+        .and_then(first_result_set)
+        .map(|rs| format_ai_schema_summary(&rs.rows))
+        .unwrap_or_default();
+
+    Ok(AiSchemaContext {
+        database,
+        schema_summary,
+    })
+}
+
+const AI_SCHEMA_SUMMARY_SQL: &str = r#"
+WITH objects AS (
+    SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        CASE WHEN TABLE_TYPE = 'VIEW' THEN 'VIEW' ELSE 'TABLE' END AS OBJECT_TYPE,
+        ROW_NUMBER() OVER (
+            ORDER BY
+                CASE WHEN TABLE_TYPE = 'VIEW' THEN 1 ELSE 0 END,
+                TABLE_SCHEMA,
+                TABLE_NAME
+        ) AS OBJECT_RANK
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+),
+columns_limited AS (
+    SELECT
+        TABLE_SCHEMA,
+        TABLE_NAME,
+        COLUMN_NAME,
+        DATA_TYPE,
+        ROW_NUMBER() OVER (
+            PARTITION BY TABLE_SCHEMA, TABLE_NAME
+            ORDER BY ORDINAL_POSITION
+        ) AS COLUMN_RANK
+    FROM INFORMATION_SCHEMA.COLUMNS
+)
+SELECT
+    o.TABLE_SCHEMA,
+    o.TABLE_NAME,
+    o.OBJECT_TYPE,
+    c.COLUMN_NAME,
+    c.DATA_TYPE,
+    c.COLUMN_RANK
+FROM objects o
+LEFT JOIN columns_limited c
+    ON o.TABLE_SCHEMA = c.TABLE_SCHEMA
+    AND o.TABLE_NAME = c.TABLE_NAME
+    AND c.COLUMN_RANK <= 8
+WHERE o.OBJECT_RANK <= 40
+ORDER BY o.OBJECT_RANK, c.COLUMN_RANK
+"#;
+
+fn format_ai_schema_summary(rows: &[Vec<serde_json::Value>]) -> String {
+    let mut summary_lines: Vec<String> = Vec::new();
+    let mut current_key = String::new();
+    let mut current_object = String::new();
+    let mut current_columns: Vec<String> = Vec::new();
+
+    for row in rows {
+        let schema = row
+            .get(0)
+            .and_then(extract_string_cell)
+            .unwrap_or_else(|| "dbo".to_string());
+        let table = row.get(1).and_then(extract_string_cell).unwrap_or_default();
+        let object_type = row
+            .get(2)
+            .and_then(extract_string_cell)
+            .unwrap_or_else(|| "TABLE".to_string());
+        let column_name = row.get(3).and_then(extract_string_cell);
+        let data_type = row.get(4).and_then(extract_string_cell);
+        let key = format!("[{}].[{}]", schema, table);
+
+        if key != current_key && !current_key.is_empty() {
+            summary_lines.push(format!(
+                "{} {} ({})",
+                current_object,
+                current_key,
+                current_columns.join(", ")
+            ));
+            current_columns.clear();
+        }
+
+        if key != current_key {
+            current_key = key.clone();
+            current_object = object_type;
+        }
+
+        if let Some(column_name) = column_name {
+            let type_name = data_type.unwrap_or_else(|| "sql_variant".to_string());
+            current_columns.push(format!("{} {}", column_name, type_name));
+        }
+    }
+
+    if !current_key.is_empty() {
+        summary_lines.push(format!(
+            "{} {} ({})",
+            current_object,
+            current_key,
+            current_columns.join(", ")
+        ));
+    }
+
+    summary_lines.join("\n")
 }
 
 #[tauri::command]
@@ -1124,11 +1417,37 @@ async fn get_indexes(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    with_live_client!(
-        state,
-        client,
-        db::get_indexes(client, &database, &schema, &table).await
-    )
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response = sidecar::commands::schema::list_indexes(&rpc, &id, &database, &schema, &table)
+        .await
+        .map_err(|err| err.to_string())?;
+    if response.indexes.is_empty() {
+        return Ok("No indexes found.".to_string());
+    }
+    let lines: Vec<String> = response
+        .indexes
+        .into_iter()
+        .map(|i| {
+            let mut flags = Vec::new();
+            if i.is_primary_key {
+                flags.push("PRIMARY KEY");
+            }
+            if i.is_unique && !i.is_primary_key {
+                flags.push("UNIQUE");
+            }
+            let flag_str = if flags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", flags.join(", "))
+            };
+            format!(
+                "{}{} ({}) \u{2014} {}",
+                i.name, flag_str, i.columns, i.type_description
+            )
+        })
+        .collect();
+    Ok(lines.join("\n"))
 }
 
 #[tauri::command]
@@ -1138,11 +1457,30 @@ async fn get_foreign_keys(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    with_live_client!(
-        state,
-        client,
-        db::get_foreign_keys(client, &database, &schema, &table).await
-    )
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let response =
+        sidecar::commands::schema::list_foreign_keys(&rpc, &id, &database, &schema, &table)
+            .await
+            .map_err(|err| err.to_string())?;
+    if response.foreign_keys.is_empty() {
+        return Ok("No foreign keys found.".to_string());
+    }
+    let lines: Vec<String> = response
+        .foreign_keys
+        .into_iter()
+        .map(|fk| {
+            format!(
+                "{}: ({}) \u{2192} [{}].[{}]({})",
+                fk.name,
+                fk.parent_columns,
+                fk.referenced_schema,
+                fk.referenced_table,
+                fk.referenced_columns
+            )
+        })
+        .collect();
+    Ok(lines.join("\n"))
 }
 
 #[tauri::command]
@@ -1152,11 +1490,7 @@ async fn generate_create_script(
     schema: String,
     table: String,
 ) -> Result<String, String> {
-    with_live_client!(
-        state,
-        client,
-        db::generate_create_script(client, &database, &schema, &table).await
-    )
+    script_object_via_sidecar(&state, &database, &schema, &table, "TABLE").await
 }
 
 #[tauri::command]
@@ -1166,11 +1500,27 @@ async fn get_object_definition(
     schema: String,
     name: String,
 ) -> Result<String, String> {
-    with_live_client!(
-        state,
-        client,
-        db::get_object_definition(client, &database, &schema, &name).await
-    )
+    let id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    let candidates = ["PROCEDURE", "FUNCTION", "VIEW", "TRIGGER"];
+    let mut last_err: Option<String> = None;
+    for object_type in candidates {
+        match sidecar::commands::scripting::script_object(
+            &rpc,
+            &id,
+            &database,
+            &schema,
+            &name,
+            object_type,
+            Some(sidecar::contracts::scripting::ScriptOptions::ssms_defaults()),
+        )
+        .await
+        {
+            Ok(response) => return Ok(response.script),
+            Err(err) => last_err = Some(err.to_string()),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "Object not found".to_string()))
 }
 
 #[cfg(target_os = "windows")]
@@ -1301,11 +1651,19 @@ async fn get_table_identity_columns(
 ) -> Result<Vec<String>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    with_live_client!(
-        state,
-        client,
-        db::get_identity_columns(client, &table_name).await
-    )
+    let sql = format!(
+        "SELECT c.name FROM sys.columns c WHERE c.object_id = OBJECT_ID('{}') AND c.is_identity = 1",
+        table_name.replace('\'', "''")
+    );
+    let response = sidecar_run_query(&state, &sql).await?;
+    let Some(result_set) = first_result_set(response) else {
+        return Ok(Vec::new());
+    };
+    Ok(result_set
+        .rows
+        .into_iter()
+        .filter_map(|row| row.into_iter().next().and_then(|c| extract_string_cell(&c)))
+        .collect())
 }
 
 #[tauri::command]
@@ -1315,11 +1673,24 @@ async fn get_primary_key_columns(
 ) -> Result<Vec<String>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    with_live_client!(
-        state,
-        client,
-        db::get_primary_key_columns(client, &table_name).await
-    )
+    let sql = format!(
+        "SELECT c.name \
+         FROM sys.indexes i \
+         JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
+         JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id \
+         WHERE i.object_id = OBJECT_ID('{}') AND i.is_primary_key = 1 \
+         ORDER BY ic.key_ordinal",
+        table_name.replace('\'', "''")
+    );
+    let response = sidecar_run_query(&state, &sql).await?;
+    let Some(result_set) = first_result_set(response) else {
+        return Ok(Vec::new());
+    };
+    Ok(result_set
+        .rows
+        .into_iter()
+        .filter_map(|row| row.into_iter().next().and_then(|c| extract_string_cell(&c)))
+        .collect())
 }
 
 #[tauri::command]
@@ -1329,11 +1700,46 @@ async fn get_table_column_metadata(
 ) -> Result<Vec<ColumnInfo>, String> {
     let table_name = sql_gen::extract_table_name(&source_sql)
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
-    with_live_client!(
-        state,
-        client,
-        db::get_table_column_metadata(client, &table_name).await
-    )
+    let sql = format!(
+        "SELECT \
+            c.name, \
+            tp.name + CASE \
+                WHEN tp.name IN ('varchar','char','binary','varbinary') THEN '(' + \
+                    CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length AS VARCHAR(10)) END + ')' \
+                WHEN tp.name IN ('nvarchar','nchar') THEN '(' + \
+                    CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length / 2 AS VARCHAR(10)) END + ')' \
+                WHEN tp.name IN ('decimal','numeric') THEN '(' + CAST(c.precision AS VARCHAR(10)) + ',' + CAST(c.scale AS VARCHAR(10)) + ')' \
+                WHEN tp.name IN ('datetime2','datetimeoffset','time') THEN '(' + CAST(c.scale AS VARCHAR(10)) + ')' \
+                ELSE '' END AS full_type, \
+            c.is_identity, \
+            c.is_nullable \
+         FROM sys.columns c \
+         JOIN sys.types tp ON c.user_type_id = tp.user_type_id \
+         WHERE c.object_id = OBJECT_ID('{}') \
+         ORDER BY c.column_id",
+        table_name.replace('\'', "''")
+    );
+    let response = sidecar_run_query(&state, &sql).await?;
+    let Some(result_set) = first_result_set(response) else {
+        return Ok(Vec::new());
+    };
+    Ok(result_set
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            let mut iter = row.into_iter();
+            let name = extract_string_cell(&iter.next()?)?;
+            let type_name = extract_string_cell(&iter.next()?).unwrap_or_default();
+            let is_identity = iter.next().and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_nullable = iter.next().and_then(|v| v.as_bool()).unwrap_or(true);
+            Some(ColumnInfo {
+                name,
+                type_name,
+                is_identity,
+                is_nullable,
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1408,13 +1814,18 @@ async fn generate_object_script(
     );
     let needs_columns_for_create = action == "script_create" && object_type == "VIEW";
 
+    let fallback_script = |action_str: &str| {
+        sql_gen::generate_object_script_definition_fallback(
+            &database,
+            &schema,
+            &name,
+            &object_type,
+            action_str,
+        )
+    };
+
     if needs_columns || needs_columns_for_create {
-        let columns_result = with_live_client!(
-            state,
-            client,
-            db::get_columns(client, &database, &schema, &name).await
-        );
-        match columns_result {
+        match get_columns_via_sidecar(&state, &database, &schema, &name).await {
             Ok(columns) => {
                 let sql = sql_gen::generate_object_script_with_columns(
                     &database,
@@ -1427,35 +1838,20 @@ async fn generate_object_script(
                 return Ok(ObjectScriptResult { sql });
             }
             Err(_) => {
-                let sql = sql_gen::generate_object_script_definition_fallback(
-                    &database,
-                    &schema,
-                    &name,
-                    &object_type,
-                    &action,
-                );
-                return Ok(ObjectScriptResult { sql });
+                return Ok(ObjectScriptResult {
+                    sql: fallback_script(&action),
+                });
             }
         }
     }
 
     if action == "script_create" && object_type == "TABLE" {
-        let script_result = with_live_client!(
-            state,
-            client,
-            db::generate_create_script(client, &database, &schema, &name).await
-        );
-        match script_result {
+        match script_object_via_sidecar(&state, &database, &schema, &name, "TABLE").await {
             Ok(sql) => return Ok(ObjectScriptResult { sql }),
             Err(_) => {
-                let sql = sql_gen::generate_object_script_definition_fallback(
-                    &database,
-                    &schema,
-                    &name,
-                    &object_type,
-                    &action,
-                );
-                return Ok(ObjectScriptResult { sql });
+                return Ok(ObjectScriptResult {
+                    sql: fallback_script(&action),
+                });
             }
         }
     }
@@ -1467,12 +1863,7 @@ async fn generate_object_script(
         );
 
     if needs_definition {
-        let def_result = with_live_client!(
-            state,
-            client,
-            db::get_object_definition(client, &database, &schema, &name).await
-        );
-        match def_result {
+        match script_object_via_sidecar(&state, &database, &schema, &name, &object_type).await {
             Ok(definition) => {
                 let sql = sql_gen::generate_object_script_with_definition(
                     &database,
@@ -1485,26 +1876,124 @@ async fn generate_object_script(
                 return Ok(ObjectScriptResult { sql });
             }
             Err(_) => {
-                let sql = sql_gen::generate_object_script_definition_fallback(
-                    &database,
-                    &schema,
-                    &name,
-                    &object_type,
-                    &action,
-                );
-                return Ok(ObjectScriptResult { sql });
+                return Ok(ObjectScriptResult {
+                    sql: fallback_script(&action),
+                });
             }
         }
     }
 
-    let sql = sql_gen::generate_object_script_definition_fallback(
-        &database,
-        &schema,
-        &name,
-        &object_type,
-        &action,
-    );
-    Ok(ObjectScriptResult { sql })
+    Ok(ObjectScriptResult {
+        sql: fallback_script(&action),
+    })
+}
+
+async fn get_columns_via_sidecar(
+    state: &AppState,
+    database: &str,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, String> {
+    let id = sidecar_connection_id(state).await?;
+    let rpc = sidecar_rpc(state).await?;
+    let response = sidecar::commands::schema::list_columns(&rpc, &id, database, schema, table)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(response
+        .columns
+        .into_iter()
+        .map(|c| ColumnInfo {
+            name: c.name,
+            type_name: c.type_name,
+            is_identity: c.is_identity,
+            is_nullable: c.is_nullable,
+        })
+        .collect())
+}
+
+async fn script_object_via_sidecar(
+    state: &AppState,
+    database: &str,
+    schema: &str,
+    name: &str,
+    object_type: &str,
+) -> Result<String, String> {
+    let id = sidecar_connection_id(state).await?;
+    let rpc = sidecar_rpc(state).await?;
+    let response = sidecar::commands::scripting::script_object(
+        &rpc,
+        &id,
+        database,
+        schema,
+        name,
+        object_type,
+        Some(sidecar::contracts::scripting::ScriptOptions::ssms_defaults()),
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    Ok(response.script)
+}
+
+#[tauri::command]
+async fn xe_start_session(
+    state: State<'_, AppState>,
+    session_name: String,
+    events: Option<Vec<String>>,
+    max_memory_kb: Option<i32>,
+    max_events_retained: Option<i32>,
+) -> Result<sidecar::contracts::xe::StartXeSessionResponse, String> {
+    let connection_id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    sidecar::commands::xe::start_session(
+        &rpc,
+        sidecar::contracts::xe::StartXeSessionRequest {
+            connection_id,
+            session_name,
+            events,
+            max_memory_kb: max_memory_kb.unwrap_or(4096),
+            max_events_retained: max_events_retained.unwrap_or(1000),
+        },
+    )
+    .await
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn xe_stop_session(
+    state: State<'_, AppState>,
+    session_name: String,
+    drop: Option<bool>,
+) -> Result<(), String> {
+    let connection_id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    sidecar::commands::xe::stop_session(
+        &rpc,
+        sidecar::contracts::xe::StopXeSessionRequest {
+            connection_id,
+            session_name,
+            drop: drop.unwrap_or(true),
+        },
+    )
+    .await
+    .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn xe_read_session(
+    state: State<'_, AppState>,
+    session_name: String,
+) -> Result<sidecar::contracts::xe::ReadXeSessionResponse, String> {
+    let connection_id = sidecar_connection_id(&state).await?;
+    let rpc = sidecar_rpc(&state).await?;
+    sidecar::commands::xe::read_session(&rpc, &connection_id, &session_name)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn sidecar_health_ping(state: State<'_, AppState>) -> Result<PingResponse, String> {
+    let handle = ensure_sidecar(&state).await?;
+    handle.ping().await.map_err(|err| err.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1557,14 +2046,40 @@ pub fn run() {
                 window_clone.show().ok();
             });
 
+            let state = app.state::<AppState>();
+            let sidecar_slot = state.sidecar.clone();
+            let connection_slot = state.sidecar_connection_id.clone();
+            let error_slot = state.last_sidecar_error.clone();
+            tauri::async_runtime::spawn(async move {
+                match spawn_or_reuse_sidecar(&sidecar_slot, &connection_slot, &error_slot).await {
+                    Ok(handle) => match handle.ping().await {
+                        Ok(pong) => eprintln!(
+                            "[sidecar] health.ping ok: version={} runtime={} pid={} uptime_ms={}",
+                            pong.sidecar_version,
+                            pong.runtime_description,
+                            pong.process_id,
+                            pong.uptime_milliseconds
+                        ),
+                        Err(err) => eprintln!("[sidecar] health.ping failed: {err}"),
+                    },
+                    Err(err) => eprintln!("[sidecar] {err}"),
+                }
+            });
+
             Ok(())
         })
         .manage(AppState {
-            client: Arc::new(Mutex::new(None)),
             active_connection: Arc::new(Mutex::new(None)),
-            cancel_token: Arc::new(Mutex::new(None)),
+            cancel_token: Arc::new(Mutex::new(CancelSlot {
+                token: None,
+                generation: 0,
+            })),
+            cancel_generation: std::sync::atomic::AtomicU64::new(0),
             server_object_index: Arc::new(Mutex::new(CachedServerObjectIndex::default())),
             server_object_index_token: Arc::new(Mutex::new(None)),
+            sidecar: Arc::new(RwLock::new(None)),
+            sidecar_connection_id: Arc::new(Mutex::new(None)),
+            last_sidecar_error: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             connect_to_server,
@@ -1627,13 +2142,17 @@ pub fn run() {
             load_conversation,
             save_conversation,
             delete_conversation,
+            sidecar_health_ping,
+            xe_start_session,
+            xe_stop_session,
+            xe_read_session,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::Opened { urls } = event {
+    app.run(|app_handle, event| match event {
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        tauri::RunEvent::Opened { urls } => {
             for url in urls {
                 let Ok(path) = url.to_file_path() else {
                     continue;
@@ -1645,8 +2164,14 @@ pub fn run() {
                 }
             }
         }
+        tauri::RunEvent::ExitRequested { .. } => {
+            let sidecar = app_handle.state::<AppState>().sidecar.clone();
+            tauri::async_runtime::block_on(async move {
+                if let Some(handle) = sidecar.write().await.take() {
+                    handle.shutdown().await;
+                }
+            });
+        }
+        _ => {}
     });
-
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    app.run(|_, _| {});
 }

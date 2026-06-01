@@ -28,12 +28,14 @@
   "scripts": {
     "dev": "vite",
     "start": "npm run tauri:dev",
-    "setup": "npm install && cargo fetch --manifest-path src-tauri/Cargo.toml",
+    "setup": "npm install && cargo fetch --manifest-path src-tauri/Cargo.toml && dotnet restore src-tauri/sidecar/Sqlqs.Sidecar.slnx",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "sidecar:build": "node scripts/build-sidecar.mjs",
+    "sidecar:dev": "node scripts/dev-sidecar.mjs",
     "lint": "eslint src/**/*.{ts,tsx}",
     "lint:fix": "eslint src/**/*.{ts,tsx} --fix",
     "bump": "node scripts/bump-version.mjs"

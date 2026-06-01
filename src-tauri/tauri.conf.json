@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "npm run sidecar:dev && npm run dev",
+    "beforeBuildCommand": "npm run sidecar:build && npm run build"
   },
   "app": {
     "windows": [
@@ -22,9 +22,7 @@
         "backgroundColor": "#00000000",
         "transparent": true,
         "windowEffects": {
-          "effects": [
-            "mica"
-          ],
+          "effects": ["mica"],
           "state": "active"
         }
       }
@@ -32,21 +30,18 @@
     "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://*; style-src 'self' 'unsafe-inline' http://localhost:* https://*; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src ipc: http://ipc.localhost http://tauri.localhost http://localhost:* https://*; font-src 'self' data: https://*; img-src 'self' data: https://*",
-      "dangerousDisableAssetCspModification": [
-        "style-src"
-      ]
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
     "active": true,
     "publisher": "Cristian Militaru",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
+    "externalBin": ["sidecar/bin/Sqlqs.Sidecar.Host"],
     "fileAssociations": [
       {
-        "ext": [
-          "sql"
-        ],
+        "ext": ["sql"],
         "name": "SQL Script",
         "description": "SQL script file",
         "role": "Editor"

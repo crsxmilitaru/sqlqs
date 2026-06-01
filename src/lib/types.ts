@@ -136,7 +136,6 @@ export interface ServerObjectIndexStatus {
 export interface SavedConnection {
   name: string;
   config: ConnectionConfig;
-  cached_port?: number | null;
 }
 
 export interface AppSettings {

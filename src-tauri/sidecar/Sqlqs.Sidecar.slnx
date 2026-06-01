@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sqlqs.Sidecar.Contracts/Sqlqs.Sidecar.Contracts.csproj" />
+    <Project Path="src/Sqlqs.Sidecar.Host/Sqlqs.Sidecar.Host.csproj" />
+    <Project Path="src/Sqlqs.Sidecar.Smo/Sqlqs.Sidecar.Smo.csproj" />
+    <Project Path="src/Sqlqs.Sidecar.Sql/Sqlqs.Sidecar.Sql.csproj" />
+  </Folder>
+</Solution>

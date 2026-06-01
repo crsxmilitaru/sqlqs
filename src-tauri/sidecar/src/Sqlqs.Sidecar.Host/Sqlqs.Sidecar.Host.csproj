@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sqlqs.Sidecar.Host</RootNamespace>
+    <AssemblyName>Sqlqs.Sidecar.Host</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!--
+    PublishTrimmed left disabled: SqlClient relies on native SNI interop types
+    (Interop.Windows.Sni.SniNativeMethods.SNIAddProviderWrapper) that the trimmer
+    strips even with the surrounding assemblies rooted. Re-enabling needs either
+    System.Text.Json source generation OR a comprehensive set of DynamicDependency
+    attributes on the SqlClient native shims. Revisit when SqlClient ships AOT/trim
+    annotations or we have time to do source generation properly.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.MessagePack" Version="1.2.4" />
+    <PackageReference Include="StreamJsonRpc" Version="2.24.92" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sqlqs.Sidecar.Contracts\Sqlqs.Sidecar.Contracts.csproj" />
+    <ProjectReference Include="..\Sqlqs.Sidecar.Sql\Sqlqs.Sidecar.Sql.csproj" />
+    <ProjectReference Include="..\Sqlqs.Sidecar.Smo\Sqlqs.Sidecar.Smo.csproj" />
+  </ItemGroup>
+
+</Project>
