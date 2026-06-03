@@ -1,19 +1,16 @@
-name: Build Desktop
+name: Preview
 
 on:
-  pull_request:
   push:
-    branches:
-      - master
-      - dev
-  workflow_dispatch:
+    tags:
+      - 'v*.*.*-preview.*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
+  preview:
+    name: Preview (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
@@ -28,8 +25,19 @@ jobs:
           - macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout preview version
         uses: actions/checkout@v4
+
+      - name: Extract version
+        shell: bash
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
+            echo "::error::Invalid preview tag: $TAG_NAME"
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -75,16 +83,17 @@ jobs:
 
       - name: Warn when macOS signing secrets are missing
         if: matrix.os == 'macos-latest' && env.HAS_APPLE_CERTIFICATE != 'true'
-        run: echo "::warning::APPLE_CERTIFICATE/APPLE_CERTIFICATE_PASSWORD are not configured. This macOS build will be ad-hoc signed for testing only and may still require manual approval in Gatekeeper."
+        run: echo "::warning::APPLE_CERTIFICATE/APPLE_CERTIFICATE_PASSWORD are not configured. The macOS preview will be ad-hoc signed only; users will need to right-click the app and choose Open the first time."
 
       - name: Warn when macOS notarization secrets are missing
         if: matrix.os == 'macos-latest' && env.HAS_APPLE_NOTARIZATION != 'true'
-        run: echo "::warning::No Apple notarization credentials were provided. This macOS build will fall back to ad-hoc signing instead of producing a Developer ID-signed but unnotarized app."
+        run: echo "::warning::No Apple notarization credentials were provided. The macOS preview will fall back to ad-hoc signing so users can still install it via the one-time Open flow."
 
-      - name: Build desktop app
+      - name: Build and upload preview assets
         if: matrix.os != 'macos-latest' || env.HAS_APPLE_RELEASE_SIGNING == 'true'
-        run: npm run tauri -- build
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -94,18 +103,28 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        with:
+          tagName: preview
+          releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
+          releaseBody: "Experimental build from dev."
+          releaseDraft: false
+          prerelease: true
+          args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          includeUpdaterJson: true
 
-      - name: Build ad-hoc signed macOS app
+      - name: Build and upload ad-hoc signed macOS preview assets
         if: matrix.os == 'macos-latest' && env.HAS_APPLE_RELEASE_SIGNING != 'true'
-        run: npm run tauri -- build
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
         with:
-          name: sqlqs-${{ matrix.os }}
-          path: src-tauri/target/release/bundle/
-          if-no-files-found: error
+          tagName: preview
+          releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
+          releaseBody: "Experimental build from dev."
+          releaseDraft: false
+          prerelease: true
+          args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          includeUpdaterJson: true

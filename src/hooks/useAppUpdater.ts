@@ -1,7 +1,9 @@
 import { createSignal, onMount } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { Update } from "@tauri-apps/plugin-updater";
+import { loadUpdateChannel } from "../lib/settings";
 import type { UpdateMessageTone } from "../lib/types";
 
 interface UpdateStatus {
@@ -16,6 +18,15 @@ interface UpdaterErrorDetails {
   tone: UpdateMessageTone;
 }
 
+interface UpdateMetadata {
+  rid: number;
+  currentVersion: string;
+  version: string;
+  date?: string;
+  body?: string;
+  rawJson: Record<string, unknown>;
+}
+
 export type UpdateCheckResult =
   | "update-available"
   | "up-to-date"
@@ -28,6 +39,11 @@ const MISSING_UPDATER_CONFIG_MESSAGE =
 const INVALID_UPDATER_SIGNATURE_MESSAGE =
   "Updater signature verification failed. Ensure releases are signed with the private key matching plugins.updater.pubkey.";
 const NO_RELEASE_METADATA_MESSAGE = "No published update metadata found yet.";
+
+const UPDATE_CHANNEL_LABELS = {
+  stable: "Stable",
+  preview: "Preview",
+} as const;
 
 export function useAppUpdater() {
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
@@ -77,7 +93,8 @@ export function useAppUpdater() {
     if (
       normalized.includes(
         "could not fetch a valid release json from the remote",
-      )
+      ) ||
+      normalized.includes("release not found")
     ) {
       return {
         message: NO_RELEASE_METADATA_MESSAGE,
@@ -101,18 +118,31 @@ export function useAppUpdater() {
     }
 
     isChecking = true;
+    const channel = loadUpdateChannel();
+    const channelLabel = UPDATE_CHANNEL_LABELS[channel];
     setUpdateStatus({
       checking: true,
-      message: manual ? "Checking for updates..." : null,
+      message: manual ? `Checking ${channelLabel} updates...` : null,
       tone: "info",
     });
 
     try {
-      const update = await check();
+      const metadata = await invoke<UpdateMetadata | null>(
+        "check_update_channel",
+        {
+          channel,
+          allowDowngrades: channel === "preview",
+        },
+      );
+      const update = metadata
+        ? new Update(metadata as ConstructorParameters<typeof Update>[0])
+        : null;
       if (!update) {
         setUpdateStatus({
           checking: false,
-          message: manual ? "You are running the latest version." : null,
+          message: manual
+            ? `You are running the latest ${channelLabel} version.`
+            : null,
           tone: "success",
         });
         return "up-to-date";
@@ -121,7 +151,7 @@ export function useAppUpdater() {
       setUpdateAvailable(update);
       setUpdateStatus({
         checking: false,
-        message: `Update ${update.version} is available.`,
+        message: `${channelLabel} update ${update.version} is available.`,
         tone: "info",
       });
       return "update-available";

@@ -11,6 +11,7 @@ use db::{
     ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult,
     RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse,
 };
+use serde::Serialize;
 use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
@@ -19,10 +20,16 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
+const STABLE_UPDATE_ENDPOINT: &str =
+    "https://github.com/crsxmilitaru/sqlqs/releases/latest/download/latest.json";
+const PREVIEW_UPDATE_ENDPOINT: &str =
+    "https://github.com/crsxmilitaru/sqlqs/releases/download/preview/latest.json";
 
 fn is_sql_path(path: &Path) -> bool {
     path.extension()
@@ -45,6 +52,57 @@ struct AppState {
     sidecar: Arc<RwLock<Option<Arc<SidecarHandle>>>>,
     sidecar_connection_id: Arc<Mutex<Option<String>>>,
     last_sidecar_error: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateMetadata {
+    rid: tauri::ResourceId,
+    current_version: String,
+    version: String,
+    date: Option<String>,
+    body: Option<String>,
+    raw_json: serde_json::Value,
+}
+
+#[tauri::command]
+async fn check_update_channel<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+    channel: String,
+    allow_downgrades: Option<bool>,
+) -> Result<Option<UpdateMetadata>, String> {
+    let endpoint = match channel.as_str() {
+        "stable" => STABLE_UPDATE_ENDPOINT,
+        "preview" => PREVIEW_UPDATE_ENDPOINT,
+        other => return Err(format!("Unknown update channel: {other}")),
+    };
+
+    let endpoint = Url::parse(endpoint).map_err(|err| err.to_string())?;
+    let mut builder = webview
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|err| err.to_string())?;
+
+    if allow_downgrades.unwrap_or(false) {
+        builder = builder.version_comparator(|current, update| update.version != current);
+    }
+
+    let updater = builder.build().map_err(|err| err.to_string())?;
+    let update = updater.check().await.map_err(|err| err.to_string())?;
+
+    if let Some(update) = update {
+        let metadata = UpdateMetadata {
+            current_version: update.current_version.clone(),
+            version: update.version.clone(),
+            date: update.date.map(|date| date.to_string()),
+            body: update.body.clone(),
+            raw_json: update.raw_json.clone(),
+            rid: webview.resources_table().add(update),
+        };
+        Ok(Some(metadata))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Returns a running sidecar handle, lazily spawning (or respawning) the
@@ -2133,6 +2191,7 @@ pub fn run() {
             build_row_update_with_edits,
             get_table_identity_columns,
             get_primary_key_columns,
+            check_update_channel,
             get_table_column_metadata,
             export_results_csv,
             export_results_json,

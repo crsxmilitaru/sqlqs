@@ -13,6 +13,7 @@ import {
   EDITOR_FONT_FAMILY_OPTIONS,
   FORMAT_INDENT_OPTIONS,
   FORMAT_KEYWORD_CASE_OPTIONS,
+  UPDATE_CHANNEL_OPTIONS,
   loadPreferences,
   MAX_EDITOR_FONT_SIZE,
   MAX_EXEC_TIMEOUT_SECONDS,
@@ -41,8 +42,10 @@ import {
   saveMaxHistoryItems,
   savePersistTabs,
   saveRevealCurrentDatabaseInExplorer,
+  saveUpdateChannel,
   type DateFormat,
   type SqlKeywordCase,
+  type UpdateChannel,
 } from "../../lib/settings";
 import { loadTheme, saveTheme, THEMES } from "../../lib/theme";
 import type {
@@ -121,6 +124,9 @@ export default function SettingsView(props: Props) {
   );
   const [autoCheckUpdates, setAutoCheckUpdates] = createSignal(
     prefs.autoCheckUpdates,
+  );
+  const [updateChannel, setUpdateChannel] = createSignal<UpdateChannel>(
+    prefs.updateChannel,
   );
   const [revealCurrentDb, setRevealCurrentDb] = createSignal(
     prefs.revealCurrentDatabaseInExplorer,
@@ -1422,6 +1428,55 @@ export default function SettingsView(props: Props) {
               class="settings-toggle"
               data-checked={aiNotifications()}
             />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "updates-channel",
+      tab: "updates",
+      title: "Update channel",
+      keywords: "update channel stable preview beta experimental release",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h4 class="text-m font-medium text-text">Update channel</h4>
+              <p class="text-s text-text-muted mt-0.5">
+                Choose which release stream the updater checks
+              </p>
+            </div>
+            <span class="text-s font-semibold text-accent">
+              {UPDATE_CHANNEL_OPTIONS.find((o) => o.value === updateChannel())
+                ?.label ?? "Stable"}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <For each={UPDATE_CHANNEL_OPTIONS}>
+              {(option) => (
+                <button
+                  onClick={() => {
+                    setUpdateChannel(option.value);
+                    saveUpdateChannel(option.value);
+                  }}
+                  class={`rounded-md border px-3 py-2 text-left transition-colors ${
+                    updateChannel() === option.value
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-border bg-surface hover:bg-surface-hover text-text-muted"
+                  }`}
+                >
+                  <span class="flex items-center justify-between gap-2 text-m font-medium">
+                    {option.label}
+                    {updateChannel() === option.value && (
+                      <i class="fa-solid fa-check text-accent text-s" />
+                    )}
+                  </span>
+                  <span class="mt-1 block text-s text-text-muted">
+                    {option.description}
+                  </span>
+                </button>
+              )}
+            </For>
           </div>
         </div>
       ),

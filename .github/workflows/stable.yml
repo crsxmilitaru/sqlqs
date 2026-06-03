@@ -1,16 +1,17 @@
-name: Release Desktop
+name: Stable
 
 on:
   push:
     tags:
-      - "v*"
+      - 'v*.*.*'
+      - '!v*.*.*-*'
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: Release (${{ matrix.os }})
+  stable:
+    name: Stable (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
@@ -25,8 +26,19 @@ jobs:
           - macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout release version
         uses: actions/checkout@v4
+
+      - name: Extract version
+        shell: bash
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid stable tag: $TAG_NAME"
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -49,6 +61,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Build sidecar
+        run: npm run sidecar:build
+
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
 
       - name: Prepare App Store Connect API key
         if: matrix.os == 'macos-latest' && env.HAS_APPLE_API_KEY == 'true'
@@ -83,8 +105,8 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "SQL Query Studio ${{ github.ref_name }}"
+          tagName: v${{ env.RELEASE_VERSION }}
+          releaseName: "SQL Query Studio v${{ env.RELEASE_VERSION }}"
           releaseBody: ""
           releaseDraft: false
           prerelease: false
@@ -100,8 +122,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "SQL Query Studio ${{ github.ref_name }}"
+          tagName: v${{ env.RELEASE_VERSION }}
+          releaseName: "SQL Query Studio v${{ env.RELEASE_VERSION }}"
           releaseBody: ""
           releaseDraft: false
           prerelease: false

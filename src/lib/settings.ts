@@ -7,6 +7,7 @@ const STORAGE_KEY_MAX_HISTORY = "sqlqs_max_history_items";
 const STORAGE_KEY_SAVED_TABS = "sqlqs_saved_tabs_v1";
 const STORAGE_KEY_AI_NOTIFICATIONS = "sqlqs_ai_notifications";
 const STORAGE_KEY_AUTO_CHECK_UPDATES = "sqlqs_auto_check_updates";
+const STORAGE_KEY_UPDATE_CHANNEL = "sqlqs_update_channel";
 const STORAGE_KEY_EXEC_MAX_ROWS = "sqlqs_exec_max_rows";
 const STORAGE_KEY_EXEC_TIMEOUT_SECONDS = "sqlqs_exec_timeout_seconds";
 const STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE = "sqlqs_exec_confirm_destructive";
@@ -54,6 +55,7 @@ export interface EditorPreferences {
 }
 
 export type SqlKeywordCase = "upper" | "lower" | "preserve";
+export type UpdateChannel = "stable" | "preview";
 export type DateFormat =
   | "local"
   | "YYYY-MM-DD HH:mm:ss"
@@ -110,6 +112,24 @@ export const FORMAT_KEYWORD_CASE_OPTIONS: {
     { value: "preserve", label: "Preserve" },
   ];
 export const DEFAULT_FORMAT_MAX_LINE_LENGTH = 0;
+export const DEFAULT_UPDATE_CHANNEL: UpdateChannel = "stable";
+
+export const UPDATE_CHANNEL_OPTIONS: {
+  value: UpdateChannel;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "stable",
+    label: "Stable",
+    description: "Release builds from master",
+  },
+  {
+    value: "preview",
+    label: "Preview",
+    description: "Experimental builds from dev",
+  },
+];
 
 export interface AppPreferences {
   persistTabs: boolean;
@@ -118,6 +138,7 @@ export interface AppPreferences {
   maxHistoryItems: number;
   aiNotifications: boolean;
   autoCheckUpdates: boolean;
+  updateChannel: UpdateChannel;
   revealCurrentDatabaseInExplorer: boolean;
   editor: EditorPreferences;
   execution: ExecutionPreferences;
@@ -222,6 +243,12 @@ function readResultsDateFormatFromStorage(): DateFormat {
   return DEFAULT_RESULTS_DATE_FORMAT;
 }
 
+function readUpdateChannelFromStorage(): UpdateChannel {
+  const raw = localStorage.getItem(STORAGE_KEY_UPDATE_CHANNEL);
+  if (raw === "stable" || raw === "preview") return raw;
+  return DEFAULT_UPDATE_CHANNEL;
+}
+
 function readExecutionPreferencesFromStorage(): ExecutionPreferences {
   return {
     maxRows: readNonNegativeIntWithDefault(
@@ -271,6 +298,7 @@ function readPreferencesFromStorage(): AppPreferences {
     maxHistoryItems: readMaxHistoryItemsFromStorage(),
     aiNotifications: readAiNotificationsFromStorage(),
     autoCheckUpdates: readBoolWithDefault(STORAGE_KEY_AUTO_CHECK_UPDATES, true),
+    updateChannel: readUpdateChannelFromStorage(),
     revealCurrentDatabaseInExplorer: readBoolWithDefault(
       STORAGE_KEY_REVEAL_DB_IN_EXPLORER,
       true,
@@ -396,6 +424,15 @@ export function loadAutoCheckUpdates(): boolean {
 export function saveAutoCheckUpdates(value: boolean) {
   localStorage.setItem(STORAGE_KEY_AUTO_CHECK_UPDATES, String(value));
   setPreferences((prev) => ({ ...prev, autoCheckUpdates: value }));
+}
+
+export function loadUpdateChannel(): UpdateChannel {
+  return preferences().updateChannel;
+}
+
+export function saveUpdateChannel(value: UpdateChannel) {
+  localStorage.setItem(STORAGE_KEY_UPDATE_CHANNEL, value);
+  setPreferences((prev) => ({ ...prev, updateChannel: value }));
 }
 
 export function loadRevealCurrentDatabaseInExplorer(): boolean {

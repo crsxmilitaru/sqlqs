@@ -38,7 +38,7 @@
     "sidecar:dev": "node scripts/dev-sidecar.mjs",
     "lint": "eslint src/**/*.{ts,tsx}",
     "lint:fix": "eslint src/**/*.{ts,tsx} --fix",
-    "bump": "node scripts/bump-version.mjs"
+    "release": "node scripts/run-release-workflow.mjs"
   },
   "dependencies": {
     "@codemirror/lang-sql": "^6.10.0",
