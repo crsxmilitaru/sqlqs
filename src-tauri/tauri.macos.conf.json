@@ -24,6 +24,9 @@
     ]
   },
   "bundle": {
+    "targets": [
+      "dmg"
+    ],
     "macOS": {
       "bundleName": "SQL Query Studio"
     }

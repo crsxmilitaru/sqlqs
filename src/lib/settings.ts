@@ -122,12 +122,12 @@ export const UPDATE_CHANNEL_OPTIONS: {
   {
     value: "stable",
     label: "Stable",
-    description: "Release builds from master",
+    description: "Official release builds",
   },
   {
     value: "preview",
     label: "Preview",
-    description: "Experimental builds from dev",
+    description: "Experimental preview builds",
   },
 ];
 

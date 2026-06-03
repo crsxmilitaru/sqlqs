@@ -2,10 +2,6 @@ name: Build Desktop
 
 on:
   pull_request:
-  push:
-    branches:
-      - master
-      - dev
   workflow_dispatch:
 
 permissions:
