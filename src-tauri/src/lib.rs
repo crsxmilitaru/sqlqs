@@ -11,7 +11,7 @@ use db::{
     ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult,
     RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
@@ -28,8 +28,15 @@ use url::Url;
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
 const STABLE_UPDATE_ENDPOINT: &str =
     "https://github.com/crsxmilitaru/sqlqs/releases/latest/download/latest.json";
-const PREVIEW_UPDATE_ENDPOINT: &str =
-    "https://github.com/crsxmilitaru/sqlqs/releases/download/preview/latest.json";
+const GITHUB_RELEASES_ENDPOINT: &str =
+    "https://api.github.com/repos/crsxmilitaru/sqlqs/releases?per_page=100";
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    prerelease: bool,
+    draft: bool,
+}
 
 fn is_sql_path(path: &Path) -> bool {
     path.extension()
@@ -65,25 +72,67 @@ struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
+fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64)> {
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    let (base, preview) = version.split_once("-preview.")?;
+    let mut parts = base.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let preview = preview.parse().ok()?;
+    Some((major, minor, patch, preview))
+}
+
+async fn latest_preview_update_endpoint() -> Result<String, String> {
+    let releases = reqwest::Client::new()
+        .get(GITHUB_RELEASES_ENDPOINT)
+        .header(reqwest::header::USER_AGENT, "SQL Query Studio")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|err| format!("Could not fetch preview releases: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("Could not fetch preview releases: {err}"))?
+        .json::<Vec<GitHubRelease>>()
+        .await
+        .map_err(|err| format!("Could not read preview releases: {err}"))?;
+
+    let latest_tag = releases
+        .into_iter()
+        .filter(|release| release.prerelease && !release.draft)
+        .filter_map(|release| {
+            parse_preview_tag(&release.tag_name).map(|version| (version, release.tag_name))
+        })
+        .max_by_key(|(version, _)| *version)
+        .map(|(_, tag)| tag)
+        .ok_or_else(|| "No published preview release metadata found yet.".to_string())?;
+
+    Ok(format!(
+        "https://github.com/crsxmilitaru/sqlqs/releases/download/{latest_tag}/latest.json"
+    ))
+}
+
 #[tauri::command]
 async fn check_update_channel<R: tauri::Runtime>(
     webview: tauri::Webview<R>,
     channel: String,
-    allow_downgrades: Option<bool>,
 ) -> Result<Option<UpdateMetadata>, String> {
     let endpoint = match channel.as_str() {
-        "stable" => STABLE_UPDATE_ENDPOINT,
-        "preview" => PREVIEW_UPDATE_ENDPOINT,
+        "stable" => STABLE_UPDATE_ENDPOINT.to_string(),
+        "preview" => latest_preview_update_endpoint().await?,
         other => return Err(format!("Unknown update channel: {other}")),
     };
 
-    let endpoint = Url::parse(endpoint).map_err(|err| err.to_string())?;
+    let endpoint = Url::parse(&endpoint).map_err(|err| err.to_string())?;
     let mut builder = webview
         .updater_builder()
         .endpoints(vec![endpoint])
         .map_err(|err| err.to_string())?;
 
-    if allow_downgrades.unwrap_or(false) {
+    if channel == "preview" {
         builder = builder.version_comparator(|current, update| update.version != current);
     }
 

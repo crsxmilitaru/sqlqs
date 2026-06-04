@@ -70,7 +70,18 @@ impl SidecarSupervisor {
 }
 
 async fn spawn_at(binary_path: &Path) -> Result<SidecarHandle, SupervisorError> {
-    let mut child = Command::new(binary_path)
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new(binary_path);
+        c.creation_flags(0x08000000);
+        c
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = Command::new(binary_path);
+
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

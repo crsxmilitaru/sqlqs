@@ -91,10 +91,9 @@ export function useAppUpdater() {
     }
 
     if (
-      normalized.includes(
-        "could not fetch a valid release json from the remote",
-      ) ||
-      normalized.includes("release not found")
+      normalized.includes("could not fetch a valid release json from the remote",) ||
+      normalized.includes("release not found") ||
+      normalized.includes("no published preview release metadata")
     ) {
       return {
         message: NO_RELEASE_METADATA_MESSAGE,
@@ -130,8 +129,7 @@ export function useAppUpdater() {
       const metadata = await invoke<UpdateMetadata | null>(
         "check_update_channel",
         {
-          channel,
-          allowDowngrades: channel === "preview",
+          channel
         },
       );
       const update = metadata
