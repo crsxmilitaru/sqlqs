@@ -2185,9 +2185,9 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default();
 
-    // Single-instance plugin must be registered before any other plugin so the
-    // secondary process exits cleanly. Mac uses RunEvent::Opened instead.
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    // Linux keeps single-instance file forwarding. Windows allows separate
+    // app processes, and Mac uses RunEvent::Opened instead.
+    #[cfg(target_os = "linux")]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
