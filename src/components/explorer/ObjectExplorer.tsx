@@ -33,9 +33,15 @@ import {
 import Tooltip from "../ui/Tooltip";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
+export interface ObjectExplorerHandle {
+  refreshDatabaseObjects: (database: string) => Promise<void>;
+  refreshDatabasesAndObjects: () => Promise<void>;
+}
+
 interface Props {
+  onRef?: (handle: ObjectExplorerHandle) => void;
   databases: string[];
-  onRefreshDatabases?: () => void;
+  onRefreshDatabases?: () => void | Promise<void>;
   onSelect: (
     sql: string,
     execute?: boolean,
@@ -345,6 +351,13 @@ function loadSectionHeights(): ExplorerSectionHeights {
 }
 
 export default function ObjectExplorer(props: Props) {
+  onMount(() => {
+    props.onRef?.({
+      refreshDatabaseObjects,
+      refreshDatabasesAndObjects,
+    });
+  });
+
   const [expanded, setExpanded] = createSignal<Set<string>>(
     initExpandedSections(),
   );
@@ -551,6 +564,15 @@ export default function ObjectExplorer(props: Props) {
     }
   }
 
+  function handleSectionResizerDoubleClick(section: ResizableSection, e: MouseEvent) {
+    e.preventDefault();
+    setSectionHeights((prev) => ({
+      ...prev,
+      [section]: DEFAULT_SECTION_HEIGHTS[section],
+    }));
+    persistSectionHeights();
+  }
+
   async function loadTables(database: string, force?: boolean) {
     if (!force && tableCache()[database]) return;
     setLoading((prev) => new Set(prev).add(database));
@@ -567,6 +589,30 @@ export default function ObjectExplorer(props: Props) {
         next.delete(database);
         return next;
       });
+    }
+  }
+
+  async function refreshDatabaseObjects(database: string) {
+    setTableCache((prev) => {
+      const next = { ...prev };
+      delete next[database];
+      return next;
+    });
+    await loadTables(database, true);
+  }
+
+  async function refreshDatabasesAndObjects() {
+    const previousDatabases = props.databases;
+    setTableCache({});
+
+    try {
+      await props.onRefreshDatabases?.();
+    } finally {
+      const databasesToRefresh =
+        props.databases.length > 0 ? props.databases : previousDatabases;
+      await Promise.all(
+        databasesToRefresh.map((database) => loadTables(database, true)),
+      );
     }
   }
 
@@ -681,9 +727,9 @@ export default function ObjectExplorer(props: Props) {
         return [
           {
             id: "refresh-databases",
-            label: "Refresh List",
+            label: "Refresh All",
             icon: <i class="fa-solid fa-rotate" />,
-            onClick: () => props.onRefreshDatabases?.(),
+            onClick: () => void refreshDatabasesAndObjects(),
           },
         ];
       case "QUERIES_FOLDER":
@@ -746,14 +792,7 @@ export default function ObjectExplorer(props: Props) {
           id: "refresh-folder",
           label: "Refresh",
           icon: <i class="fa-solid fa-rotate" />,
-          onClick: () => {
-            setTableCache((prev) => {
-              const next = { ...prev };
-              delete next[database];
-              return next;
-            });
-            loadTables(database, true);
-          },
+          onClick: () => void refreshDatabaseObjects(database),
         },
       ];
     }
@@ -858,14 +897,7 @@ export default function ObjectExplorer(props: Props) {
           id: "refresh",
           label: "Refresh",
           icon: <i class="fa-solid fa-rotate" />,
-          onClick: () => {
-            setTableCache((prev) => {
-              const next = { ...prev };
-              delete next[database];
-              return next;
-            });
-            loadTables(database, true);
-          },
+          onClick: () => void refreshDatabaseObjects(database),
         },
         { id: "sep-db-2", separator: true },
         {
@@ -947,7 +979,7 @@ export default function ObjectExplorer(props: Props) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      props.onRefreshDatabases!();
+                      void refreshDatabasesAndObjects();
                     }}
                     class="explorer-section-action"
                   >
@@ -1155,6 +1187,7 @@ export default function ObjectExplorer(props: Props) {
           <div
             class={`resizer resizer-v mx-2 ${activeResizer() === "saved" ? "active" : ""}`}
             onMouseDown={(e) => startSectionResize("saved", e)}
+            onDblClick={(e) => handleSectionResizerDoubleClick("saved", e)}
           />
         )}
 
@@ -1273,6 +1306,7 @@ export default function ObjectExplorer(props: Props) {
           <div
             class={`resizer resizer-v mx-2 ${activeResizer() === "history" ? "active" : ""}`}
             onMouseDown={(e) => startSectionResize("history", e)}
+            onDblClick={(e) => handleSectionResizerDoubleClick("history", e)}
           />
         )}
 

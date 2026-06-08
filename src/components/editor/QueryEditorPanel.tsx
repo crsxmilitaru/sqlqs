@@ -6,6 +6,7 @@ import {
   Show,
   onCleanup,
 } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import type { ExecutedQuery, QueryTab } from "../../lib/types";
 import AIChatPanel, {
   type ApplyMode,
@@ -22,7 +23,7 @@ import {
   IconSearch,
   IconWrapText,
 } from "../ui/Icons";
-import ResultsGrid from "./ResultsGrid";
+import ResultsGrid, { type ResultsTableViewState } from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
@@ -34,6 +35,14 @@ const DRAG_THRESHOLD = 5;
 
 function isTabDirty(tab: QueryTab): boolean {
   return tab.sql !== tab.savedSql;
+}
+
+function shouldIgnoreTabShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest("input, textarea, select")) return true;
+
+  const editable = target.closest("[contenteditable='true']");
+  return !!editable && !target.closest(".cm-editor");
 }
 
 interface Props {
@@ -158,6 +167,7 @@ export default function QueryEditorPanel(props: Props) {
 
   function handleTabContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
+    e.stopPropagation();
     setTabContextMenu({
       visible: true,
       x: e.clientX,
@@ -397,6 +407,9 @@ export default function QueryEditorPanel(props: Props) {
     x: number;
     y: number;
   } | null>(null);
+  const [resultTableViewStates, setResultTableViewStates] = createSignal<
+    Record<string, Record<number, ResultsTableViewState>>
+  >({});
   let editorRef: SqlEditorHandle | null = null;
 
   const activeTab = createMemo(() =>
@@ -448,6 +461,11 @@ export default function QueryEditorPanel(props: Props) {
   function handleExecute(selectedSql?: string) {
     if (!props.activeTabId || !hasDatabaseSelected()) return;
     setResultsCollapsed(false);
+    setResultTableViewStates((prev) => {
+      const next = { ...prev };
+      delete next[props.activeTabId!];
+      return next;
+    });
     props.onExecute(props.activeTabId, selectedSql);
   }
 
@@ -504,11 +522,29 @@ export default function QueryEditorPanel(props: Props) {
 
   function handleEditorContextMenu(e: MouseEvent) {
     e.preventDefault();
+    e.stopPropagation();
     setEditorContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
     });
+  }
+
+  const getResultTableViewStates = (tabId: string) =>
+    resultTableViewStates()[tabId] ?? {};
+
+  function handleResultTableViewStateChange(
+    tabId: string,
+    resultSetIndex: number,
+    state: ResultsTableViewState,
+  ) {
+    setResultTableViewStates((prev) => ({
+      ...prev,
+      [tabId]: {
+        ...(prev[tabId] ?? {}),
+        [resultSetIndex]: state,
+      },
+    }));
   }
 
   function handleSendSelectionToChat() {
@@ -521,6 +557,47 @@ export default function QueryEditorPanel(props: Props) {
       content: selectedText,
       references: ["selected"],
     });
+  }
+
+  async function handleCopySelection() {
+    const selectedText = editorRef?.getSelectedText() ?? "";
+    if (!selectedText) return;
+    try {
+      await invoke("write_clipboard", { text: selectedText });
+    } catch (err) {
+      console.error("Failed to copy selection:", err);
+    } finally {
+      editorRef?.focus();
+    }
+  }
+
+  async function handleCutSelection() {
+    const selectedText = editorRef?.getSelectedText() ?? "";
+    if (!selectedText) return;
+    try {
+      await invoke("write_clipboard", { text: selectedText });
+      editorRef?.replaceSelection("");
+    } catch (err) {
+      console.error("Failed to cut selection:", err);
+    } finally {
+      editorRef?.focus();
+    }
+  }
+
+  async function handlePaste(format = false) {
+    try {
+      const text = await invoke<string>("read_clipboard");
+      if (!text) return;
+      if (format) {
+        editorRef?.replaceSelection(formatSqlWithPrefs(text));
+      } else {
+        editorRef?.replaceSelection(text);
+      }
+    } catch (err) {
+      console.error("Failed to paste into editor:", err);
+    } finally {
+      editorRef?.focus();
+    }
   }
 
   function handleSendResultErrorToChat(error: string) {
@@ -554,6 +631,46 @@ export default function QueryEditorPanel(props: Props) {
       },
       { id: "sep-1", separator: true },
       {
+        id: "cut-selection",
+        label: "Cut",
+        icon: <i class="fa-solid fa-scissors" />,
+        shortcut: "Ctrl+X",
+        onClick: () => void handleCutSelection(),
+        disabled: !hasSelectedText,
+      },
+      {
+        id: "copy-selection",
+        label: "Copy",
+        icon: <i class="fa-solid fa-copy" />,
+        shortcut: "Ctrl+C",
+        onClick: () => void handleCopySelection(),
+        disabled: !hasSelectedText,
+      },
+      {
+        id: "paste",
+        label: "Paste",
+        icon: <i class="fa-solid fa-paste" />,
+        shortcut: "Ctrl+V",
+        onClick: () => void handlePaste(),
+        disabled: !tab,
+      },
+      {
+        id: "paste-formatted",
+        label: "Paste Formatted",
+        icon: <IconFormat />,
+        onClick: () => void handlePaste(true),
+        disabled: !tab,
+      },
+      {
+        id: "select-all",
+        label: "Select All",
+        icon: <i class="fa-solid fa-check-double" />,
+        shortcut: "Ctrl+A",
+        onClick: () => editorRef?.selectAll(),
+        disabled: !tab?.sql,
+      },
+      { id: "sep-copy", separator: true },
+      {
         id: "send-selection-to-chat",
         label: "Send to Chat",
         icon: <i class="fa-solid fa-comment-dots" />,
@@ -570,6 +687,11 @@ export default function QueryEditorPanel(props: Props) {
       },
     ];
   };
+
+  function handleEditorResizerDoubleClick(e: MouseEvent) {
+    e.preventDefault();
+    setEditorHeight(300);
+  }
 
   function handleEditorResize(e: MouseEvent) {
     e.preventDefault();
@@ -594,6 +716,71 @@ export default function QueryEditorPanel(props: Props) {
       cleanupEditorResizeListeners = undefined;
     };
   }
+
+  createEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || shouldIgnoreTabShortcutTarget(e.target)) return;
+
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      if (isCtrlOrMeta && !e.altKey) {
+        if (!e.shiftKey) {
+          if (e.key.toLowerCase() === "t") {
+            e.preventDefault();
+            props.onTabAdd();
+            requestAnimationFrame(() => {
+              if (tabBarRef) {
+                tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+              }
+            });
+            return;
+          }
+          if (e.key.toLowerCase() === "w") {
+            e.preventDefault();
+            if (props.activeTabId) {
+              requestSingleTabClose(props.activeTabId);
+            }
+            return;
+          }
+          if (e.key >= "1" && e.key <= "9") {
+            const index = parseInt(e.key, 10) - 1;
+            if (index < props.tabs.length) {
+              e.preventDefault();
+              props.onTabChange(props.tabs[index].id);
+            }
+            return;
+          }
+        }
+
+        if (e.key === "PageDown") {
+          e.preventDefault();
+          const currentTabs = props.tabs;
+          const activeId = props.activeTabId;
+          const index = currentTabs.findIndex((t) => t.id === activeId);
+          if (index !== -1 && currentTabs.length > 1) {
+            const nextIndex = (index + 1) % currentTabs.length;
+            props.onTabChange(currentTabs[nextIndex].id);
+          }
+          return;
+        }
+        if (e.key === "PageUp") {
+          e.preventDefault();
+          const currentTabs = props.tabs;
+          const activeId = props.activeTabId;
+          const index = currentTabs.findIndex((t) => t.id === activeId);
+          if (index !== -1 && currentTabs.length > 1) {
+            const prevIndex = (index - 1 + currentTabs.length) % currentTabs.length;
+            props.onTabChange(currentTabs[prevIndex].id);
+          }
+          return;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKeyDown);
+    });
+  });
 
   return (
     <div class="flex flex-col h-full min-h-0 overflow-hidden">
@@ -865,6 +1052,7 @@ export default function QueryEditorPanel(props: Props) {
                           wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
                         }
                         onClick={() => setWrapLines(!wrapLines())}
+                        disabled={!tab.sql.trim()}
                         class={`btn btn-icon ${wrapLines() ? "btn-toggled" : ""}`}
                       >
                         <IconWrapText class="w-3 h-3" />
@@ -963,7 +1151,11 @@ export default function QueryEditorPanel(props: Props) {
             </div>
 
             {!resultsCollapsed() && !isCompactResult() && (
-              <div class="resizer resizer-v" onMouseDown={handleEditorResize} />
+              <div
+                class="resizer resizer-v"
+                onMouseDown={handleEditorResize}
+                onDblClick={handleEditorResizerDoubleClick}
+              />
             )}
 
             <div
@@ -1007,6 +1199,14 @@ export default function QueryEditorPanel(props: Props) {
                     error={tab.error}
                     isExecuting={tab.isExecuting}
                     sourceSql={tab.sql}
+                    tableViewStates={getResultTableViewStates(tab.id)}
+                    onTableViewStateChange={(resultSetIndex, state) =>
+                      handleResultTableViewStateChange(
+                        tab.id,
+                        resultSetIndex,
+                        state,
+                      )
+                    }
                     onGenerateSql={handleGeneratedRowSql}
                     onReExecute={() => handleExecute()}
                     onSendErrorToChat={handleSendResultErrorToChat}

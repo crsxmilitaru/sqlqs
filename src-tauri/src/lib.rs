@@ -16,7 +16,6 @@ use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -25,6 +24,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+#[allow(dead_code)]
 const SQL_FILE_OPENED_EVENT: &str = "sql-file-opened";
 const STABLE_UPDATE_ENDPOINT: &str =
     "https://github.com/crsxmilitaru/sqlqs/releases/latest/download/latest.json";
@@ -39,10 +39,7 @@ struct GitHubRelease {
 }
 
 fn is_sql_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("sql"))
-        .unwrap_or(false)
+    !path.is_dir()
 }
 
 struct CancelSlot {
@@ -561,7 +558,7 @@ fn get_startup_sql_file_path() -> Option<String> {
 fn read_sql_file(path: String) -> Result<OpenedSqlFile, String> {
     let file_path = PathBuf::from(&path);
     if !is_sql_path(&file_path) {
-        return Err("Only .sql files are supported".to_string());
+        return Err("Directories cannot be opened as files".to_string());
     }
 
     let content = std::fs::read_to_string(&file_path)
@@ -587,7 +584,7 @@ fn write_sql_file(path: String, content: String) -> Result<String, String> {
     let file_path = PathBuf::from(&path);
 
     if !is_sql_path(&file_path) {
-        return Err("Only .sql files can be written".to_string());
+        return Err("Directories cannot be written to".to_string());
     }
 
     if let Some(parent) = file_path.parent() {
@@ -2172,6 +2169,18 @@ async fn sidecar_health_ping(state: State<'_, AppState>) -> Result<PingResponse,
     handle.ping().await.map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn read_clipboard() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_clipboard(text: String) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::panic::set_hook(Box::new(|info| {
@@ -2183,6 +2192,7 @@ pub fn run() {
         }
     }));
 
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
     // Linux keeps single-instance file forwarding. Windows allows separate
@@ -2326,6 +2336,8 @@ pub fn run() {
             xe_start_session,
             xe_stop_session,
             xe_read_session,
+            read_clipboard,
+            write_clipboard,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

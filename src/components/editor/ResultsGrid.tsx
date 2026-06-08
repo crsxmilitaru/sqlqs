@@ -24,9 +24,25 @@ interface Props {
   error?: string;
   isExecuting: boolean;
   sourceSql?: string;
+  tableViewStates: Record<number, ResultsTableViewState | undefined>;
+  onTableViewStateChange: (
+    resultSetIndex: number,
+    state: ResultsTableViewState,
+  ) => void;
   onGenerateSql?: (sql: string) => void;
   onReExecute?: () => void;
   onSendErrorToChat?: (error: string) => void;
+}
+
+export type ResultsSortConfig = {
+  colIndex: number;
+  direction: "asc" | "desc";
+} | null;
+
+export interface ResultsTableViewState {
+  sortConfig: ResultsSortConfig;
+  filters: Record<number, string>;
+  showFilters: boolean;
 }
 
 interface RowActionDialogState {
@@ -96,6 +112,8 @@ function ErrorSection(props: {
 
 function VirtualGrid(props: {
   resultSet: ResultSet;
+  viewState?: ResultsTableViewState;
+  onViewStateChange: (state: ResultsTableViewState) => void;
   onContextMenu: (e: MouseEvent, ri: number) => void;
   onRowDoubleClick?: (ri: number) => void;
   selectedRowIndex: number | null;
@@ -108,12 +126,6 @@ function VirtualGrid(props: {
     () => loadExecutionPreferences().resultsDateFormat,
   );
 
-  const [sortConfig, setSortConfig] = createSignal<{
-    colIndex: number;
-    direction: "asc" | "desc";
-  } | null>(null);
-  const [filters, setFilters] = createSignal<Record<number, string>>({});
-  const [showFilters, setShowFilters] = createSignal(false);
   const [hiddenColumnIndices, setHiddenColumnIndices] = createSignal<
     Set<number>
   >(new Set());
@@ -123,6 +135,20 @@ function VirtualGrid(props: {
     y: number;
   } | null>(null);
   const [copied, setCopied] = createSignal(false);
+  const [headerContextMenu, setHeaderContextMenu] = createSignal<{
+    x: number;
+    y: number;
+    colIndex: number;
+  } | null>(null);
+  const [filterContextMenu, setFilterContextMenu] = createSignal<{
+    x: number;
+    y: number;
+    colIndex: number;
+    input: HTMLInputElement;
+    selectionStart: number;
+    selectionEnd: number;
+    selectionText: string;
+  } | null>(null);
 
   const visibleColIndices = createMemo(() => {
     return props.resultSet.columns
@@ -130,11 +156,55 @@ function VirtualGrid(props: {
       .filter((i) => i !== -1);
   });
 
+  const viewState = (): ResultsTableViewState =>
+    props.viewState ?? {
+      sortConfig: null,
+      filters: {},
+      showFilters: false,
+    };
+
+  const sortConfig = () => viewState().sortConfig;
+  const filters = () => viewState().filters;
+  const showFilters = () => viewState().showFilters;
+
+  const updateViewState = (
+    updater: (prev: ResultsTableViewState) => ResultsTableViewState,
+  ) => {
+    props.onViewStateChange(updater(viewState()));
+  };
+
+  const setSortConfig = (
+    value:
+      | ResultsSortConfig
+      | ((prev: ResultsSortConfig) => ResultsSortConfig),
+  ) => {
+    updateViewState((prev) => ({
+      ...prev,
+      sortConfig: typeof value === "function" ? value(prev.sortConfig) : value,
+    }));
+  };
+
+  const setFilters = (
+    value:
+      | Record<number, string>
+      | ((prev: Record<number, string>) => Record<number, string>),
+  ) => {
+    updateViewState((prev) => ({
+      ...prev,
+      filters: typeof value === "function" ? value(prev.filters) : value,
+    }));
+  };
+
+  const setShowFilters = (value: boolean | ((prev: boolean) => boolean)) => {
+    updateViewState((prev) => ({
+      ...prev,
+      showFilters:
+        typeof value === "function" ? value(prev.showFilters) : value,
+    }));
+  };
+
   createEffect(() => {
     const _rs = props.resultSet;
-    setSortConfig(null);
-    setFilters({});
-    setShowFilters(false);
     setScrollTop(0);
     if (containerRef) {
       containerRef.scrollTop = 0;
@@ -148,7 +218,14 @@ function VirtualGrid(props: {
     }));
 
     const activeFilters = Object.entries(filters()).filter(
-      ([_, val]) => val.trim() !== "",
+      ([colIdxStr, val]) => {
+        const colIdx = parseInt(colIdxStr, 10);
+        return (
+          colIdx >= 0 &&
+          colIdx < props.resultSet.columns.length &&
+          val.trim() !== ""
+        );
+      },
     );
     if (activeFilters.length > 0) {
       result = result.filter(({ row }) => {
@@ -164,7 +241,7 @@ function VirtualGrid(props: {
     }
 
     const sc = sortConfig();
-    if (sc) {
+    if (sc && sc.colIndex >= 0 && sc.colIndex < props.resultSet.columns.length) {
       const { colIndex, direction } = sc;
       result.sort((a, b) => {
         const valA = a.row[colIndex];
@@ -336,6 +413,16 @@ function VirtualGrid(props: {
     document.body.style.userSelect = "none";
   };
 
+  const handleResizerDoubleClick = (e: MouseEvent, colIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setColOverrides((prev) => {
+      const next = { ...prev };
+      delete next[colIndex];
+      return next;
+    });
+  };
+
   onMount(() => {
     if (!containerRef) return;
     const observer = new ResizeObserver((entries) => {
@@ -385,6 +472,183 @@ function VirtualGrid(props: {
     );
 
   const visibleRows = () => processedRows().slice(startIndex(), endIndex());
+
+  const replaceFilterSelection = (
+    menu: NonNullable<ReturnType<typeof filterContextMenu>>,
+    text: string,
+  ) => {
+    const value = filters()[menu.colIndex] || "";
+    const nextValue =
+      value.slice(0, menu.selectionStart) + text + value.slice(menu.selectionEnd);
+    const nextCursor = menu.selectionStart + text.length;
+
+    setFilters((prev) => ({
+      ...prev,
+      [menu.colIndex]: nextValue,
+    }));
+
+    requestAnimationFrame(() => {
+      menu.input.focus();
+      menu.input.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  const filterContextMenuItems = (): ContextMenuItem[] => {
+    const menu = filterContextMenu();
+    if (!menu) return [];
+    const value = filters()[menu.colIndex] || "";
+    const hasSelection = menu.selectionStart !== menu.selectionEnd;
+
+    return [
+      {
+        id: "cut-filter",
+        label: "Cut",
+        icon: <i class="fa-solid fa-scissors" />,
+        shortcut: `${getModifierKeyLabel()}+X`,
+        disabled: !hasSelection,
+        onClick: () => {
+          void invoke("write_clipboard", { text: menu.selectionText });
+          replaceFilterSelection(menu, "");
+        },
+      },
+      {
+        id: "copy-filter",
+        label: "Copy",
+        icon: <i class="fa-solid fa-copy" />,
+        shortcut: `${getModifierKeyLabel()}+C`,
+        disabled: !hasSelection,
+        onClick: () => {
+          void invoke("write_clipboard", { text: menu.selectionText });
+          menu.input.focus();
+        },
+      },
+      {
+        id: "paste-filter",
+        label: "Paste",
+        icon: <i class="fa-solid fa-paste" />,
+        shortcut: `${getModifierKeyLabel()}+V`,
+        onClick: async () => {
+          try {
+            const text = await invoke<string>("read_clipboard");
+            replaceFilterSelection(menu, text);
+          } catch {
+            menu.input.focus();
+          }
+        },
+      },
+      { id: "sep-filter", separator: true },
+      {
+        id: "select-all-filter",
+        label: "Select All",
+        icon: <i class="fa-solid fa-check-double" />,
+        shortcut: `${getModifierKeyLabel()}+A`,
+        disabled: value.length === 0,
+        onClick: () => {
+          menu.input.focus();
+          menu.input.select();
+        },
+      },
+    ];
+  };
+
+  const handleFilterContextMenu = (e: MouseEvent, colIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const input = e.currentTarget as HTMLInputElement;
+    const selectionStart = input.selectionStart ?? 0;
+    const selectionEnd = input.selectionEnd ?? 0;
+
+    setHeaderContextMenu(null);
+    setFilterContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      colIndex,
+      input,
+      selectionStart,
+      selectionEnd,
+      selectionText: input.value.slice(selectionStart, selectionEnd),
+    });
+  };
+
+  const headerContextMenuItems = (): ContextMenuItem[] => {
+    const menu = headerContextMenu();
+    if (!menu) return [];
+    const idx = menu.colIndex;
+    const col = props.resultSet.columns[idx];
+    const isCurrentSort = sortConfig()?.colIndex === idx;
+    const currentSortDir = sortConfig()?.direction;
+
+    return [
+      {
+        id: "copy-col-name",
+        label: "Copy Column Name",
+        icon: <i class="fa-solid fa-copy" />,
+        onClick: () => {
+          navigator.clipboard.writeText(col.name);
+        },
+      },
+      { id: "sep-header-1", separator: true },
+      {
+        id: "sort-asc",
+        label: "Sort Ascending",
+        icon: <i class="fa-solid fa-sort-up" />,
+        disabled: isCurrentSort && currentSortDir === "asc",
+        onClick: () => {
+          setSortConfig({ colIndex: idx, direction: "asc" });
+        },
+      },
+      {
+        id: "sort-desc",
+        label: "Sort Descending",
+        icon: <i class="fa-solid fa-sort-down" />,
+        disabled: isCurrentSort && currentSortDir === "desc",
+        onClick: () => {
+          setSortConfig({ colIndex: idx, direction: "desc" });
+        },
+      },
+      {
+        id: "clear-sort",
+        label: "Clear Sorting",
+        icon: <i class="fa-solid fa-sort" />,
+        disabled: !isCurrentSort,
+        onClick: () => {
+          setSortConfig(null);
+        },
+      },
+      { id: "sep-header-2", separator: true },
+      {
+        id: "hide-col",
+        label: "Hide Column",
+        icon: <i class="fa-solid fa-eye-slash" />,
+        onClick: () => {
+          toggleColumnVisibility(idx);
+        },
+      },
+      {
+        id: "autofit-col",
+        label: "Auto-fit Column",
+        icon: <i class="fa-solid fa-arrows-left-right" />,
+        disabled: colOverrides()[idx] === undefined,
+        onClick: () => {
+          setColOverrides((prev) => {
+            const next = { ...prev };
+            delete next[idx];
+            return next;
+          });
+        },
+      },
+      {
+        id: "autofit-all",
+        label: "Reset All Column Widths",
+        icon: <i class="fa-solid fa-table-cells" />,
+        disabled: Object.keys(colOverrides()).length === 0,
+        onClick: () => {
+          setColOverrides({});
+        },
+      },
+    ];
+  };
 
   return (
     <div class="flex flex-col h-full min-h-[180px] gap-2">
@@ -533,7 +797,18 @@ function VirtualGrid(props: {
                 {(i) => {
                   const col = props.resultSet.columns[i];
                   return (
-                    <th class="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top">
+                    <th
+                      class="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setHeaderContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          colIndex: i,
+                        });
+                      }}
+                    >
                       <button
                         type="button"
                         aria-label={`Sort by ${col.name}`}
@@ -579,12 +854,14 @@ function VirtualGrid(props: {
                             }
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
+                            onContextMenu={(e) => handleFilterContextMenu(e, i)}
                           />
                         </div>
                       </Show>
                       <div
                         class="col-resizer"
                         onMouseDown={(e) => startResize(e, i)}
+                        onDblClick={(e) => handleResizerDoubleClick(e, i)}
                       />
                     </th>
                   );
@@ -659,6 +936,26 @@ function VirtualGrid(props: {
           </tbody>
         </table>
       </div>
+      <Show when={headerContextMenu()}>
+        {(menu) => (
+          <ContextMenu
+            x={menu().x}
+            y={menu().y}
+            items={headerContextMenuItems()}
+            onClose={() => setHeaderContextMenu(null)}
+          />
+        )}
+      </Show>
+      <Show when={filterContextMenu()}>
+        {(menu) => (
+          <ContextMenu
+            x={menu().x}
+            y={menu().y}
+            items={filterContextMenuItems()}
+            onClose={() => setFilterContextMenu(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 }
@@ -684,6 +981,7 @@ export default function ResultsGrid(props: Props) {
 
   const handleContextMenu = (e: MouseEvent, ri: number, rsi: number) => {
     e.preventDefault();
+    e.stopPropagation();
     setRowContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -774,19 +1072,76 @@ export default function ResultsGrid(props: Props) {
             const canDoRowActions = () => !!tableName() && !!props.sourceSql;
 
             const contextMenuItems = (): ContextMenuItem[] => {
-              const items: ContextMenuItem[] = [
+              const selectionText = window.getSelection()?.toString().trim();
+              const items: ContextMenuItem[] = [];
+
+              if (selectionText) {
+                items.push({
+                  id: "copy-selection",
+                  label: "Copy Selection",
+                  icon: <i class="fa-solid fa-i-cursor" />,
+                  onClick: () => {
+                    navigator.clipboard.writeText(selectionText);
+                  },
+                });
+                items.push({ id: "sep-selection", separator: true });
+              }
+
+              items.push(
                 {
-                  id: "copy-row",
+                  id: "copy-submenu",
                   label: "Copy",
                   icon: <i class="fa-solid fa-copy" />,
-                  onClick: () => {
-                    const row = selectedRow();
-                    if (!row) return;
-                    const text = row
-                      .map((v) => (v === null ? "NULL" : String(v)))
-                      .join("\t");
-                    navigator.clipboard.writeText(text);
-                  },
+                  children: [
+                    {
+                      id: "copy-row",
+                      label: "Copy Row Values",
+                      icon: <i class="fa-solid fa-table-cells" />,
+                      onClick: () => {
+                        const row = selectedRow();
+                        if (!row) return;
+                        const text = row
+                          .map((v) => (v === null ? "NULL" : String(v)))
+                          .join("\t");
+                        navigator.clipboard.writeText(text);
+                      },
+                    },
+                    {
+                      id: "copy-row-json",
+                      label: "Copy Row as JSON",
+                      icon: <i class="fa-solid fa-file-code" />,
+                      onClick: () => {
+                        const row = selectedRow();
+                        const rs = currentResultSet();
+                        if (!row || !rs) return;
+                        const obj: Record<string, any> = {};
+                        rs.columns.forEach((col, idx) => {
+                          obj[col.name] = row[idx];
+                        });
+                        navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
+                      },
+                    },
+                    {
+                      id: "copy-row-insert",
+                      label: "Copy Row as INSERT",
+                      icon: <i class="fa-solid fa-file-import" />,
+                      disabled: !tableName(),
+                      onClick: () => {
+                        const row = selectedRow();
+                        const rs = currentResultSet();
+                        const table = tableName();
+                        if (!row || !rs || !table) return;
+                        const colsList = rs.columns.map(c => `[${c.name}]`).join(", ");
+                        const valsList = row.map(val => {
+                          if (val === null) return "NULL";
+                          if (typeof val === "number") return val;
+                          if (typeof val === "boolean") return val ? 1 : 0;
+                          return `'${String(val).replace(/'/g, "''")}'`;
+                        }).join(", ");
+                        navigator.clipboard.writeText(`INSERT INTO ${table} (${colsList}) VALUES (${valsList});`);
+                      },
+                    },
+                  ],
                 },
                 { id: "sep-copy", separator: true },
                 {
@@ -810,7 +1165,7 @@ export default function ResultsGrid(props: Props) {
                   disabled: !canDoRowActions(),
                   onClick: () => openActionDialog("delete"),
                 },
-              ];
+              );
 
               if (!tableName()) {
                 items.push({ id: "sep1", separator: true });
@@ -866,6 +1221,10 @@ export default function ResultsGrid(props: Props) {
                         </Show>
                         <VirtualGrid
                           resultSet={rs}
+                          viewState={props.tableViewStates[i()]}
+                          onViewStateChange={(state) =>
+                            props.onTableViewStateChange(i(), state)
+                          }
                           selectedRowIndex={
                             rowContextMenu()?.resultSetIndex === i()
                               ? rowContextMenu()!.rowIndex

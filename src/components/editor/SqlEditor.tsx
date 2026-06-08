@@ -150,6 +150,8 @@ export interface SqlEditorHandle {
   openCompletion: () => void;
   openSearch: () => void;
   getSelectedText: () => string;
+  replaceSelection: (text: string) => void;
+  selectAll: () => void;
   scrollToBottom: () => void;
 }
 
@@ -1773,6 +1775,19 @@ export default function SqlEditor(props: Props) {
       const selection = viewRef.state.selection.main;
       if (selection.from === selection.to) return "";
       return viewRef.state.doc.sliceString(selection.from, selection.to);
+    },
+    replaceSelection(text: string) {
+      if (!viewRef) return;
+      viewRef.focus();
+      viewRef.dispatch(viewRef.state.replaceSelection(text));
+    },
+    selectAll() {
+      if (!viewRef) return;
+      viewRef.focus();
+      viewRef.dispatch({
+        selection: { anchor: 0, head: viewRef.state.doc.length },
+        scrollIntoView: true,
+      });
     },
     scrollToBottom() {
       if (!viewRef) return;

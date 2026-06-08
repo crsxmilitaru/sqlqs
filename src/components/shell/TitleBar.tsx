@@ -257,7 +257,7 @@ export default function TitleBar(props: Props) {
                   <span class="truncate">Search database objects…</span>
                 </div>
                 <kbd class="text-2xs font-mono text-text-muted/30 select-none">
-                  Ctrl+P
+                  {isMac ? "⌘P" : "Ctrl+P"}
                 </kbd>
               </div>
             </Tooltip>

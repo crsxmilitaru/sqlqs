@@ -20,7 +20,7 @@ import type {
 import ConnectionDialog from "../dialogs/ConnectionDialog";
 import DependenciesDialog from "../dialogs/DependenciesDialog";
 import DropConfirmDialog from "../dialogs/DropConfirmDialog";
-import ObjectExplorer from "../explorer/ObjectExplorer";
+import ObjectExplorer, { type ObjectExplorerHandle } from "../explorer/ObjectExplorer";
 import ObjectJumpPalette, {
   type ObjectJumpSelection,
 } from "../explorer/ObjectJumpPalette";
@@ -44,6 +44,7 @@ import {
 import ConfirmDialog from "../ui/ConfirmDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "../dialogs/UpdateDialog";
+import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 
 const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
   initialized: false,
@@ -55,12 +56,32 @@ const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
 };
 
 const LAST_SQL_EXPORT_FOLDER_STORAGE_KEY = "sqlqs_last_sql_export_folder";
+const TEXT_LIKE_INPUT_TYPES = new Set([
+  "",
+  "email",
+  "password",
+  "search",
+  "tel",
+  "text",
+  "url",
+]);
 
 function getSqlFileName(title: string): string {
   const sanitizedTitle = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
   return /\.sql$/i.test(sanitizedTitle)
     ? sanitizedTitle
     : `${sanitizedTitle}.sql`;
+}
+
+function getTextEditableTarget(
+  target: EventTarget | null,
+): HTMLInputElement | HTMLTextAreaElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  if (target instanceof HTMLTextAreaElement) return target;
+  if (target instanceof HTMLInputElement) {
+    return TEXT_LIKE_INPUT_TYPES.has(target.type.toLowerCase()) ? target : null;
+  }
+  return null;
 }
 
 function isLikelySchemaChangingSql(sql: string): boolean {
@@ -158,6 +179,15 @@ export default function App() {
     objectType: ExplorerObjectType;
   } | null>(null);
 
+  const [globalContextMenu, setGlobalContextMenu] = createSignal<{
+    visible: boolean;
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+
+  let explorerRef: ObjectExplorerHandle | null = null;
+
   const handleShowProperties = (
     database: string,
     schema: string,
@@ -236,6 +266,122 @@ export default function App() {
     });
   });
 
+  onMount(() => {
+    const handleDocumentContextMenu = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+
+      e.preventDefault();
+
+      const input = getTextEditableTarget(e.target);
+
+      let selectionText = "";
+      let hasSelection = false;
+      let selectionStart = 0;
+      let selectionEnd = 0;
+
+      if (input) {
+        selectionStart = input.selectionStart ?? 0;
+        selectionEnd = input.selectionEnd ?? 0;
+        hasSelection = selectionStart !== selectionEnd;
+        selectionText = input.value.substring(selectionStart, selectionEnd);
+      } else {
+        const selection = window.getSelection();
+        selectionText = selection ? selection.toString() : "";
+        hasSelection = selectionText.length > 0;
+      }
+
+      const menuItems: ContextMenuItem[] = [];
+
+      if (input) {
+        const isReadOnly = input.readOnly || input.disabled;
+
+        menuItems.push({
+          id: "cut",
+          label: "Cut",
+          icon: <i class="fa-solid fa-scissors" />,
+          disabled: isReadOnly || !hasSelection,
+          onClick: () => {
+            void invoke("write_clipboard", { text: selectionText });
+            const val = input.value;
+            input.value = val.substring(0, selectionStart) + val.substring(selectionEnd);
+            input.setSelectionRange(selectionStart, selectionStart);
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.focus();
+          }
+        });
+
+        menuItems.push({
+          id: "copy",
+          label: "Copy",
+          icon: <i class="fa-solid fa-copy" />,
+          disabled: !hasSelection,
+          onClick: () => {
+            void invoke("write_clipboard", { text: selectionText });
+            input.focus();
+          }
+        });
+
+        menuItems.push({
+          id: "paste",
+          label: "Paste",
+          icon: <i class="fa-solid fa-paste" />,
+          disabled: isReadOnly,
+          onClick: async () => {
+            try {
+              const text = await invoke<string>("read_clipboard");
+              const val = input.value;
+              input.value = val.substring(0, selectionStart) + text + val.substring(selectionEnd);
+              const nextCursor = selectionStart + text.length;
+              input.setSelectionRange(nextCursor, nextCursor);
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+              input.focus();
+            } catch {
+              // Ignore clipboard read errors
+            }
+          }
+        });
+
+        menuItems.push({ separator: true, id: "sep" });
+
+        menuItems.push({
+          id: "select-all",
+          label: "Select All",
+          icon: <i class="fa-solid fa-check-double" />,
+          disabled: input.value.length === 0,
+          onClick: () => {
+            input.select();
+            input.focus();
+          }
+        });
+      } else if (hasSelection) {
+        menuItems.push({
+          id: "copy",
+          label: "Copy",
+          icon: <i class="fa-solid fa-copy" />,
+          onClick: () => {
+            void invoke("write_clipboard", { text: selectionText });
+          }
+        });
+      }
+
+      if (menuItems.length > 0) {
+        setGlobalContextMenu({
+          visible: true,
+          x: e.clientX,
+          y: e.clientY,
+          items: menuItems
+        });
+      } else {
+        setGlobalContextMenu(null);
+      }
+    };
+
+    document.addEventListener("contextmenu", handleDocumentContextMenu);
+    onCleanup(() => {
+      document.removeEventListener("contextmenu", handleDocumentContextMenu);
+    });
+  });
+
   function handleConnect(config: ConnectionConfig) {
     connect(config);
     setIsConnectionDialogOpen(false);
@@ -285,6 +431,10 @@ export default function App() {
       addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
       if (isLikelySchemaChangingSql(sqlToExecute)) {
         invalidateSchemaCatalog(currentDatabase());
+        const db = currentDatabase();
+        if (db) {
+          void explorerRef?.refreshDatabaseObjects(db);
+        }
       }
     } catch (err: any) {
       updateTab(tabId, { error: String(err), isExecuting: false });
@@ -469,6 +619,7 @@ export default function App() {
   createEffect(() => {
     let isMounted = true;
     let unlisten: (() => void) | undefined;
+    let unlistenDragDrop: (() => void) | undefined;
 
     void (async () => {
       try {
@@ -482,6 +633,16 @@ export default function App() {
         unlisten = await listen<string>("sql-file-opened", async (event) => {
           await handleOpenSqlFilePath(event.payload);
         });
+
+        unlistenDragDrop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+          if (!isMounted) return;
+          const paths = event.payload.paths;
+          if (Array.isArray(paths)) {
+            for (const path of paths) {
+              await handleOpenSqlFilePath(path);
+            }
+          }
+        });
       } catch (error) {
         console.error("Failed to register SQL file handlers:", error);
       }
@@ -490,6 +651,7 @@ export default function App() {
     onCleanup(() => {
       isMounted = false;
       unlisten?.();
+      unlistenDragDrop?.();
     });
   });
 
@@ -732,6 +894,7 @@ export default function App() {
                   class="app-sidebar-surface flex-shrink-0 overflow-hidden relative z-10"
                 >
                   <ObjectExplorer
+                    onRef={(handle) => (explorerRef = handle)}
                     databases={databases()}
                     onRefreshDatabases={refreshDatabases}
                     onSelect={(sql, execute, title, database, sourceId) => {
@@ -865,6 +1028,10 @@ export default function App() {
             onClose={() => setRenameTarget(null)}
             onSuccess={() => {
               invalidateSchemaCatalog();
+              const db = target().database;
+              if (db) {
+                void explorerRef?.refreshDatabaseObjects(db);
+              }
             }}
           />
         )}
@@ -880,6 +1047,10 @@ export default function App() {
             onClose={() => setDropTarget(null)}
             onSuccess={() => {
               invalidateSchemaCatalog();
+              const db = target().database;
+              if (db) {
+                void explorerRef?.refreshDatabaseObjects(db);
+              }
             }}
           />
         )}
@@ -914,6 +1085,15 @@ export default function App() {
             onCancel={() => setPendingDestructive(null)}
           />
         )}
+      </Show>
+
+      <Show when={globalContextMenu()?.visible}>
+        <ContextMenu
+          items={globalContextMenu()!.items}
+          x={globalContextMenu()!.x}
+          y={globalContextMenu()!.y}
+          onClose={() => setGlobalContextMenu(null)}
+        />
       </Show>
     </div>
   );

@@ -699,6 +699,7 @@ export default function ObjectJumpPalette(props: Props) {
                                       }}
                                       onContextMenu={(e) => {
                                         e.preventDefault();
+                                        e.stopPropagation();
                                         setHighlightedIndex(index());
                                         handleToggleExpanded(object);
                                       }}
@@ -811,7 +812,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                               }
                                                               class={`animate-in fade-in-0 slide-in-from-top-2 flex items-center gap-3 rounded-lg border border-border/50 bg-surface-panel/80 px-3 py-2 text-left text-s transition-colors duration-200 ${
                                                                 child.disabled
-                                                                  ? "cursor-not-allowed text-text-muted/50"
+                                                                  ? "cursor-default text-text-muted/50"
                                                                   : "cursor-pointer text-text-muted hover:border-border hover:bg-surface-hover hover:text-text"
                                                               }`}
                                                             >
@@ -854,7 +855,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                   }
                                                   class={`animate-in fade-in-0 slide-in-from-top-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-s transition-colors duration-200 ${
                                                     item.disabled
-                                                      ? "cursor-not-allowed border-border/40 bg-surface-header/40 text-text-muted/50"
+                                                      ? "cursor-default border-border/40 bg-surface-header/40 text-text-muted/50"
                                                       : item.danger
                                                         ? "cursor-pointer border-error/30 bg-error/5 text-error hover:bg-error/10"
                                                         : "cursor-pointer border-border/50 bg-surface-header/60 text-text-muted hover:border-border hover:bg-surface-hover hover:text-text"

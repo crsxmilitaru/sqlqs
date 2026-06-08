@@ -36,6 +36,7 @@ export default function Dropdown(props: Props) {
   let buttonRef: HTMLButtonElement | undefined;
   let filterInputRef: HTMLInputElement | undefined;
   let listRef: HTMLDivElement | undefined;
+  let optionsListRef: HTMLDivElement | undefined;
   let itemRefs: (HTMLButtonElement | null)[] = [];
 
   const portalTarget = () => {
@@ -62,10 +63,10 @@ export default function Dropdown(props: Props) {
   const filteredOptions = createMemo(() =>
     filterable() && filter()
       ? props.options.filter(
-          (opt) =>
-            opt.label.toLowerCase().includes(filter().toLowerCase()) ||
-            opt.value.toLowerCase().includes(filter().toLowerCase()),
-        )
+        (opt) =>
+          opt.label.toLowerCase().includes(filter().toLowerCase()) ||
+          opt.value.toLowerCase().includes(filter().toLowerCase()),
+      )
       : props.options,
   );
 
@@ -143,8 +144,11 @@ export default function Dropdown(props: Props) {
   });
 
   createEffect(() => {
-    filter(); // track dependency
+    filter();
     setHighlightedIndex(filteredOptions().length > 0 ? 0 : -1);
+    if (optionsListRef) {
+      optionsListRef.scrollTop = 0;
+    }
   });
 
   function handleSelect(optionValue: string) {
@@ -220,7 +224,7 @@ export default function Dropdown(props: Props) {
         classList={{
           "px-2.5 h-[30px] text-s": compact(),
           "px-3 h-[34px] text-m": !compact(),
-          "opacity-50 cursor-not-allowed": disabled(),
+          "opacity-50 cursor-default": disabled(),
           "cursor-pointer": !disabled(),
         }}
       >
@@ -239,7 +243,7 @@ export default function Dropdown(props: Props) {
               : openUpwards()
                 ? "rotate-180"
                 : ""
-          }`}
+            }`}
         />
       </button>
 
@@ -272,7 +276,7 @@ export default function Dropdown(props: Props) {
                 </div>
               </div>
             </Show>
-            <div class="flex-1 overflow-y-auto">
+            <div ref={optionsListRef} class="flex-1 overflow-y-auto">
               <Show
                 when={filteredOptions().length > 0}
                 fallback={
