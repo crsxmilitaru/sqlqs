@@ -2,61 +2,78 @@
 @source "../components";
 
 :root {
-  /* Surfaces */
   --color-surface: #0c0c0e;
   --color-surface-panel: #181818;
-  --color-surface-table: #1D1D1D;
-  --color-surface-popover: #1e1e21;
-  --color-surface-overlay: rgba(255, 255, 255, 0.05);
-  --color-surface-header: rgba(255, 255, 255, 0.075);
-  --color-surface-hover: rgba(255, 255, 255, 0.05);
-  --color-surface-active: rgba(255, 255, 255, 0.1);
-
-  /* Borders */
-  --color-border: rgba(63, 63, 70, 0.8);
-
-
-  /* Text */
   --color-text: #f4f4f5;
-  --color-text-muted: #a1a1aa;
-
-  /* Accent */
+  --color-text-muted: color-mix(in srgb, var(--color-text) 62%, transparent);
+  --color-border: color-mix(in srgb, var(--color-text) 15%, transparent);
   --color-accent: #0284c7;
   --color-accent-text: #ffffff;
-  --color-accent-hover: #0369a1;
-
-  /* Semantic */
-  --color-success: #22c55e;
+  --color-success: #10b981;
   --color-error: #ef4444;
-  --color-warning: #eab308;
-
-  /* Overlays */
-  --color-overlay-xs: rgba(255, 255, 255, 0.05);
-  --color-overlay-sm: rgba(255, 255, 255, 0.08);
-  --color-overlay-md: rgba(255, 255, 255, 0.12);
-  --color-overlay-lg: rgba(255, 255, 255, 0.2);
+  --color-warning: #f59e0b;
 
 
-  /* Platform-specific */
+  --color-surface-table: color-mix(
+    in srgb,
+    var(--color-surface-panel) 96%,
+    var(--color-text)
+  );
+  --color-surface-popover: color-mix(
+    in srgb,
+    var(--color-surface-panel) 94%,
+    var(--color-text)
+  );
+  --color-surface-overlay: color-mix(
+    in srgb,
+    var(--color-text) 5%,
+    transparent
+  );
+  --color-surface-header: color-mix(in srgb, var(--color-text) 7%, transparent);
+  --color-surface-hover: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --color-surface-active: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --color-border-subtle: color-mix(
+    in srgb,
+    var(--color-border) 36%,
+    transparent
+  );
+  --color-border-muted: color-mix(
+    in srgb,
+    var(--color-border) 55%,
+    var(--color-text-muted)
+  );
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 82%, black);
+  --color-overlay-xs: color-mix(in srgb, var(--color-text) 4%, transparent);
+  --color-overlay-sm: color-mix(in srgb, var(--color-text) 7%, transparent);
+  --color-overlay-md: color-mix(in srgb, var(--color-text) 11%, transparent);
+  --color-overlay-lg: color-mix(in srgb, var(--color-text) 18%, transparent);
+  --color-scrollbar: color-mix(
+    in srgb,
+    var(--color-text-muted) 45%,
+    transparent
+  );
+  --color-object-procedure: var(--color-accent);
+  --color-object-function: var(--color-warning);
+  --color-object-trigger: var(--color-error);
+  --color-object-type: var(--color-accent);
+  --color-window-control-glyph: rgba(61, 36, 24, 0.85);
+  --color-window-close: #ff5f57;
+  --color-window-minimize: #febc2e;
+  --color-window-zoom: #28c840;
 
-
-
-
-  /* Typed Completion Colors */
-  --color-cm-property: #00a3ff;
-  --color-cm-keyword: #ff71ce;
-  --color-cm-type: #05ffa1;
-  --color-cm-ai: #b967ff;
-
-  /* Misc */
-  --color-scrollbar: rgba(255, 255, 255, 0.2);
+  --color-shadow-deep: rgba(0, 0, 0, 0.9);
+  --shadow-panel: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-popover:
+    0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
 }
 
 @theme {
-  --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", monospace;
-  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:
+    "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", monospace;
+  --font-sans:
+    "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system,
+    sans-serif;
 
-  /* Color Mappings */
   --color-surface: var(--color-surface);
   --color-surface-panel: var(--color-surface-panel);
   --color-surface-table: var(--color-surface-table);
@@ -67,6 +84,8 @@
   --color-surface-active: var(--color-surface-active);
 
   --color-border: var(--color-border);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-muted: var(--color-border-muted);
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -84,16 +103,18 @@
   --color-warning: var(--color-warning);
 
   --color-scrollbar: var(--color-scrollbar);
+  --color-object-procedure: var(--color-object-procedure);
+  --color-object-function: var(--color-object-function);
+  --color-object-trigger: var(--color-object-trigger);
+  --color-object-type: var(--color-object-type);
+  --shadow-panel: var(--shadow-panel);
+  --shadow-popover: var(--shadow-popover);
 
   --color-overlay-xs: var(--color-overlay-xs);
   --color-overlay-sm: var(--color-overlay-sm);
   --color-overlay-md: var(--color-overlay-md);
   --color-overlay-lg: var(--color-overlay-lg);
 
-
-
-
-  /* Transitions */
   --duration-fast: 0.1s;
   --duration-normal: 0.15s;
   --duration-slow: 0.25s;
@@ -101,7 +122,6 @@
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
   --ease-entry: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Spacing */
   --spacing-xs: 2px;
   --spacing-s: 4px;
   --spacing-m: 8px;
@@ -109,15 +129,8 @@
   --spacing-xl: 16px;
 
 
-
-
-  /* Typed Completion mapping */
-  --color-cm-property: var(--color-cm-property);
-  --color-cm-keyword: var(--color-cm-keyword);
-  --color-cm-type: var(--color-cm-type);
-  --color-cm-ai: var(--color-cm-ai);
-
-  /* Font sizes (supplements Tailwind defaults: xs=12px, sm=14px) */
+  --text-3xs: 9px;
+  --text-2xs: 10px;
   --text-xs: 11px;
   --text-s: 12px;
   --text-m: 14px;
@@ -130,31 +143,3 @@
 @import "./base.css";
 @import "./components.css";
 @import "./editor.css";
-
-/* ─── Global Scrollbar ─── */
-::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
-  border: 4px solid transparent;
-  background-clip: padding-box;
-  border-radius: 9999px;
-  min-height: 40px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--color-scrollbar) 50%, white);
-  border: 4px solid transparent;
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}

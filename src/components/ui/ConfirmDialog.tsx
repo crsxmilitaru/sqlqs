@@ -1,4 +1,5 @@
 import { createSignal, onMount } from "solid-js";
+import DialogShell from "./DialogShell";
 
 interface Props {
   title: string;
@@ -18,17 +19,12 @@ export default function ConfirmDialog(props: Props) {
   });
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onCancel}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onCancel}
+      class="w-[400px] shadow-2xl"
+      ariaLabel={props.title}
     >
-      <div
-        class="dialog-surface w-[400px] shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
         <div class="px-6 py-5">
           <h2 class="text-base font-semibold text-text mb-2">{props.title}</h2>
           <p class="text-sm text-text-muted leading-relaxed">{props.message}</p>
@@ -47,14 +43,13 @@ export default function ConfirmDialog(props: Props) {
             onClick={props.onConfirm}
             class={
               props.variant === "danger"
-                ? "btn px-6 py-1.5 bg-error border-error text-white hover:!bg-error/90 hover:!border-error/90"
+                ? "btn btn-danger px-6 py-1.5"
                 : "btn btn-primary px-6 py-1.5"
             }
           >
             {props.confirmLabel ?? "Confirm"}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

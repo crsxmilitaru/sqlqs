@@ -1,4 +1,6 @@
-import { createSignal, onMount, onCleanup } from "solid-js";
+import { createSignal, onMount } from "solid-js";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 interface Props {
   version: string;
@@ -14,31 +16,16 @@ export default function UpdateDialog(props: Props) {
     requestAnimationFrame(() => setVisible(true));
   });
 
-  onMount(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        props.onCancel();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-  });
-
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onCancel}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onCancel}
+      class="w-[460px] max-w-[94vw] p-6 shadow-2xl"
+      ariaLabel="Update available"
     >
-      <div
-        class="dialog-surface w-[460px] max-w-[94vw] p-6 shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
         <div class="mb-6 flex items-start gap-4">
           <div class="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
-            <i class="fa-solid fa-circle-arrow-up text-lg" />
+            <Icon name="circle-arrow-up" class="text-lg" />
           </div>
           <div>
             <h2 class="mb-1 text-lg font-semibold text-text">
@@ -62,7 +49,6 @@ export default function UpdateDialog(props: Props) {
             Install update
           </button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

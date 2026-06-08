@@ -8,7 +8,8 @@ import type {
 } from "../../lib/types";
 import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
-import Tooltip from "../ui/Tooltip";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
 
 type ConnectMode = "fields" | "connectionString";
 
@@ -359,29 +360,17 @@ export default function ConnectionDialog(props: Props) {
   }
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onClose}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl"
+      ariaLabel={isEditMode() ? "Edit Connection" : "Connect to Server"}
     >
-      <div
-        class="dialog-surface w-[480px] max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs bg-transparent">
           <h2 class="text-m font-semibold text-text">
             {isEditMode() ? "Edit Connection" : "Connect to Server"}
           </h2>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              onClick={props.onClose}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} />
         </div>
 
         <form onSubmit={handleSubmit} class="p-6 flex flex-col gap-4">
@@ -600,7 +589,7 @@ export default function ConnectionDialog(props: Props) {
                 disabled={connecting()}
                 class="btn btn-secondary px-6 py-1.5"
               >
-                {connecting() ? "Saving..." : "Save"}
+                {connecting() ? "Saving…" : "Save"}
               </button>
             )}
             <button
@@ -609,14 +598,13 @@ export default function ConnectionDialog(props: Props) {
               class="btn btn-primary px-6 py-1.5"
             >
               {connecting()
-                ? "Connecting..."
+                ? "Connecting…"
                 : isEditMode()
                   ? "Save & Connect"
                   : "Connect"}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

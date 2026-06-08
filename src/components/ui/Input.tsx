@@ -11,10 +11,10 @@ export default function Input(props: Props) {
       disabled={local.disabled}
       class={`
           flex items-center px-2.5 h-[32px] text-m rounded-md w-full
-          bg-white/[0.08] border border-white/10 transition-all
+          bg-surface-hover border border-border-subtle transition-colors
           text-text placeholder-text-muted
           focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
-          ${local.disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-white/[0.12] hover:border-white/20"}
+          ${local.disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-surface-active hover:border-border-muted"}
           ${local.class || ""}
         `}
       {...rest}

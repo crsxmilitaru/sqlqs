@@ -1,4 +1,11 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+  onCleanup,
+} from "solid-js";
 import type { ExecutedQuery, QueryTab } from "../../lib/types";
 import AIChatPanel, {
   type ApplyMode,
@@ -19,13 +26,30 @@ import ResultsGrid from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
+import ConfirmDialog from "../ui/ConfirmDialog";
+import { loadPreferences } from "../../lib/settings";
+import type { ThemeSelection } from "../../lib/theme";
+
+const DRAG_THRESHOLD = 5;
+
+function isTabDirty(tab: QueryTab): boolean {
+  return tab.sql !== tab.savedSql;
+}
 
 interface Props {
   tabs: QueryTab[];
   activeTabId: string;
+  onTabChange: (id: string) => void;
   onTabAdd: (sql?: string, title?: string) => string;
-  onOpenSqlFile?: () => void;
+  onTabClose: (id: string) => void;
+  onTabCloseOthers: (id: string) => void;
+  onTabCloseAll: () => void;
   onTabUpdate: (id: string, updates: Partial<QueryTab>) => void;
+  onTabReorder: (fromIndex: number, toIndex: number) => void;
+  onTabDuplicate: (id: string) => string;
+  onTabTogglePin: (id: string) => void;
+  onTabPromote: (id: string) => void;
+  onOpenSqlFile?: () => void;
   onExecute: (id: string, customSql?: string) => void;
   onConnect?: () => void;
   connected: boolean;
@@ -33,7 +57,7 @@ interface Props {
   currentDatabase?: string;
   databases?: string[];
   onDatabaseChange?: (db: string) => void;
-  theme: { id: string };
+  theme: ThemeSelection;
   aiChatOpen: boolean;
   onAiChatOpenChange: (open: boolean) => void;
   onSave?: (id: string) => void;
@@ -43,6 +67,308 @@ interface Props {
 
 export default function QueryEditorPanel(props: Props) {
   const hasDatabaseSelected = () => Boolean(props.currentDatabase);
+
+  const [confirmClose, setConfirmClose] = createSignal<{
+    type: "single" | "others" | "all";
+    tabId?: string;
+  } | null>(null);
+
+  const [renamingTabId, setRenamingTabId] = createSignal<string | null>(null);
+  const [renameValue, setRenameValue] = createSignal("");
+  const [tabContextMenu, setTabContextMenu] = createSignal<{
+    visible: boolean;
+    x: number;
+    y: number;
+    tabId: string;
+  } | null>(null);
+  let renameInputRef: HTMLInputElement | undefined;
+  let tabBarRef: HTMLDivElement | undefined;
+  let cleanupTabBarWheelListener: (() => void) | undefined;
+  let cleanupDragListeners: (() => void) | undefined;
+  let cleanupEditorResizeListeners: (() => void) | undefined;
+
+  const [dragTabId, setDragTabId] = createSignal<string | null>(null);
+  const [dropIndex, setDropIndex] = createSignal<number | null>(null);
+  let dragRef: {
+    tabId: string;
+    fromIndex: number;
+    startX: number;
+    active: boolean;
+  } | null = null;
+  let justDraggedRef = false;
+
+  function handleStartRename(tab: QueryTab) {
+    setRenamingTabId(tab.id);
+    setRenameValue(tab.title);
+  }
+
+  function handleRename(tabId: string) {
+    if (renameValue().trim()) {
+      props.onTabUpdate(tabId, {
+        title: renameValue().trim(),
+        userTitle: true,
+      });
+    }
+    setRenamingTabId(null);
+    setRenameValue("");
+  }
+
+  function handleRenameKeyDown(e: KeyboardEvent, tabId: string) {
+    if (e.key === "Enter") {
+      handleRename(tabId);
+    } else if (e.key === "Escape") {
+      setRenamingTabId(null);
+      setRenameValue("");
+    }
+  }
+
+  createEffect(() => {
+    if (renamingTabId() && renameInputRef) {
+      renameInputRef.focus();
+      renameInputRef.select();
+    }
+  });
+
+  onCleanup(() => {
+    cleanupTabBarWheelListener?.();
+    cleanupDragListeners?.();
+    cleanupEditorResizeListeners?.();
+  });
+
+  function setTabBarRef(el: HTMLDivElement) {
+    cleanupTabBarWheelListener?.();
+    tabBarRef = el;
+
+    const handleTabBarWheel = (event: WheelEvent) => {
+      const delta =
+        Math.abs(event.deltaX) > Math.abs(event.deltaY)
+          ? event.deltaX
+          : event.deltaY;
+      tabBarRef?.scrollBy({ left: delta });
+    };
+
+    el.addEventListener("wheel", handleTabBarWheel, { passive: true });
+    cleanupTabBarWheelListener = () => {
+      el.removeEventListener("wheel", handleTabBarWheel);
+      if (tabBarRef === el) {
+        tabBarRef = undefined;
+      }
+    };
+  }
+
+  function handleTabContextMenu(e: MouseEvent, tabId: string) {
+    e.preventDefault();
+    setTabContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      tabId,
+    });
+  }
+
+  function requestSingleTabClose(tabId: string) {
+    const tab = props.tabs.find((t) => t.id === tabId);
+    if (tab?.temporary) {
+      props.onTabClose(tabId);
+      return;
+    }
+
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    if (!shouldConfirm || !tab || !isTabDirty(tab)) {
+      props.onTabClose(tabId);
+      return;
+    }
+
+    setConfirmClose({ type: "single", tabId });
+  }
+
+  function requestCloseOthers(tabId: string) {
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = props.tabs.some(
+      (t) => t.id !== tabId && !t.pinned && isTabDirty(t),
+    );
+    if (!shouldConfirm || !hasDirty) {
+      props.onTabCloseOthers(tabId);
+      return;
+    }
+    setConfirmClose({ type: "others", tabId });
+  }
+
+  function requestCloseAll() {
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = props.tabs.some((t) => !t.pinned && isTabDirty(t));
+    if (!shouldConfirm || !hasDirty) {
+      props.onTabCloseAll();
+      return;
+    }
+    setConfirmClose({ type: "all" });
+  }
+
+  function computeDropIndex(
+    clientX: number,
+    draggedTabId: string,
+  ): number | null {
+    if (!tabBarRef) return null;
+
+    const tabElements =
+      tabBarRef.querySelectorAll<HTMLElement>("[data-tab-index]");
+    const currentTabs = props.tabs;
+    const draggedTab = currentTabs.find((t) => t.id === draggedTabId);
+    if (!draggedTab) return null;
+
+    let result = currentTabs.length;
+    for (const el of tabElements) {
+      const idx = Number(el.dataset.tabIndex);
+      const targetTab = currentTabs[idx];
+      if (!targetTab) continue;
+
+      if (!!draggedTab.pinned !== !!targetTab.pinned) continue;
+
+      const rect = el.getBoundingClientRect();
+      const midpoint = rect.left + rect.width / 2;
+      if (clientX < midpoint) {
+        result = idx;
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  function handleTabPointerDown(e: PointerEvent, tabId: string, index: number) {
+    if (e.button !== 0) return;
+    if ((e.target as Element).closest("button, input")) return;
+
+    dragRef = {
+      tabId,
+      fromIndex: index,
+      startX: e.clientX,
+      active: false,
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const drag = dragRef;
+      if (!drag) return;
+
+      if (!drag.active) {
+        if (Math.abs(ev.clientX - drag.startX) < DRAG_THRESHOLD) return;
+        drag.active = true;
+        setDragTabId(drag.tabId);
+        document.body.style.cursor = "grabbing";
+      }
+
+      const newDropIndex = computeDropIndex(ev.clientX, drag.tabId);
+      setDropIndex(newDropIndex);
+    };
+
+    const onPointerUp = () => {
+      cleanupDragListeners?.();
+      document.body.style.cursor = "";
+
+      const drag = dragRef;
+      if (drag?.active) {
+        justDraggedRef = true;
+        requestAnimationFrame(() => {
+          justDraggedRef = false;
+        });
+
+        const currentDropIndex = dropIndex();
+        if (
+          currentDropIndex !== null &&
+          drag.fromIndex !== currentDropIndex &&
+          drag.fromIndex !== currentDropIndex - 1
+        ) {
+          const adjusted =
+            currentDropIndex > drag.fromIndex
+              ? currentDropIndex - 1
+              : currentDropIndex;
+          props.onTabReorder(drag.fromIndex, adjusted);
+        }
+        setDropIndex(null);
+      }
+
+      dragRef = null;
+      setDragTabId(null);
+    };
+
+    cleanupDragListeners?.();
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    cleanupDragListeners = () => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = "";
+      cleanupDragListeners = undefined;
+    };
+  }
+
+  const getTabContextMenuItems = (tabId: string): ContextMenuItem[] => {
+    const tab = props.tabs.find((t) => t.id === tabId);
+    const items: ContextMenuItem[] = [
+      {
+        id: "close",
+        label: "Close",
+        icon: <i class="fa-solid fa-xmark" />,
+        onClick: () => requestSingleTabClose(tabId),
+      },
+      {
+        id: "close-others",
+        label: "Close Others",
+        icon: <i class="fa-solid fa-rectangle-xmark" />,
+        onClick: () => requestCloseOthers(tabId),
+      },
+      {
+        id: "close-all",
+        label: "Close All",
+        icon: <i class="fa-solid fa-trash" />,
+        onClick: () => requestCloseAll(),
+      },
+      { id: "sep-actions", separator: true },
+      {
+        id: "duplicate",
+        label: "Duplicate Tab",
+        icon: <i class="fa-solid fa-clone" />,
+        onClick: () => {
+          const newId = props.onTabDuplicate(tabId);
+          if (newId) {
+            requestAnimationFrame(() => {
+              if (tabBarRef) {
+                tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+              }
+            });
+          }
+        },
+      },
+      {
+        id: "pin",
+        label: tab?.pinned ? "Unpin Tab" : "Pin Tab",
+        icon: (
+          <i
+            class="fa-solid fa-thumbtack"
+            style={tab?.pinned ? { opacity: 0.5 } : undefined}
+          />
+        ),
+        onClick: () => props.onTabTogglePin(tabId),
+      },
+    ];
+
+    if (props.onSave) {
+      items.push(
+        { id: "sep-tab-1", separator: true },
+        {
+          id: "save-as",
+          label: "Save As…",
+          icon: <i class="fa-solid fa-floppy-disk" />,
+          onClick: () => props.onSave!(tabId),
+        },
+      );
+    }
+
+    return items;
+  };
+
+  const pinnedCount = () => props.tabs.filter((t) => t.pinned).length;
+
   const [editorHeight, setEditorHeight] = createSignal(300);
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
   const [aiChatWidth, setAiChatWidth] = createSignal(
@@ -79,6 +405,11 @@ export default function QueryEditorPanel(props: Props) {
       : undefined,
   );
 
+  const isFirstTabActive = createMemo(() => {
+    if (!props.tabs || props.tabs.length === 0) return false;
+    return props.tabs[0].id === props.activeTabId;
+  });
+
   createEffect(() => {
     const tab = activeTab();
     if (tab && !tab.result && !tab.error && !tab.isExecuting) {
@@ -93,7 +424,7 @@ export default function QueryEditorPanel(props: Props) {
     if (!tab) return false;
     if (tab.isExecuting) return false;
     if (tab.error) return true;
-    if (tab.result && tab.result.result_sets.length === 0) return true;
+    if (!tab.result || tab.result.result_sets.length === 0) return true;
     return false;
   });
 
@@ -252,252 +583,458 @@ export default function QueryEditorPanel(props: Props) {
       setEditorHeight(newHeight);
     };
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      cleanupEditorResizeListeners?.();
     };
+    cleanupEditorResizeListeners?.();
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+    cleanupEditorResizeListeners = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      cleanupEditorResizeListeners = undefined;
+    };
   }
 
   return (
     <div class="flex flex-col h-full min-h-0 overflow-hidden">
-      {activeTab() && props.connected ? (
-        <div class="flex flex-col flex-1 min-h-0">
-          <div
-            class={`flex flex-row overflow-hidden ${resultsCollapsed() || isCompactResult() ? "flex-1" : "flex-shrink-0"}`}
-            style={
-              resultsCollapsed() || isCompactResult()
-                ? undefined
-                : { height: `${editorHeight()}px` }
-            }
-          >
-            <div class="flex flex-col flex-1 min-w-0 min-h-0">
-              <div class="flex items-center gap-2 p-3.5 flex-shrink-0">
-                {(props.databases ?? []).length > 0 &&
-                  props.onDatabaseChange && (
-                    <Dropdown
-                      value={props.currentDatabase || ""}
-                      options={databaseOptions()}
-                      onChange={props.onDatabaseChange!}
-                      placeholder="Select database"
-                      class="w-64"
-                      filterable
-                    />
+      {(() => {
+        const tab = activeTab();
+        return tab && props.connected ? (
+          <div class="flex flex-row flex-1 min-h-0 overflow-hidden">
+          <div class="flex flex-col flex-1 min-w-0 min-h-0">
+            <div
+              class={`editor-island flex flex-col min-w-0 overflow-hidden ${
+                resultsCollapsed() || isCompactResult()
+                  ? "flex-1"
+                  : "flex-shrink-0"
+              }`}
+              style={
+                resultsCollapsed() || isCompactResult()
+                  ? undefined
+                  : { height: `${editorHeight()}px` }
+              }
+            >
+              <div class="flex items-stretch justify-between flex-shrink-0 min-w-0 bg-transparent h-9">
+                <div class="flex items-stretch min-w-0 flex-shrink overflow-hidden h-full">
+                  {props.tabs.length > 0 && (
+                    <>
+                      <div
+                        ref={setTabBarRef}
+                        on:mousedown={(e: MouseEvent) => {
+                          if (e.button === 1) e.preventDefault();
+                        }}
+                        role="tablist"
+                        class="flex overflow-x-auto overflow-y-hidden tab-bar min-w-0 h-full"
+                      >
+                        <For each={props.tabs}>
+                          {(tab, index) => {
+                            const isActive = () => tab.id === props.activeTabId;
+                            const isDragging = () => tab.id === dragTabId();
+                            const isModified = () => tab.sql !== tab.savedSql;
+                            const showDropBefore = () =>
+                              dropIndex() === index();
+                            const showDropAfter = () =>
+                              dropIndex() === index() + 1 &&
+                              index() === props.tabs.length - 1;
+                            const showPinDivider = () =>
+                              tab.pinned &&
+                              index() === pinnedCount() - 1 &&
+                              pinnedCount() < props.tabs.length;
+
+                            return (
+                              <div class="flex items-center flex-shrink-0">
+                                {showDropBefore() && (
+                                  <div class="tab-drop-indicator" />
+                                )}
+                                <div
+                                  ref={(el) => {
+                                    if (isActive())
+                                      el.scrollIntoView({
+                                        block: "nearest",
+                                        inline: "nearest",
+                                      });
+                                  }}
+                                  data-tab-index={index()}
+                                  onPointerDown={(e) =>
+                                    handleTabPointerDown(e, tab.id, index())
+                                  }
+                                  role="tab"
+                                  tabIndex={0}
+                                  aria-selected={isActive()}
+                                  onKeyDown={(e) => {
+                                    if (
+                                      (e.target as Element).closest(
+                                        "input, button",
+                                      )
+                                    )
+                                      return;
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      props.onTabChange(tab.id);
+                                    }
+                                  }}
+                                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text-muted cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""}`}
+                                  onClick={() => {
+                                    if (justDraggedRef) return;
+                                    props.onTabChange(tab.id);
+                                  }}
+                                  onDblClick={() => {
+                                    if (tab.temporary) {
+                                      props.onTabPromote(tab.id);
+                                      return;
+                                    }
+                                    handleStartRename(tab);
+                                  }}
+                                  on:mousedown={(e: MouseEvent) => {
+                                    if (e.button === 1) {
+                                      e.preventDefault();
+                                      requestSingleTabClose(tab.id);
+                                    }
+                                  }}
+                                  onContextMenu={(e) =>
+                                    handleTabContextMenu(e, tab.id)
+                                  }
+                                >
+                                  {tab.pinned && (
+                                    <i class="fa-solid fa-thumbtack text-[9px] text-text-muted pin-icon" />
+                                  )}
+                                  <div class="flex-1 min-w-0 mr-2">
+                                    {renamingTabId() === tab.id ? (
+                                      <input
+                                        ref={renameInputRef}
+                                        type="text"
+                                        name="tab-title"
+                                        autocomplete="off"
+                                        aria-label="Rename tab"
+                                        value={renameValue()}
+                                        onInput={(e) =>
+                                          setRenameValue(e.currentTarget.value)
+                                        }
+                                        onBlur={() => handleRename(tab.id)}
+                                        onKeyDown={(e) =>
+                                          handleRenameKeyDown(e, tab.id)
+                                        }
+                                        class="bg-transparent border-none outline-none text-s w-full min-w-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                    ) : (
+                                      <span
+                                        class="tab-title truncate block"
+                                        data-text={tab.title}
+                                      >
+                                        {tab.title}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div class="flex items-center justify-center w-5 h-5 flex-shrink-0 relative">
+                                    {tab.isExecuting && (
+                                      <span class="animate-pulse text-warning text-s absolute">
+                                        &#9679;
+                                      </span>
+                                    )}
+                                    {isModified() && !tab.isExecuting && (
+                                      <span
+                                        class="modified-dot absolute"
+                                        title="Unsaved changes"
+                                      />
+                                    )}
+                                    <button
+                                      type="button"
+                                      aria-label={`Close ${tab.title}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        requestSingleTabClose(tab.id);
+                                      }}
+                                      class={`tab-close-btn relative flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive() ? "active" : ""}`}
+                                    >
+                                      <i class="fa-solid fa-xmark text-s" />
+                                    </button>
+                                  </div>
+                                </div>
+                                {showDropAfter() && (
+                                  <div class="tab-drop-indicator" />
+                                )}
+                                {showPinDivider() && (
+                                  <div class="pin-divider" />
+                                )}
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                      <div class="ui-divider mx-1.5 self-center" />
+                    </>
                   )}
-                <Tooltip content="Execute (F5)" placement="bottom">
-                  <button
-                    onClick={() =>
-                      void handleExecute(editorRef?.getSelectedText())
-                    }
-                    disabled={
-                      !props.connected ||
-                      !hasDatabaseSelected() ||
-                      !activeTab()!.sql.trim() ||
-                      activeTab()!.isExecuting
-                    }
-                    class="btn btn-primary btn-execute"
-                  >
-                    <IconPlay class="w-3.5 h-3.5" />
-                    <span>Execute</span>
-                  </button>
-                </Tooltip>
-
-                <div class="toolbar-sep" />
-
-                <Tooltip content="Copy SQL" placement="bottom">
-                  <button
-                    onClick={handleCopyQuery}
-                    disabled={!activeTab()!.sql.trim()}
-                    class="btn btn-secondary"
-                  >
-                    <IconCopy
-                      class={`w-3.5 h-3.5 ${queryCopied() ? "text-success" : ""}`}
-                    />
-                  </button>
-                </Tooltip>
-
-                <div class="toolbar-sep" />
-
-                <Tooltip content="Format SQL" placement="bottom">
-                  <button
-                    onClick={handleFormatSql}
-                    disabled={
-                      !hasDatabaseSelected() || !activeTab()!.sql.trim()
-                    }
-                    class="btn btn-secondary"
-                  >
-                    <IconFormat class="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-
-                <Tooltip
-                  content={
-                    wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
-                  }
-                  placement="bottom"
-                >
-                  <button
-                    onClick={() => setWrapLines(!wrapLines())}
-                    class={`btn btn-secondary ${wrapLines() ? "bg-[var(--color-surface-active)]" : ""}`}
-                  >
-                    <IconWrapText class="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-
-                {(props.onSave || props.onSaveToFile) && (
-                  <>
-                    <div class="toolbar-sep" />
-                    {props.onSave && (
-                      <Tooltip content="Save SQL" placement="bottom">
-                        <button
-                          onClick={() => props.onSave!(activeTab()!.id)}
-                          disabled={!activeTab()!.sql.trim()}
-                          class="btn btn-secondary"
-                        >
-                          <IconSave class="w-3.5 h-3.5" />
-                        </button>
-                      </Tooltip>
-                    )}
-
-                    {props.onSaveToFile && (
-                      <Tooltip content="Save SQL to file" placement="bottom">
-                        <button
-                          onClick={() => props.onSaveToFile!(activeTab()!.id)}
-                          disabled={!activeTab()!.sql.trim()}
-                          class="btn btn-secondary"
-                        >
-                          <IconFloppy class="w-3.5 h-3.5" />
-                        </button>
-                      </Tooltip>
-                    )}
-                  </>
-                )}
-
-                <div class="toolbar-sep" />
-
-                <Tooltip content="Find" placement="bottom">
-                  <button
-                    onClick={() => editorRef?.openSearch()}
-                    disabled={!activeTab()!.sql.trim()}
-                    class={`btn btn-secondary ${searchOpen() ? "btn-toggled" : ""}`}
-                  >
-                    <IconSearch class="w-3.5 h-3.5" />
-                  </button>
-                </Tooltip>
-
-                <div class="flex-1" />
+                  <Tooltip content="New Query" placement="bottom">
+                    <button
+                      type="button"
+                      aria-label="New Query"
+                      onClick={() => {
+                        props.onTabAdd();
+                        requestAnimationFrame(() => {
+                          if (tabBarRef) {
+                            tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+                          }
+                        });
+                      }}
+                      class="control-icon-btn control-icon-btn-sm ml-0 mr-1.5 self-center"
+                    >
+                      <i class="fa-solid fa-plus text-s" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
 
-              <div class="relative flex-1 min-w-0 min-h-0">
-                <SqlEditor
-                  value={activeTab()!.sql}
-                  onChange={(val: string) =>
-                    props.onTabUpdate(activeTab()!.id, { sql: val })
-                  }
-                  onExecute={handleExecute}
-                  readOnly={!hasDatabaseSelected()}
-                  theme={props.theme}
-                  currentDatabase={props.currentDatabase}
-                  onContextMenu={handleEditorContextMenu}
-                  onRef={(handle) => (editorRef = handle)}
-                  onSearchPanelChange={setSearchOpen}
-                  wrapLines={wrapLines()}
-                />
-                {!hasDatabaseSelected() && (
-                  <div class="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">
-                    <div class="mx-6 flex max-w-[280px] flex-col items-center gap-3 rounded-xl border border-border bg-surface-panel px-6 py-5 text-center">
-                      <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-active text-accent">
-                        <i class="fa-solid fa-database text-s" />
-                      </div>
-                      <div class="space-y-1">
-                        <p class="text-m font-semibold text-text">
-                          Choose a database
-                        </p>
-                        <p class="text-s leading-relaxed text-text-muted">
-                          Select a database from the dropdown above to start
-                          editing and run queries.
-                        </p>
+              <div
+                class={`app-panel flex flex-col flex-1 min-w-0 min-h-0 ${
+                  isFirstTabActive() ? "rounded-tl-none" : ""
+                }`}
+              >
+                <div class="editor-toolbar-frame flex items-center gap-6 p-2 flex-shrink-0 min-w-0 mx-3 mt-3 mb-2">
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    {(props.databases ?? []).length > 0 &&
+                      props.onDatabaseChange && (
+                        <Dropdown
+                          value={props.currentDatabase || ""}
+                          options={databaseOptions()}
+                          onChange={props.onDatabaseChange!}
+                          placeholder="Select database"
+                          class="w-48"
+                          filterable
+                          compact
+                        />
+                      )}
+                    <Tooltip content="Execute (F5)" placement="bottom">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleExecute(editorRef?.getSelectedText())
+                        }
+                        disabled={
+                          !props.connected ||
+                          !hasDatabaseSelected() ||
+                          !tab.sql.trim() ||
+                          tab.isExecuting
+                        }
+                        class="btn btn-primary btn-compact btn-execute"
+                      >
+                        <IconPlay />
+                        <span>Execute</span>
+                      </button>
+                    </Tooltip>
+                  </div>
+
+                  <div class="grow shrink-0 flex items-center gap-1 justify-center">
+                    <Tooltip content="Copy SQL" placement="bottom">
+                      <button
+                        type="button"
+                        aria-label={queryCopied() ? "SQL copied" : "Copy SQL"}
+                        onClick={handleCopyQuery}
+                        disabled={!tab.sql.trim()}
+                        class="btn btn-icon"
+                      >
+                        <IconCopy
+                          class={`w-3 h-3 ${queryCopied() ? "text-success" : ""}`}
+                        />
+                      </button>
+                    </Tooltip>
+
+                    <div class="toolbar-sep" />
+
+                    <Tooltip content="Format SQL" placement="bottom">
+                      <button
+                        type="button"
+                        aria-label="Format SQL"
+                        onClick={handleFormatSql}
+                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
+                        class="btn btn-icon"
+                      >
+                        <IconFormat class="w-3 h-3" />
+                      </button>
+                    </Tooltip>
+
+                    <Tooltip
+                      content={
+                        wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
+                      }
+                      placement="bottom"
+                    >
+                      <button
+                        type="button"
+                        aria-label={
+                          wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
+                        }
+                        onClick={() => setWrapLines(!wrapLines())}
+                        class={`btn btn-icon ${wrapLines() ? "btn-toggled" : ""}`}
+                      >
+                        <IconWrapText class="w-3 h-3" />
+                      </button>
+                    </Tooltip>
+
+                    {(props.onSave || props.onSaveToFile) && (
+                      <>
+                        <div class="toolbar-sep" />
+                        {props.onSave && (
+                          <Tooltip content="Save SQL" placement="bottom">
+                            <button
+                              type="button"
+                              aria-label="Save SQL"
+                              onClick={() => props.onSave!(tab.id)}
+                              disabled={!tab.sql.trim()}
+                              class="btn btn-icon"
+                            >
+                              <IconSave class="w-3 h-3" />
+                            </button>
+                          </Tooltip>
+                        )}
+
+                        {props.onSaveToFile && (
+                          <Tooltip
+                            content="Save SQL to file"
+                            placement="bottom"
+                          >
+                            <button
+                              type="button"
+                              aria-label="Save SQL to file"
+                              onClick={() => props.onSaveToFile!(tab.id)}
+                              disabled={!tab.sql.trim()}
+                              class="btn btn-icon"
+                            >
+                              <IconFloppy class="w-3 h-3" />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </>
+                    )}
+
+                    <div class="toolbar-sep" />
+
+                    <Tooltip content="Find" placement="bottom">
+                      <button
+                        type="button"
+                        aria-label="Find"
+                        onClick={() => editorRef?.openSearch()}
+                        disabled={!tab.sql.trim()}
+                        class={`btn btn-icon ${searchOpen() ? "btn-toggled" : ""}`}
+                      >
+                        <IconSearch class="w-3 h-3" />
+                      </button>
+                    </Tooltip>
+                  </div>
+
+                  <div class="w-[280px] shrink flex items-center justify-end" />
+                </div>
+
+                <div class="relative flex-1 min-w-0 min-h-0">
+                  <SqlEditor
+                    value={tab.sql}
+                    onChange={(val: string) =>
+                      props.onTabUpdate(tab.id, { sql: val })
+                    }
+                    onExecute={handleExecute}
+                    readOnly={!hasDatabaseSelected()}
+                    theme={props.theme}
+                    currentDatabase={props.currentDatabase}
+                    onContextMenu={handleEditorContextMenu}
+                    onRef={(handle) => (editorRef = handle)}
+                    onSearchPanelChange={setSearchOpen}
+                    wrapLines={wrapLines()}
+                  />
+                  {!hasDatabaseSelected() && (
+                    <div class="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">
+                      <div class="mx-6 flex max-w-[280px] flex-col items-center gap-3 rounded-xl border border-border bg-surface-panel px-6 py-5 text-center">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-active text-accent">
+                          <i class="fa-solid fa-database text-s" />
+                        </div>
+                        <div class="space-y-1">
+                          <p class="text-m font-semibold text-text">
+                            Choose a database
+                          </p>
+                          <p class="text-s leading-relaxed text-text-muted">
+                            Select a database from the dropdown above to start
+                            editing and run queries.
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
-            {props.aiChatOpen && (
-              <AIChatPanel
-                currentCode={activeTab()!.sql}
-                currentDatabase={props.currentDatabase}
-                currentResultMessage={currentResultMessage()}
-                onApplyCode={handleGeneratedRowSql}
-                width={aiChatWidth()}
-                onWidthChange={setAiChatWidth}
-                pendingMessage={pendingChatMessage()}
-                onPendingMessageHandled={(id) => {
-                  setPendingChatMessage((current) =>
-                    current?.id === id ? null : current,
-                  );
-                }}
-              />
+            {!resultsCollapsed() && !isCompactResult() && (
+              <div class="resizer resizer-v" onMouseDown={handleEditorResize} />
             )}
-          </div>
 
-          {!resultsCollapsed() && !isCompactResult() && (
-            <div class="resizer resizer-v" onMouseDown={handleEditorResize} />
-          )}
-
-          <div
-            class={`flex flex-col overflow-hidden ${resultsCollapsed() || isCompactResult() ? "flex-none" : "flex-1"}`}
-          >
-            <div class="flex items-center justify-between p-2.5 border-t border-border flex-shrink-0">
-              <div class="flex items-center gap-2">
-                <span class="text-s text-text-muted font-medium leading-none">
-                  Results
-                </span>
-                {(activeTab()?.error ||
-                  (activeTab()?.result?.result_sets.length ?? 0) > 0) && (
+            <div
+              class={`results-island app-panel flex flex-col ${
+                resultsCollapsed() || isCompactResult()
+                  ? "flex-none mt-[var(--layout-gap)]"
+                  : "flex-1"
+              }`}
+            >
+              <div class="flex items-center justify-between p-2.5 flex-shrink-0">
+                <div class="flex items-center gap-2">
+                  <span class="app-section-title">Results</span>
+                  {(tab.error ||
+                    (tab.result?.result_sets.length ?? 0) > 0) && (
                     <span class="text-s text-text-muted opacity-60 ml-0.5 leading-none">
-                      {activeTab()?.error
+                      {tab.error
                         ? "(Error)"
-                        : `(${activeTab()?.result?.result_sets[0]?.rows.length ?? 0} row${(activeTab()?.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
+                        : `(${tab.result?.result_sets[0]?.rows.length ?? 0} row${(tab.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
                     </span>
                   )}
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setResultsCollapsed(!resultsCollapsed())}
+                    class="btn btn-secondary"
+                  >
+                    <i
+                      class={`fa-solid fa-chevron-${resultsCollapsed() ? "up" : "down"}`}
+                    />
+                    <span>{resultsCollapsed() ? "Expand" : "Collapse"}</span>
+                  </button>
+                </div>
               </div>
-              <div class="flex items-center gap-2">
-                <button
-                  onClick={() => setResultsCollapsed(!resultsCollapsed())}
-                  class="btn btn-secondary"
+              {!resultsCollapsed() && (
+                <div
+                  class={isCompactResult() ? "min-h-[200px]" : "flex-1 min-h-0"}
                 >
-                  <i
-                    class={`fa-solid fa-chevron-${resultsCollapsed() ? "up" : "down"}`}
+                  <ResultsGrid
+                    result={tab.result}
+                    error={tab.error}
+                    isExecuting={tab.isExecuting}
+                    sourceSql={tab.sql}
+                    onGenerateSql={handleGeneratedRowSql}
+                    onReExecute={() => handleExecute()}
+                    onSendErrorToChat={handleSendResultErrorToChat}
                   />
-                  <span>{resultsCollapsed() ? "Expand" : "Collapse"}</span>
-                </button>
-              </div>
+                </div>
+              )}
             </div>
-            {!resultsCollapsed() && (
-              <div
-                class={
-                  isCompactResult()
-                    ? "min-h-[200px]"
-                    : "flex-1 min-h-0"
-                }
-              >
-                <ResultsGrid
-                  result={activeTab()?.result}
-                  error={activeTab()?.error}
-                  isExecuting={activeTab()?.isExecuting ?? false}
-                  sourceSql={activeTab()?.sql ?? ""}
-                  onGenerateSql={handleGeneratedRowSql}
-                  onReExecute={() => handleExecute()}
-                  onSendErrorToChat={handleSendResultErrorToChat}
-                />
-              </div>
-            )}
           </div>
-        </div>
-      ) : (
-        <div class="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
+
+          {props.aiChatOpen && (
+            <AIChatPanel
+              currentCode={tab.sql}
+              currentDatabase={props.currentDatabase}
+              currentResultMessage={currentResultMessage()}
+              onApplyCode={handleGeneratedRowSql}
+              width={aiChatWidth()}
+              onWidthChange={setAiChatWidth}
+              pendingMessage={pendingChatMessage()}
+              onPendingMessageHandled={(id) => {
+                setPendingChatMessage((current) =>
+                  current?.id === id ? null : current,
+                );
+              }}
+            />
+          )}
+          </div>
+        ) : (
+          <div class="app-panel flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
           {props.connected ? (
             <>
               <i class="fa-solid fa-terminal text-3xl opacity-20" />
@@ -505,19 +1042,21 @@ export default function QueryEditorPanel(props: Props) {
               <div class="empty-state-actions mt-1">
                 {props.onOpenSqlFile && (
                   <button
+                    type="button"
                     onClick={props.onOpenSqlFile}
                     class="btn btn-primary empty-state-btn"
                   >
                     <i class="fa-regular fa-folder" />
-                    <span class="empty-state-btn-label">Open file</span>
+                    <span class="empty-state-btn-label">Open File</span>
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => props.onTabAdd()}
                   class="btn btn-secondary empty-state-btn"
                 >
                   <i class="fa-solid fa-plus" />
-                  <span class="empty-state-btn-label">New file</span>
+                  <span class="empty-state-btn-label">New File</span>
                 </button>
               </div>
               <Show when={(props.executedQueries ?? []).length > 0}>
@@ -532,6 +1071,7 @@ export default function QueryEditorPanel(props: Props) {
                         {(item) => (
                           <Tooltip content={item.title} placement="top">
                             <button
+                              type="button"
                               onClick={() =>
                                 props.onTabAdd(item.sql, item.title)
                               }
@@ -550,7 +1090,7 @@ export default function QueryEditorPanel(props: Props) {
           ) : (props.isInitializing ?? false) ? (
             <>
               <i class="fa-solid fa-spinner animate-spin text-3xl opacity-30" />
-              <p class="text-m">Connecting to your server...</p>
+              <p class="text-m">Connecting to your server…</p>
               <p class="text-s opacity-60">Restoring your last session</p>
             </>
           ) : (
@@ -562,6 +1102,7 @@ export default function QueryEditorPanel(props: Props) {
               </p>
               {props.onConnect && (
                 <button
+                  type="button"
                   onClick={props.onConnect}
                   class="btn btn-primary empty-state-btn mt-1"
                 >
@@ -571,14 +1112,59 @@ export default function QueryEditorPanel(props: Props) {
               )}
             </>
           )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
       {editorContextMenu()?.visible && (
         <ContextMenu
           items={getEditorContextMenuItems()}
           x={editorContextMenu()!.x}
           y={editorContextMenu()!.y}
           onClose={() => setEditorContextMenu(null)}
+        />
+      )}
+
+      {tabContextMenu()?.visible && (
+        <ContextMenu
+          items={getTabContextMenuItems(tabContextMenu()!.tabId)}
+          x={tabContextMenu()!.x}
+          y={tabContextMenu()!.y}
+          onClose={() => setTabContextMenu(null)}
+        />
+      )}
+
+      {confirmClose() && (
+        <ConfirmDialog
+          title={
+            confirmClose()!.type === "single"
+              ? "Close Tab"
+              : confirmClose()!.type === "others"
+                ? "Close Other Tabs"
+                : "Close All Tabs"
+          }
+          message={
+            confirmClose()!.type === "single"
+              ? "Are you sure you want to close this tab? Any unsaved changes will be lost."
+              : confirmClose()!.type === "others"
+                ? "Are you sure you want to close all other tabs? Any unsaved changes will be lost."
+                : "Are you sure you want to close all tabs? Any unsaved changes will be lost."
+          }
+          confirmLabel={
+            confirmClose()!.type === "single" ? "Close" : "Close All"
+          }
+          variant="danger"
+          onConfirm={() => {
+            const cc = confirmClose()!;
+            if (cc.type === "single" && cc.tabId) {
+              props.onTabClose(cc.tabId);
+            } else if (cc.type === "others" && cc.tabId) {
+              props.onTabCloseOthers(cc.tabId);
+            } else if (cc.type === "all") {
+              props.onTabCloseAll();
+            }
+            setConfirmClose(null);
+          }}
+          onCancel={() => setConfirmClose(null)}
         />
       )}
     </div>

@@ -1,32 +1,15 @@
 {
   "id": "light",
   "name": "Light",
+  "mode": "light",
   "colors": {
     "--color-surface": "#ffffff",
     "--color-surface-panel": "#ffffff",
-    "--color-surface-table": "#ffffff",
-    "--color-surface-popover": "#ffffff",
-    "--color-surface-overlay": "rgba(0, 0, 0, 0.04)",
-    "--color-surface-header": "rgba(0, 0, 0, 0.06)",
-    "--color-surface-hover": "rgba(0, 0, 0, 0.05)",
-    "--color-surface-active": "rgba(0, 0, 0, 0.08)",
-    "--color-border": "rgba(0, 0, 0, 0.12)",
     "--color-text": "#18181b",
-    "--color-text-muted": "#71717a",
     "--color-accent": "#0369a1",
     "--color-accent-text": "#ffffff",
-    "--color-accent-hover": "#034971",
     "--color-success": "#16a34a",
     "--color-error": "#dc2626",
-    "--color-warning": "#d97706",
-    "--color-overlay-xs": "rgba(0, 0, 0, 0.02)",
-    "--color-overlay-sm": "rgba(0, 0, 0, 0.05)",
-    "--color-overlay-md": "rgba(0, 0, 0, 0.08)",
-    "--color-overlay-lg": "rgba(0, 0, 0, 0.12)",
-    "--color-cm-property": "#007acc",
-    "--color-cm-keyword": "#af00db",
-    "--color-cm-type": "#267f99",
-    "--color-cm-ai": "#795e26",
-    "--color-scrollbar": "rgba(0, 0, 0, 0.2)"
+    "--color-warning": "#d97706"
   }
 }

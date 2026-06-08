@@ -1,0 +1,165 @@
+@layer components {
+
+  .tab-bar {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 0;
+    scrollbar-width: none;
+    height: 100%;
+    box-sizing: border-box;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    position: relative;
+    height: 36px;
+    padding: 0 10px;
+    max-width: clamp(160px, 18vw, 240px);
+    border-top-left-radius: var(--radius-md);
+    border-top-right-radius: var(--radius-md);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border: none;
+    background-color: transparent;
+    line-height: 1;
+    overflow: hidden;
+    transition:
+      background-color 0.16s ease,
+      color 0.16s ease;
+  }
+
+  .tab:hover {
+    background-color: var(--color-surface-hover);
+  }
+
+  .tab:active {
+    background-color: var(--color-surface-active);
+  }
+
+  .tab:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+    outline-offset: -2px;
+  }
+
+  .tab.active {
+    background-color: var(--color-surface-panel);
+    color: var(--color-text);
+  }
+
+  .tab.temporary .tab-title {
+    font-style: italic;
+  }
+
+  .tab-animate-in {
+    animation: none;
+  }
+
+  .tab.dragging {
+    opacity: 0.35;
+    transform: scale(0.97);
+  }
+
+  .tab-drop-indicator {
+    width: 2px;
+    height: 20px;
+    background: var(--color-accent);
+    border-radius: 1px;
+    flex-shrink: 0;
+    animation: drop-indicator-in 0.12s var(--ease-out);
+  }
+
+  @keyframes drop-indicator-in {
+    from {
+      opacity: 0;
+      transform: scaleY(0.4);
+    }
+
+    to {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+  }
+
+  .tab-close-btn {
+    opacity: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    transition:
+      opacity 0.12s ease,
+      background-color 0.12s ease,
+      color 0.12s ease;
+  }
+
+  .tab-close-btn i {
+    font-size: 10px;
+  }
+
+  .tab-close-btn.active,
+  .tab:hover .tab-close-btn {
+    opacity: 1;
+  }
+
+  .tab-close-btn:focus-visible {
+    opacity: 1;
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+    outline-offset: 1px;
+  }
+
+  .modified-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    flex-shrink: 0;
+    animation: dot-fade-in 0.2s ease;
+  }
+
+  .tab:hover .modified-dot,
+  .tab.active .modified-dot {
+    opacity: 0;
+  }
+
+  @keyframes dot-fade-in {
+    from {
+      opacity: 0;
+      transform: scale(0);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .pin-icon {
+    opacity: 0.5;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+    transform: rotate(-45deg);
+  }
+
+  .tab:hover .pin-icon,
+  .tab.active .pin-icon {
+    opacity: 0.8;
+  }
+
+  .tab.pinned {
+    max-width: clamp(100px, 12vw, 160px);
+  }
+
+  .pin-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-border);
+    margin: 0 2px;
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+
+}

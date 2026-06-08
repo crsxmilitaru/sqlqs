@@ -1,10 +1,4 @@
-import {
-  createSignal,
-  createEffect,
-  onMount,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -32,13 +26,21 @@ import ObjectJumpPalette, {
 } from "../explorer/ObjectJumpPalette";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import BackupRestoreDialog from "../dialogs/BackupRestoreDialog";
-import PropertiesDialog, { type PropertiesObjectType } from "../dialogs/PropertiesDialog";
+import PropertiesDialog, {
+  type PropertiesObjectType,
+} from "../dialogs/PropertiesDialog";
 import QueryEditorPanel from "../editor/QueryEditorPanel";
 import RenameDialog from "../dialogs/RenameDialog";
 import { invalidateSchemaCatalog } from "../editor/SqlEditor";
 import SettingsView from "../settings/SettingsView";
-import { loadAutoCheckUpdates, loadExecutionPreferences } from "../../lib/settings";
-import { findUnguardedDestructiveStatements, type UnguardedStatement } from "../../lib/sql-safety";
+import {
+  loadAutoCheckUpdates,
+  loadExecutionPreferences,
+} from "../../lib/settings";
+import {
+  findUnguardedDestructiveStatements,
+  type UnguardedStatement,
+} from "../../lib/sql-safety";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "../dialogs/UpdateDialog";
@@ -664,7 +666,7 @@ export default function App() {
   const isAnyDialogOpen = () => hasBlockingDialog() || isObjectJumpOpen();
 
   return (
-    <div class="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-white">
+    <div class="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-accent-text">
       <TitleBar
         connected={connected()}
         isInitializing={isInitializing()}
@@ -682,26 +684,13 @@ export default function App() {
         sidebarVisible={isSidebarOpen()}
         sidebarWidth={explorerWidth()}
         dialogOpen={isAnyDialogOpen()}
-        tabs={tabs()}
-        activeTabId={activeTabId()}
-        onTabChange={setActiveTabId}
-        onTabAdd={addTab}
-        onTabClose={closeTab}
-        onTabCloseOthers={closeOtherTabs}
-        onTabCloseAll={closeAllTabs}
-        onTabUpdate={updateTab}
-        onTabReorder={reorderTabs}
-        onTabDuplicate={duplicateTab}
-        onTabTogglePin={togglePin}
-        onTabPromote={promoteTab}
-        onTabSave={handleTabSave}
         aiChatOpen={aiChatOpen()}
         onToggleAiChat={handleToggleAiChat}
         onToggleObjectJump={handleToggleObjectJump}
         objectJumpOpen={isObjectJumpOpen()}
-        objectJumpEnabled={canOpenObjectJump()}
         objectJumpIndexStatus={objectJumpIndexStatus()}
         hideAppContent={isSettingsOpen()}
+        hasTabs={tabs().length > 0}
       />
 
       <div class="app-workspace flex flex-1 overflow-hidden relative">
@@ -726,10 +715,8 @@ export default function App() {
                   class="resizer resizer-h"
                   onMouseDown={handleExplorerResize}
                 />
-                <main
-                  class={`flex-1 flex flex-col overflow-hidden bg-surface-panel rounded-tl-2xl border-t border-l-0 border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative`}
-                >
-                  <div class="flex-1 w-full h-full p-8 md:p-12 overflow-y-auto animate-in fade-in duration-[var(--duration-slow)]">
+                <main class="app-panel flex-1 flex flex-col relative">
+                  <div class="flex-1 w-full h-full p-8 md:p-12 overflow-y-auto scrollbar-gutter-stable animate-in fade-in duration-[var(--duration-slow)]">
                     {content}
                   </div>
                 </main>
@@ -781,15 +768,21 @@ export default function App() {
               </>
             )}
 
-            <main
-              class={`flex-1 flex flex-col overflow-hidden bg-surface-panel ${isSidebarOpen() && connected() ? "rounded-tl-2xl border-t border-l-0" : "rounded-none border-l border-t"} border-[color-mix(in_srgb,var(--color-border)_50%,transparent)] relative transition-colors duration-[var(--duration-slow)]`}
-            >
+            <main class="flex-1 flex flex-col overflow-hidden relative transition-colors duration-[var(--duration-slow)]">
               <QueryEditorPanel
                 tabs={tabs()}
                 activeTabId={activeTabId()}
+                onTabChange={setActiveTabId}
                 onTabAdd={addTab}
-                onOpenSqlFile={handleOpenSqlFile}
+                onTabClose={closeTab}
+                onTabCloseOthers={closeOtherTabs}
+                onTabCloseAll={closeAllTabs}
                 onTabUpdate={updateTab}
+                onTabReorder={reorderTabs}
+                onTabDuplicate={duplicateTab}
+                onTabTogglePin={togglePin}
+                onTabPromote={promoteTab}
+                onOpenSqlFile={handleOpenSqlFile}
                 onExecute={handleExecute}
                 onConnect={() => setIsConnectionDialogOpen(true)}
                 connected={connected()}

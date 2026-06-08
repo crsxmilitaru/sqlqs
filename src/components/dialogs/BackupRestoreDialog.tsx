@@ -4,7 +4,6 @@ import {
   createMemo,
   createSignal,
   For,
-  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -19,7 +18,9 @@ import type {
 } from "../../lib/types";
 import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
-import Tooltip from "../ui/Tooltip";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 interface Props {
   databases: string[];
@@ -162,14 +163,6 @@ export default function BackupRestoreDialog(props: Props) {
 
   onMount(() => {
     requestAnimationFrame(() => setVisible(true));
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy()) {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
 
     void loadDefaults();
     void loadSchedules();
@@ -437,21 +430,18 @@ export default function BackupRestoreDialog(props: Props) {
   );
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={() => !busy() && props.onClose()}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[760px] max-w-[calc(100vw-32px)] h-[720px] max-h-[calc(100vh-32px)] flex flex-col shadow-2xl"
+      ariaLabel="Backup & Restore"
+      closeOnOverlay={!busy()}
+      closeOnEscape={!busy()}
     >
-      <div
-        class="dialog-surface w-[760px] max-w-[calc(100vw-32px)] h-[720px] max-h-[calc(100vh-32px)] flex flex-col shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
           <div class="flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-accent/10 text-accent shrink-0">
-              <i class="fa-solid fa-rotate text-sm" />
+              <Icon name="rotate" class="text-sm" />
             </div>
             <div class="flex flex-col min-w-0">
               <h2 class="text-m font-semibold text-text">Backup & Restore</h2>
@@ -461,16 +451,7 @@ export default function BackupRestoreDialog(props: Props) {
               </p>
             </div>
           </div>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              type="button"
-              onClick={props.onClose}
-              disabled={busy()}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} disabled={busy()} />
         </div>
 
         <div class="flex border-b border-border/30 px-2">
@@ -499,7 +480,7 @@ export default function BackupRestoreDialog(props: Props) {
                     : "border-transparent text-text-muted hover:text-text"
                 }`}
               >
-                <i class={`fa-solid ${tab.icon} text-[11px]`} />
+                <Icon name={tab.icon} class="text-[11px]" />
                 {tab.label}
               </button>
             )}
@@ -540,7 +521,7 @@ export default function BackupRestoreDialog(props: Props) {
                     value={destinationPath()}
                     placeholder={
                       loadingDefaults()
-                        ? "Loading server default path..."
+                        ? "Loading server default path…"
                         : "C:\\SQLBackups\\Database_full.bak"
                     }
                     onInput={(e) => {
@@ -681,7 +662,7 @@ export default function BackupRestoreDialog(props: Props) {
                   >
                     <Show
                       when={busyAction() === "inspect"}
-                      fallback={<i class="fa-solid fa-magnifying-glass" />}
+                      fallback={<Icon name="magnifying-glass" />}
                     >
                       <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
                     </Show>
@@ -710,7 +691,7 @@ export default function BackupRestoreDialog(props: Props) {
                     }
                     class="btn btn-secondary px-4"
                   >
-                    <i class="fa-solid fa-wand-magic-sparkles" />
+                    <Icon name="wand-magic-sparkles" />
                     Paths
                   </button>
                 </div>
@@ -795,8 +776,9 @@ export default function BackupRestoreDialog(props: Props) {
                   disabled={schedulesLoading()}
                   class="btn btn-secondary px-4"
                 >
-                  <i
-                    class={`fa-solid fa-rotate ${schedulesLoading() ? "animate-spin" : ""}`}
+                  <Icon
+                    name="rotate"
+                    class={schedulesLoading() ? "animate-spin" : ""}
                   />
                   Refresh
                 </button>
@@ -839,13 +821,13 @@ export default function BackupRestoreDialog(props: Props) {
                           type="button"
                           onClick={() => deleteSchedule(schedule.job_name)}
                           disabled={busy()}
-                          class="btn btn-secondary px-3 hover:!text-error"
+                          class="btn btn-secondary btn-danger-hover px-3"
                         >
                           <Show
                             when={
                               busyAction() === `delete:${schedule.job_name}`
                             }
-                            fallback={<i class="fa-solid fa-trash-can" />}
+                            fallback={<Icon name="trash-can" />}
                           >
                             <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
                           </Show>
@@ -886,7 +868,7 @@ export default function BackupRestoreDialog(props: Props) {
               >
                 <Show
                   when={busyAction() === "schedule"}
-                  fallback={<i class="fa-solid fa-calendar-plus" />}
+                  fallback={<Icon name="calendar-plus" />}
                 >
                   <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
                 </Show>
@@ -902,9 +884,9 @@ export default function BackupRestoreDialog(props: Props) {
               >
                 <Show
                   when={busyAction() === "backup"}
-                  fallback={<i class="fa-solid fa-play" />}
+                  fallback={<Icon name="play" />}
                 >
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
                 </Show>
                 Run Backup
               </button>
@@ -920,16 +902,15 @@ export default function BackupRestoreDialog(props: Props) {
               >
                 <Show
                   when={busyAction() === "restore"}
-                  fallback={<i class="fa-solid fa-clock-rotate-left" />}
+                  fallback={<Icon name="clock-rotate-left" />}
                 >
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
                 </Show>
                 Restore
               </button>
             </Show>
           </div>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

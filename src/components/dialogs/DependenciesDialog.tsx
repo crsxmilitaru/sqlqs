@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import type { QueryResult } from "../../lib/types";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 import Tooltip from "../ui/Tooltip";
 
 interface Props {
@@ -83,14 +86,6 @@ export default function DependenciesDialog(props: Props) {
   onMount(() => {
     requestAnimationFrame(() => setVisible(true));
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-
     const runAction = async (action: string): Promise<DependencyRow[]> => {
       const { sql } = await invoke<{ sql: string }>("generate_object_script", {
         database: props.database,
@@ -147,7 +142,7 @@ export default function DependenciesDialog(props: Props) {
       <Show when={loading}>
         <div class="flex items-center gap-3 text-sm text-text-muted py-8 justify-center">
           <div class="w-4 h-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-          Loading...
+          Loading…
         </div>
       </Show>
       <Show when={!loading && error}>
@@ -165,8 +160,10 @@ export default function DependenciesDialog(props: Props) {
           <For each={rows}>
             {(row) => (
               <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface-overlay/30">
-                <i
-                  class={`fa-solid ${classIcon(row.class)} text-text-muted/60 text-xs w-4 text-center`}
+                <Icon
+                  name={classIcon(row.class)}
+                  class="text-text-muted/60 text-xs w-4 text-center"
+                  fixedWidth={false}
                 />
                 <div class="flex flex-col flex-1 min-w-0">
                   <span class="text-sm text-text font-mono truncate select-text">
@@ -185,21 +182,16 @@ export default function DependenciesDialog(props: Props) {
   );
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onClose}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[600px] h-[600px] max-h-[85vh] flex flex-col shadow-2xl"
+      ariaLabel={`${objectTypeLabel(props.objectType)} Dependencies`}
     >
-      <div
-        class="dialog-surface w-[600px] h-[600px] max-h-[85vh] flex flex-col shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
           <div class="flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-accent/10 text-accent shrink-0">
-              <i class="fa-solid fa-diagram-project text-sm" />
+              <Icon name="diagram-project" class="text-sm" />
             </div>
             <div class="flex flex-col min-w-0">
               <h2 class="text-m font-semibold text-text">
@@ -213,14 +205,7 @@ export default function DependenciesDialog(props: Props) {
               </p>
             </div>
           </div>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              onClick={props.onClose}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} />
         </div>
 
         <div class="flex border-b border-border/30 px-2">
@@ -294,7 +279,6 @@ export default function DependenciesDialog(props: Props) {
             Close
           </button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

@@ -49,21 +49,21 @@ export default function ColumnSelector(props: Props) {
             return (
               <button
                 onClick={() => props.onToggle(i())}
-                class={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md text-left transition-all cursor-pointer group ${
+                class={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer group ${
                   isVisible()
                     ? "hover:bg-surface-hover"
                     : "opacity-40 hover:opacity-60 hover:bg-surface-hover"
                 }`}
               >
                 <div
-                  class={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
+                  class={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
                     isVisible()
                       ? "border-accent bg-accent"
                       : "border-border bg-surface-header"
                   }`}
                 >
                   <Show when={isVisible()}>
-                    <i class="fa-solid fa-check text-[10px] text-white" />
+                    <i class="fa-solid fa-check text-[10px] text-accent-text" />
                   </Show>
                 </div>
                 <div class="flex-1 min-w-0">

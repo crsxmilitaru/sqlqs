@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { JSX } from "solid-js";
+import { Icon } from "./Icons";
 
 interface DropdownOption {
   value: string;
@@ -23,6 +24,7 @@ interface Props {
   class?: string;
   filterable?: boolean;
   openUpwards?: boolean;
+  compact?: boolean;
 }
 
 export default function Dropdown(props: Props) {
@@ -44,11 +46,14 @@ export default function Dropdown(props: Props) {
     );
   };
 
-  const placeholder = () => props.placeholder ?? "Select...";
+  const placeholder = () => props.placeholder ?? "Select…";
   const disabled = () => props.disabled ?? false;
   const className = () => props.class ?? "";
   const filterable = () => props.filterable ?? false;
   const openUpwards = () => props.openUpwards ?? false;
+  const compact = () => props.compact ?? false;
+  const listboxId = `dropdown-listbox-${Math.random().toString(36).slice(2)}`;
+  const accessibleLabel = () => props.placeholder ?? "Select option";
 
   const selectedOption = createMemo(() =>
     props.options.find((opt) => opt.value === props.value),
@@ -206,22 +211,27 @@ export default function Dropdown(props: Props) {
           setIsOpen(!isOpen());
         }}
         disabled={disabled()}
-        class={`
-          dropdown-trigger
-          flex items-center justify-between gap-2 px-2.5 h-[32px] text-m rounded-md w-full
-          transition-all
-          text-text placeholder-text-muted
-          focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none
-          ${disabled() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-        `}
+        role="combobox"
+        aria-label={accessibleLabel()}
+        aria-expanded={isOpen()}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        class="dropdown-trigger flex items-center justify-between gap-2 rounded-md w-full transition-colors text-text placeholder-text-muted focus:border-accent/40 focus:ring-1 focus:ring-accent/20 focus:outline-none"
+        classList={{
+          "px-2.5 h-[30px] text-s": compact(),
+          "px-3 h-[34px] text-m": !compact(),
+          "opacity-50 cursor-not-allowed": disabled(),
+          "cursor-pointer": !disabled(),
+        }}
       >
         <span
           class={`truncate ${selectedOption() ? "text-text" : "text-text-muted"}`}
         >
           {selectedOption() ? selectedOption()!.label : placeholder()}
         </span>
-        <i
-          class={`fa-solid fa-chevron-down text-text-muted text-icon transition-transform duration-150 ${
+        <Icon
+          name="chevron-down"
+          class={`text-text-muted text-icon transition-transform duration-150 ${
             isOpen()
               ? openUpwards()
                 ? ""
@@ -239,18 +249,22 @@ export default function Dropdown(props: Props) {
             ref={listRef}
             style={popupStyle()}
             class="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
+            id={listboxId}
             role="listbox"
           >
             <Show when={filterable()}>
               <div class="px-2 pb-2 pt-1 flex-shrink-0 border-b border-border/5">
-                <div class="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-all">
-                  <i class="fa-solid fa-magnifying-glass text-3xs opacity-40" />
+                <div class="dropdown-search flex items-center gap-2 h-8 px-2.5 rounded-md transition-colors">
+                  <Icon name="magnifying-glass" class="text-3xs opacity-40" />
                   <input
                     ref={filterInputRef}
                     type="text"
+                    name="dropdown-filter"
+                    autocomplete="off"
+                    aria-label={`Search ${accessibleLabel().toLowerCase()}`}
                     value={filter()}
                     onInput={(e) => setFilter(e.currentTarget.value)}
-                    placeholder="Search databases..."
+                    placeholder="Search databases…"
                     class="w-full bg-transparent text-m text-text caret-accent placeholder:text-text-muted/60 outline-none"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={handleKeyDown}

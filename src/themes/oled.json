@@ -1,32 +1,15 @@
 {
   "id": "oled",
   "name": "OLED Black",
+  "mode": "dark",
   "colors": {
     "--color-surface": "#000000",
     "--color-surface-panel": "#050507",
-    "--color-surface-table": "#2a2a2d",
-    "--color-surface-popover": "#111111",
-    "--color-surface-overlay": "rgba(255, 255, 255, 0.08)",
-    "--color-surface-header": "rgba(255, 255, 255, 0.1)",
-    "--color-surface-hover": "rgba(255, 255, 255, 0.1)",
-    "--color-surface-active": "rgba(255, 255, 255, 0.18)",
-    "--color-border": "rgba(39, 39, 42, 0.8)",
     "--color-text": "#f4f4f5",
-    "--color-text-muted": "#a1a1aa",
     "--color-accent": "#047857",
     "--color-accent-text": "#ffffff",
-    "--color-accent-hover": "#065f46",
     "--color-success": "#10b981",
     "--color-error": "#ef4444",
-    "--color-warning": "#f59e0b",
-    "--color-overlay-xs": "rgba(255, 255, 255, 0.05)",
-    "--color-overlay-sm": "rgba(255, 255, 255, 0.1)",
-    "--color-overlay-md": "rgba(255, 255, 255, 0.15)",
-    "--color-overlay-lg": "rgba(255, 255, 255, 0.25)",
-    "--color-cm-property": "#34d399",
-    "--color-cm-keyword": "#a78bfa",
-    "--color-cm-type": "#6ee7b7",
-    "--color-cm-ai": "#d8b4fe",
-    "--color-scrollbar": "rgba(255, 255, 255, 0.24)"
+    "--color-warning": "#f59e0b"
   }
 }

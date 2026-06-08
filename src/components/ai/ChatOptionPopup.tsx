@@ -112,7 +112,7 @@ export default function ChatOptionPopup(props: Props) {
                       </Show>
                     </div>
                     <div
-                      class={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-all ${
+                      class={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${
                         item.selected
                           ? "bg-accent border-accent text-accent-text"
                           : "border-border"

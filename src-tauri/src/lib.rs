@@ -648,6 +648,75 @@ fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn list_custom_themes() -> Result<Vec<serde_json::Value>, String> {
+    let docs_dir = dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
+    let themes_dir = docs_dir.join("SQL Query Studio").join("Themes");
+    if !themes_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut list = Vec::new();
+    let entries = std::fs::read_dir(&themes_dir)
+        .map_err(|err| format!("Failed to read themes folder: {}", err))?;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        list.push(json);
+                    }
+                }
+            }
+        }
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+fn save_custom_theme(theme: serde_json::Value) -> Result<(), String> {
+    let docs_dir = dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
+    let themes_dir = docs_dir.join("SQL Query Studio").join("Themes");
+    std::fs::create_dir_all(&themes_dir)
+        .map_err(|err| format!("Failed to create themes directory: {}", err))?;
+
+    let id = theme.get("id").and_then(|v| v.as_str()).ok_or("Theme is missing id")?;
+    let sanitized_id: String = id.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
+    if sanitized_id.is_empty() {
+        return Err("Invalid theme ID".to_string());
+    }
+
+    let file_path = themes_dir.join(format!("{}.json", sanitized_id));
+
+    let content = serde_json::to_string_pretty(&theme)
+        .map_err(|err| format!("Failed to serialize theme: {}", err))?;
+
+    std::fs::write(&file_path, content)
+        .map_err(|err| format!("Failed to write theme file: {}", err))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_custom_theme(id: String) -> Result<(), String> {
+    let docs_dir = dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
+    let themes_dir = docs_dir.join("SQL Query Studio").join("Themes");
+
+    let sanitized_id: String = id.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
+    if sanitized_id.is_empty() {
+        return Err("Invalid theme ID".to_string());
+    }
+
+    let file_path = themes_dir.join(format!("{}.json", sanitized_id));
+    if file_path.exists() {
+        std::fs::remove_file(&file_path)
+            .map_err(|err| format!("Failed to delete theme file: {}", err))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_documents_folder() -> Result<String, String> {
     let docs_dir =
         dirs::document_dir().ok_or_else(|| "Failed to get Documents folder".to_string())?;
@@ -2225,6 +2294,9 @@ pub fn run() {
             get_documents_folder,
             pick_folder_dialog,
             open_folder,
+            list_custom_themes,
+            save_custom_theme,
+            delete_custom_theme,
             set_mica_theme,
             store_api_key,
             load_api_key,

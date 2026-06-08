@@ -1,4 +1,51 @@
-/* ─── CodeMirror autocomplete tooltip ─── */
+
+.cm-editor {
+  height: 100%;
+  min-height: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-m);
+  background-color: transparent !important;
+  overflow: hidden !important;
+}
+
+.cm-scroller {
+  overflow: auto !important;
+  min-height: 0;
+}
+
+.cm-editor * {
+  font-family: inherit;
+}
+
+.cm-editor.cm-focused,
+.cm-content,
+.cm-scroller:focus-within,
+.cm-content:focus,
+.cm-editor:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.cm-gutters {
+  background-color: transparent !important;
+  border-right: none !important;
+  color: color-mix(
+    in srgb,
+    var(--color-text-muted) 40%,
+    transparent
+  ) !important;
+}
+
+.cm-selectionBackground,
+.cm-focused .cm-selectionBackground {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent) 30%,
+    transparent
+  ) !important;
+}
+
 
 .cm-tooltip.cm-tooltip-autocomplete {
   background-color: var(--color-surface-panel) !important;
@@ -9,7 +56,7 @@
   overflow: hidden !important;
   transform-origin: top !important;
   animation: cm-slide-up var(--duration-normal) var(--ease-out) !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: var(--shadow-popover) !important;
 }
 
 @keyframes cm-slide-up {
@@ -24,22 +71,22 @@
   }
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul {
+.cm-tooltip.cm-tooltip-autocomplete > ul {
   max-height: 380px !important;
   scrollbar-width: thin !important;
   scrollbar-color: var(--color-scrollbar) transparent !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul::-webkit-scrollbar {
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
   width: 6px !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul::-webkit-scrollbar-thumb {
+.cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb {
   background: var(--color-scrollbar) !important;
   border-radius: 99px !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>li {
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
   padding: 6px 12px !important;
   border-radius: var(--radius-sm) !important;
   margin: 1px 2px !important;
@@ -48,21 +95,23 @@
   gap: var(--spacing-m) !important;
   color: var(--color-text-muted) !important;
   font-size: var(--text-m) !important;
-  transition: all var(--duration-fast) ease !important;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease !important;
   cursor: pointer !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>li:hover {
+.cm-tooltip.cm-tooltip-autocomplete > ul > li:hover {
   background-color: var(--color-surface-hover) !important;
   color: var(--color-text) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] {
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
   background-color: var(--color-accent) !important;
-  color: white !important;
+  color: var(--color-accent-text) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>completion-section {
+.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {
   display: list-item !important;
   padding: 8px 12px 4px !important;
   margin: 2px 2px 0 !important;
@@ -100,8 +149,12 @@
 }
 
 .cm-completionIcon-property {
-  background-color: color-mix(in srgb, var(--color-cm-property), transparent 85%) !important;
-  color: var(--color-cm-property) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 85%
+  ) !important;
+  color: var(--color-accent) !important;
 }
 
 .cm-completionIcon-property::before {
@@ -109,8 +162,12 @@
 }
 
 .cm-completionIcon-keyword {
-  background-color: color-mix(in srgb, var(--color-cm-keyword), transparent 85%) !important;
-  color: var(--color-cm-keyword) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-warning),
+    transparent 85%
+  ) !important;
+  color: var(--color-warning) !important;
 }
 
 .cm-completionIcon-keyword::before {
@@ -118,8 +175,12 @@
 }
 
 .cm-completionIcon-type {
-  background-color: color-mix(in srgb, var(--color-cm-type), transparent 85%) !important;
-  color: var(--color-cm-type) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-success),
+    transparent 85%
+  ) !important;
+  color: var(--color-success) !important;
 }
 
 .cm-completionIcon-type::before {
@@ -127,7 +188,11 @@
 }
 
 .cm-completionIcon-namespace {
-  background-color: color-mix(in srgb, var(--color-accent), transparent 85%) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 85%
+  ) !important;
   color: var(--color-accent) !important;
 }
 
@@ -137,8 +202,12 @@
 
 .cm-completionIcon-constant,
 .cm-completionIcon-variable {
-  background-color: color-mix(in srgb, var(--color-cm-ai), transparent 85%) !important;
-  color: var(--color-cm-ai) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-text-muted),
+    transparent 85%
+  ) !important;
+  color: var(--color-text-muted) !important;
 }
 
 .cm-completionIcon-constant::before,
@@ -147,8 +216,12 @@
 }
 
 .cm-completionIcon-text {
-  background-color: color-mix(in srgb, var(--color-cm-ai), transparent 85%) !important;
-  color: var(--color-cm-ai) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-text-muted),
+    transparent 85%
+  ) !important;
+  color: var(--color-text-muted) !important;
 }
 
 .cm-completionIcon-text::before {
@@ -156,9 +229,16 @@
   font-size: var(--text-icon-xs) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] .cm-completionIcon {
-  background-color: rgba(255, 255, 255, 0.2) !important;
-  color: white !important;
+.cm-tooltip.cm-tooltip-autocomplete
+  > ul
+  > li[aria-selected]
+  .cm-completionIcon {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent-text) 20%,
+    transparent
+  ) !important;
+  color: var(--color-accent-text) !important;
 }
 
 .cm-completionLabel {
@@ -174,8 +254,11 @@
   font-weight: 700 !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete>ul>li[aria-selected] .cm-completionMatchedText {
-  color: white !important;
+.cm-tooltip.cm-tooltip-autocomplete
+  > ul
+  > li[aria-selected]
+  .cm-completionMatchedText {
+  color: var(--color-accent-text) !important;
 }
 
 .cm-completionDetail {
@@ -186,7 +269,6 @@
   color: inherit !important;
 }
 
-/* ─── CodeMirror search/replace panel ─── */
 
 .cm-panels {
   background-color: var(--color-surface-panel) !important;
@@ -216,7 +298,6 @@
   position: relative !important;
 }
 
-/* Reset CodeMirror's default margins */
 .cm-panel.cm-search input,
 .cm-panel.cm-search button,
 .cm-panel.cm-search label {
@@ -277,7 +358,9 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   box-shadow: none !important;
-  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease !important;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease !important;
 }
 
 .cm-panel.cm-search button.cm-search-toggle-replace:hover {
@@ -293,7 +376,9 @@
   transition: transform var(--duration-normal) var(--ease-in-out) !important;
 }
 
-.cm-panel.cm-search[data-replace-open="true"] button.cm-search-toggle-replace svg {
+.cm-panel.cm-search[data-replace-open="true"]
+  button.cm-search-toggle-replace
+  svg {
   transform: rotate(90deg) !important;
 }
 
@@ -305,7 +390,7 @@
 }
 
 .cm-panel.cm-search input,
-.cm-panel.cm-search input[type="checkbox"]+* {
+.cm-panel.cm-search input[type="checkbox"] + * {
   font-family: var(--font-sans) !important;
 }
 
@@ -320,7 +405,10 @@
   border-radius: var(--radius-sm) !important;
   font-size: var(--text-m) !important;
   outline: none !important;
-  transition: background-color var(--duration-normal) var(--ease-in-out), border-color var(--duration-normal) var(--ease-in-out), box-shadow var(--duration-normal) var(--ease-in-out) !important;
+  transition:
+    background-color var(--duration-normal) var(--ease-in-out),
+    border-color var(--duration-normal) var(--ease-in-out),
+    box-shadow var(--duration-normal) var(--ease-in-out) !important;
 }
 
 .cm-panel.cm-search input[type="text"]::placeholder,
@@ -336,7 +424,11 @@
 
 .cm-panel.cm-search input[type="text"]:focus,
 .cm-panel.cm-search input:not([type]):focus {
-  border-color: color-mix(in srgb, var(--color-accent), transparent 60%) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 60%
+  ) !important;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent), transparent 80%) !important;
 }
 
@@ -360,12 +452,15 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   box-shadow: none !important;
-  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease !important;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease !important;
 }
 
 .cm-panel.cm-search button:hover {
   background-color: var(--color-surface-active) !important;
-  border-color: rgba(161, 161, 170, 0.4) !important;
+  border-color: var(--color-border-muted) !important;
   color: var(--color-text) !important;
 }
 
@@ -439,11 +534,17 @@
   border-radius: 3px !important;
   cursor: pointer !important;
   position: relative !important;
-  transition: background-color var(--duration-fast) ease, border-color var(--duration-fast) ease !important;
+  transition:
+    background-color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease !important;
 }
 
 .cm-panel.cm-search input[type="checkbox"]:hover {
-  border-color: color-mix(in srgb, var(--color-border), white 25%) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--color-border),
+    var(--color-text) 25%
+  ) !important;
 }
 
 .cm-panel.cm-search input[type="checkbox"]:checked {
@@ -475,7 +576,6 @@
 .cm-search-input-wrapper input[name="search"] {
   width: 100% !important;
   padding-right: 80px !important;
-  /* Space for the 3 icons */
 }
 
 .cm-search-input-wrapper label.cm-search-option {
@@ -495,7 +595,9 @@
   font-weight: 500 !important;
   margin: 0 !important;
   padding: 0 !important;
-  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease !important;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease !important;
 }
 
 .cm-search-input-wrapper label.cm-search-option input[type="checkbox"] {
@@ -507,8 +609,13 @@
   color: var(--color-text) !important;
 }
 
-.cm-search-input-wrapper label.cm-search-option:has(input[type="checkbox"]:checked) {
-  background-color: color-mix(in srgb, var(--color-accent), transparent 85%) !important;
+.cm-search-input-wrapper
+  label.cm-search-option:has(input[type="checkbox"]:checked) {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 85%
+  ) !important;
   color: var(--color-accent) !important;
 }
 
@@ -534,24 +641,131 @@
 }
 
 .cm-searchMatch {
-  background-color: color-mix(in srgb, var(--color-warning), transparent 70%) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-warning),
+    transparent 70%
+  ) !important;
   outline: 1px solid color-mix(in srgb, var(--color-warning), transparent 40%) !important;
   border-radius: 2px !important;
 }
 
 .cm-searchMatch-selected {
-  background-color: color-mix(in srgb, var(--color-accent), transparent 50%) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 50%
+  ) !important;
   outline: 1px solid var(--color-accent) !important;
 }
 
-/* ─── Minimap Tweaks ─── */
+
 .cm-minimap-gutter,
 .cm-minimap-gutter canvas,
 .cm-minimap-container {
-  max-width: 70px !important;
+  max-width: var(--editor-minimap-width) !important;
 }
 
-/* ─── Lint Diagnostics ─── */
+.cm-minimap-gutter {
+  align-self: stretch !important;
+  background-color: var(--color-surface-panel) !important;
+  border-left: 0 !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  height: 100% !important;
+  margin-left: var(--editor-minimap-code-gap) !important;
+  min-height: 100% !important;
+  overflow: visible !important;
+  padding-left: 8px !important;
+  position: sticky !important;
+  right: 0 !important;
+  top: 0 !important;
+  z-index: 6 !important;
+}
+
+.cm-minimap-gutter::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: calc(-1 * var(--editor-minimap-code-gap)) !important;
+  width: var(--editor-minimap-code-gap) !important;
+  background-color: var(--color-surface-panel) !important;
+  pointer-events: none !important;
+}
+
+.cm-minimap-inner {
+  background-color: var(--color-surface-panel) !important;
+  box-sizing: border-box !important;
+  height: 100% !important;
+  inset: 0 0 0 auto !important;
+  min-height: 100% !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  right: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+}
+
+.cm-minimap-gutter canvas {
+  display: block !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  opacity: 0.82;
+  width: 100% !important;
+}
+
+.cm-minimap-overlay-container {
+  height: 100% !important;
+  inset: 0 !important;
+  position: absolute !important;
+  transition:
+    visibility 0s linear 180ms,
+    opacity 180ms ease !important;
+  width: 100% !important;
+}
+
+.cm-minimap-overlay-container.cm-minimap-overlay-mouse-over {
+  opacity: 0;
+}
+
+.cm-minimap-overlay-container.cm-minimap-overlay-mouse-over:hover,
+.cm-minimap-overlay-container.cm-minimap-overlay-active {
+  opacity: 1;
+  transition:
+    visibility 0s linear 0ms,
+    opacity 120ms ease !important;
+}
+
+.cm-minimap-overlay-container.cm-minimap-overlay-off {
+  display: none !important;
+}
+
+.cm-minimap-overlay {
+  background-color: color-mix(
+    in srgb,
+    var(--color-surface-active) 78%,
+    transparent
+  ) !important;
+  border-block: 0 !important;
+  box-sizing: border-box !important;
+  box-shadow: none !important;
+  cursor: grab !important;
+  min-height: 6px !important;
+  position: absolute !important;
+  right: 0 !important;
+  width: 100% !important;
+}
+
+.cm-minimap-overlay-container.cm-minimap-overlay-active .cm-minimap-overlay {
+  background-color: color-mix(
+    in srgb,
+    var(--color-surface-active) 84%,
+    var(--color-accent) 16%
+  ) !important;
+  cursor: grabbing !important;
+}
+
 .cm-diagnostic {
   font-family: var(--font-sans) !important;
   font-size: var(--text-s) !important;

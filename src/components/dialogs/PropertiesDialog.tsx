@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { loadExecutionPreferences } from "../../lib/settings";
 import { formatSqlDateValue } from "../../lib/sql-date";
 import type { QueryResult } from "../../lib/types";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
-import Tooltip from "../ui/Tooltip";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 export type PropertiesObjectType = ExplorerObjectType | "DATABASE";
 
@@ -122,14 +124,6 @@ export default function PropertiesDialog(props: Props) {
   onMount(async () => {
     requestAnimationFrame(() => setVisible(true));
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-
     try {
       const { sql } = await invoke<{ sql: string }>("generate_object_script", {
         database: props.database,
@@ -179,23 +173,16 @@ export default function PropertiesDialog(props: Props) {
   };
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onClose}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[560px] max-h-[80vh] flex flex-col shadow-2xl"
+      ariaLabel={`${objectTypeLabel(props.objectType)} Properties`}
     >
-      <div
-        class="dialog-surface w-[560px] max-h-[80vh] flex flex-col shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
           <div class="flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-accent/10 text-accent shrink-0">
-              <i
-                class={`fa-solid ${objectTypeIcon(props.objectType)} text-sm`}
-              />
+              <Icon name={objectTypeIcon(props.objectType)} class="text-sm" />
             </div>
             <div class="flex flex-col min-w-0">
               <h2 class="text-m font-semibold text-text">
@@ -209,21 +196,14 @@ export default function PropertiesDialog(props: Props) {
               </p>
             </div>
           </div>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              onClick={props.onClose}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} />
         </div>
 
         <div class="flex-1 overflow-y-auto px-6 py-4 min-h-0">
           <Show when={loading()}>
             <div class="flex items-center gap-3 text-sm text-text-muted py-8 justify-center">
               <div class="w-4 h-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-              Loading properties...
+              Loading properties…
             </div>
           </Show>
 
@@ -264,7 +244,7 @@ export default function PropertiesDialog(props: Props) {
                 onClick={handleCopy}
                 class="btn btn-secondary px-4 py-1.5 gap-2"
               >
-                <i class="fa-solid fa-copy text-[11px]" />
+                <Icon name="copy" class="text-[11px]" />
                 Copy
               </button>
             </Show>
@@ -277,7 +257,6 @@ export default function PropertiesDialog(props: Props) {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

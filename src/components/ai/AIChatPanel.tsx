@@ -30,13 +30,18 @@ import {
   type GeminiModelOption,
 } from "../../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../../lib/ai-tools";
-import { loadAiNotifications, loadExecutionPreferences } from "../../lib/settings";
+import {
+  loadAiNotifications,
+  loadExecutionPreferences,
+} from "../../lib/settings";
 import { formatTimestamp } from "../../lib/sql-date";
 import { useConversationHistory } from "../../hooks/useConversationHistory";
 import ToolsPopup from "./ToolsPopup";
 import ModelPickerPopup, { getModelIcon } from "./ModelPickerPopup";
 import Tooltip from "../ui/Tooltip";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -109,7 +114,8 @@ function timeAgo(ts: number): string {
   if (seconds < 5) return "just now";
   if (seconds < 60) return `${seconds} sec ago`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes === 1 ? "1 minute" : `${minutes} minutes`} ago`;
+  if (minutes < 60)
+    return `${minutes === 1 ? "1 minute" : `${minutes} minutes`} ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours === 1 ? "1 hour" : `${hours} hours`} ago`;
   const days = Math.floor(hours / 24);
@@ -232,7 +238,7 @@ function GroundingFooter(props: { metadata: ChatGroundingMetadata }) {
       </Show>
       <Show when={props.metadata.citations && props.metadata.citations.length}>
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-text-muted">
-          <i class="fa-solid fa-link text-icon-xs opacity-70" />
+          <Icon name="link" class="text-icon-xs opacity-70" />
           <span class="font-semibold">Sources:</span>
           <For each={props.metadata.citations}>
             {(citation, idx) => (
@@ -319,7 +325,7 @@ function ToolsUsedBadge(props: { toolsUsed: string[] }) {
         <For each={props.toolsUsed}>
           {(name) => (
             <span class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-accent text-accent-text text-s font-semibold">
-              <i class="fa-solid fa-wrench text-icon opacity-80" />
+              <Icon name="wrench" class="text-icon opacity-80" />
               {getToolLabel(name)}
             </span>
           )}
@@ -340,10 +346,7 @@ interface Props {
   onPendingMessageHandled?: (id: number) => void;
 }
 
-const REFERENCE_META: Record<
-  ChatReference,
-  { icon: string; label: string }
-> = {
+const REFERENCE_META: Record<ChatReference, { icon: string; label: string }> = {
   editor: { icon: "fa-code", label: "Editor" },
   selected: { icon: "fa-i-cursor", label: "Selected SQL" },
   result: { icon: "fa-message", label: "Result Message" },
@@ -360,7 +363,7 @@ function MessageReferenceTags(props: { references: ChatReference[] }) {
           };
           return (
             <span class="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-surface-panel/60 px-2 py-1 text-s font-semibold text-text">
-              <i class={`fa-solid ${meta.icon} text-icon opacity-70`} />
+              <Icon name={meta.icon} class="text-icon opacity-70" />
               {meta.label}
             </span>
           );
@@ -391,7 +394,7 @@ function ChatAttachmentGrid(props: {
               fallback={
                 <>
                   <div class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-hover text-text-muted">
-                    <i class="fa-solid fa-file-lines text-s" />
+                    <Icon name="file-lines" class="text-s" />
                   </div>
                   <div class="min-w-0 flex-1">
                     <div class="truncate text-s font-medium text-text">
@@ -420,7 +423,7 @@ function ChatAttachmentGrid(props: {
                     class="flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-hover text-text-muted"
                     title={`${attachment.name} — content not retained after reload`}
                   >
-                    <i class="fa-solid fa-image text-l" />
+                    <Icon name="image" class="text-l" />
                     <span class="px-1 text-[9px] truncate max-w-full">
                       {attachment.name}
                     </span>
@@ -440,7 +443,7 @@ function ChatAttachmentGrid(props: {
                 class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border border-border/60 bg-surface-popover/90 text-text transition-colors hover:bg-surface-active"
                 title="Remove attachment"
               >
-                <i class="fa-solid fa-xmark text-[10px]" />
+                <Icon name="xmark" class="text-[10px]" />
               </button>
             </Show>
           </div>
@@ -483,7 +486,7 @@ async function notifyAiResponse(text: string) {
     if (!granted) return;
 
     const trimmed = text.trim().replace(/```[\s\S]*?```/g, "[code]");
-    const body = trimmed.length > 140 ? `${trimmed.slice(0, 137)}...` : trimmed;
+    const body = trimmed.length > 140 ? `${trimmed.slice(0, 137)}…` : trimmed;
     sendNotification({
       title: "SQL Query Studio",
       body: body || "AI assistant has replied",
@@ -539,9 +542,10 @@ export default function AIChatPanel(props: Props) {
   const [selectedModel, setSelectedModel] = createSignal(
     AiService.getModel() ?? "",
   );
-  const [pendingDelete, setPendingDelete] = createSignal<
-    { id: string; title: string } | null
-  >(null);
+  const [pendingDelete, setPendingDelete] = createSignal<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [errorCopied, setErrorCopied] = createSignal(false);
   const [errorExpanded, setErrorExpanded] = createSignal<
     Record<string, boolean>
@@ -717,7 +721,10 @@ export default function AIChatPanel(props: Props) {
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        parts.push({ type: "text", content: text.slice(lastIndex, match.index) });
+        parts.push({
+          type: "text",
+          content: text.slice(lastIndex, match.index),
+        });
       }
       parts.push({ type: "sql", code: match[1].trim() });
       lastIndex = match.index + match[0].length;
@@ -875,62 +882,67 @@ export default function AIChatPanel(props: Props) {
     };
 
     try {
-      await AiService.chatStream(chatMessages, context, {
-        onThoughtDelta: (text) => appendDelta("thought", text),
-        onThoughtEnd: () => {
-          if (isCurrentRequest()) setStreamingThoughtId(null);
-        },
-        onTextDelta: (text) => appendDelta("text", text),
-        onTextEnd: () => {},
-        onToolCall: ({ id, name, args }) => {
-          if (!isCurrentRequest()) return;
-          setMessages((msgs) => [
-            ...msgs,
-            {
-              id: newMsgId(),
-              role: "assistant",
-              kind: "tool_call",
-              content: "",
-              toolCall: { id, name, args, status: "pending" },
-            } as ChatMessage,
-          ]);
-        },
-        onToolResult: (id, output, status) => {
-          if (!isCurrentRequest()) return;
-          setMessages((msgs) =>
-            msgs.map((msg) => {
-              if (
-                msg.role === "assistant" &&
-                msg.kind === "tool_call" &&
-                msg.toolCall?.id === id
-              ) {
-                return {
-                  ...msg,
-                  toolCall: {
-                    ...msg.toolCall,
-                    status,
-                    result: output,
-                  },
-                };
+      await AiService.chatStream(
+        chatMessages,
+        context,
+        {
+          onThoughtDelta: (text) => appendDelta("thought", text),
+          onThoughtEnd: () => {
+            if (isCurrentRequest()) setStreamingThoughtId(null);
+          },
+          onTextDelta: (text) => appendDelta("text", text),
+          onTextEnd: () => {},
+          onToolCall: ({ id, name, args }) => {
+            if (!isCurrentRequest()) return;
+            setMessages((msgs) => [
+              ...msgs,
+              {
+                id: newMsgId(),
+                role: "assistant",
+                kind: "tool_call",
+                content: "",
+                toolCall: { id, name, args, status: "pending" },
+              } as ChatMessage,
+            ]);
+          },
+          onToolResult: (id, output, status) => {
+            if (!isCurrentRequest()) return;
+            setMessages((msgs) =>
+              msgs.map((msg) => {
+                if (
+                  msg.role === "assistant" &&
+                  msg.kind === "tool_call" &&
+                  msg.toolCall?.id === id
+                ) {
+                  return {
+                    ...msg,
+                    toolCall: {
+                      ...msg.toolCall,
+                      status,
+                      result: output,
+                    },
+                  };
+                }
+                return msg;
+              }),
+            );
+          },
+          onGroundingMetadata: (metadata) => {
+            if (!isCurrentRequest()) return;
+            setMessages((msgs) => {
+              for (let i = msgs.length - 1; i >= 0; i--) {
+                const m = msgs[i];
+                if (m.role === "assistant" && (m.kind ?? "text") === "text") {
+                  const updated = { ...m, groundingMetadata: metadata };
+                  return [...msgs.slice(0, i), updated, ...msgs.slice(i + 1)];
+                }
               }
-              return msg;
-            }),
-          );
+              return msgs;
+            });
+          },
         },
-        onGroundingMetadata: (metadata) => {
-          if (!isCurrentRequest()) return;
-          setMessages((msgs) => {
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const m = msgs[i];
-              if (m.role === "assistant" && (m.kind ?? "text") === "text") {
-                const updated = { ...m, groundingMetadata: metadata };
-                return [...msgs.slice(0, i), updated, ...msgs.slice(i + 1)];
-              }
-            }
-            return msgs;
-          });
-        },
-      }, controller.signal);
+        controller.signal,
+      );
 
       if (!isCurrentRequest()) return;
 
@@ -1181,430 +1193,467 @@ export default function AIChatPanel(props: Props) {
 
   return (
     <div
-      class="flex-shrink-0 h-full flex py-3 pr-3 pl-3 gap-1"
+      class="flex-shrink-0 h-full flex min-h-0"
       style={{ width: `${props.width}px` }}
     >
       <div class="resizer resizer-h" onMouseDown={handleResizeStart} />
-      <div class="flex flex-col flex-1 min-w-0 bg-surface-panel border border-border rounded-xl overflow-hidden">
-       <div class="relative flex-1 min-h-0 flex flex-col">
-        <div class="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-header/50">
-          <span class="text-s font-semibold text-text-muted uppercase tracking-wide">
-            Chat
-          </span>
-          <div class="flex items-center gap-1">
-            <Tooltip content="New conversation">
-              <button
-                onClick={handleNewConversation}
-                disabled={messages().length === 0}
-                class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text transition-colors cursor-pointer disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted disabled:cursor-default"
-              >
-                <i class="fa-solid fa-plus text-s" />
-              </button>
-            </Tooltip>
-            <Tooltip content="Chat history">
-              <button
-                onClick={openHistory}
-                class="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-hover text-text-muted hover:text-text transition-colors cursor-pointer"
-              >
-                <i class="fa-solid fa-clock-rotate-left text-s" />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-3 pb-8 space-y-3">
-          <Show when={messages().length === 0}>
-            <div class="text-center text-text-muted text-s py-6 px-2">
-              <i class="fa-solid fa-lightbulb text-base mb-2 opacity-40" />
-              <p>Ask questions or request SQL modifications</p>
+      <div class="app-panel flex flex-col flex-1 min-w-0">
+        <div class="relative flex-1 min-h-0 flex flex-col">
+          <div class="app-panel-header">
+            <span class="app-section-title">Chat</span>
+            <div class="flex items-center gap-1">
+              <Tooltip content="New conversation">
+                <button
+                  onClick={handleNewConversation}
+                  disabled={messages().length === 0}
+                  class="control-icon-btn"
+                >
+                  <Icon name="plus" class="text-s" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Chat history">
+                <button onClick={openHistory} class="control-icon-btn">
+                  <Icon name="clock-rotate-left" class="text-s" />
+                </button>
+              </Tooltip>
             </div>
-          </Show>
+          </div>
 
-          <For each={messages()}>
-            {(msg) => {
-              const msgId = () => msg.id!;
-              const isLast = () =>
-                messages()[messages().length - 1]?.id === msg.id;
-              const kind = () =>
-                msg.role === "assistant" ? msg.kind ?? "text" : "user";
+          <div class="flex-1 overflow-y-auto p-3 pb-8 space-y-3">
+            <Show when={messages().length === 0}>
+              <div class="text-center text-text-muted text-s py-6 px-2">
+                <Icon name="lightbulb" class="text-base mb-2 opacity-40" />
+                <p>Ask questions or request SQL modifications</p>
+              </div>
+            </Show>
 
-              return (
-                <div class="min-w-0">
-                  <Show when={kind() === "user"}>
-                    <div class="w-full min-w-0 overflow-hidden rounded-md px-2.5 py-1.5 select-text bg-accent/20 text-text border border-border/60">
-                      <Show when={msg.references?.length}>
-                        <MessageReferenceTags references={msg.references!} />
-                      </Show>
-                      <Show when={msg.attachments?.length}>
-                        <ChatAttachmentGrid attachments={msg.attachments!} />
-                      </Show>
-                      <div class="text-s whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
-                        {msg.content}
+            <For each={messages()}>
+              {(msg) => {
+                const msgId = () => msg.id!;
+                const isLast = () =>
+                  messages()[messages().length - 1]?.id === msg.id;
+                const kind = () =>
+                  msg.role === "assistant" ? (msg.kind ?? "text") : "user";
+
+                return (
+                  <div class="min-w-0">
+                    <Show when={kind() === "user"}>
+                      <div class="w-full min-w-0 overflow-hidden rounded-md px-2.5 py-1.5 select-text bg-accent/20 text-text border border-border/60">
+                        <Show when={msg.references?.length}>
+                          <MessageReferenceTags references={msg.references!} />
+                        </Show>
+                        <Show when={msg.attachments?.length}>
+                          <ChatAttachmentGrid attachments={msg.attachments!} />
+                        </Show>
+                        <div class="text-s whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
+                          {msg.content}
+                        </div>
                       </div>
-                    </div>
-                  </Show>
+                    </Show>
 
-                  <Show when={kind() === "error"}>
-                    {(() => {
-                      const source = msg.errorMeta?.raw ?? msg.content;
-                      const parsed = parseGeminiError(source);
-                      const code = msg.errorMeta?.code ?? parsed.code;
-                      const status = msg.errorMeta?.status ?? parsed.status;
-                      const leaf = parsed.message;
-                      const rawSource = msg.errorMeta?.raw ?? msg.content;
-                      const explanationText = getGeminiErrorExplanation(
-                        code,
-                        status,
-                      );
-                      const headerBits: string[] = [];
-                      if (code) headerBits.push(`HTTP ${code}`);
-                      if (status) headerBits.push(status);
-                      const expanded = () => !!errorExpanded()[msgId()];
-                      const toggleExpanded = () =>
-                        setErrorExpanded((prev) => ({
-                          ...prev,
-                          [msgId()]: !prev[msgId()],
-                        }));
-                      const showRaw = !!rawSource && rawSource !== leaf;
-                      const copySource = () => {
-                        const parts: string[] = [];
-                        const header = headerBits.join(" · ");
-                        if (header) parts.push(header);
-                        if (explanationText) parts.push(explanationText);
-                        if (leaf) parts.push(leaf);
-                        if (showRaw) parts.push(`Raw:\n${rawSource}`);
-                        return parts.join("\n\n");
-                      };
-                      return (
-                        <div class="w-full min-w-0 overflow-hidden rounded-md border border-error/20 bg-error/10 text-error text-s select-text">
-                          <div class="flex items-start gap-2 px-2.5 py-1.5">
-                            <i class="fa-solid fa-circle-exclamation text-s mt-0.5 flex-shrink-0" />
-                            <div class="min-w-0 flex-1 flex flex-col gap-1">
-                              <Show when={headerBits.length > 0}>
-                                <div class="flex flex-wrap items-center gap-1.5">
-                                  <For each={headerBits}>
-                                    {(bit) => (
-                                      <span class="rounded-sm border border-error/30 bg-error/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
-                                        {bit}
+                    <Show when={kind() === "error"}>
+                      {(() => {
+                        const source = msg.errorMeta?.raw ?? msg.content;
+                        const parsed = parseGeminiError(source);
+                        const code = msg.errorMeta?.code ?? parsed.code;
+                        const status = msg.errorMeta?.status ?? parsed.status;
+                        const leaf = parsed.message;
+                        const rawSource = msg.errorMeta?.raw ?? msg.content;
+                        const explanationText = getGeminiErrorExplanation(
+                          code,
+                          status,
+                        );
+                        const headerBits: string[] = [];
+                        if (code) headerBits.push(`HTTP ${code}`);
+                        if (status) headerBits.push(status);
+                        const expanded = () => !!errorExpanded()[msgId()];
+                        const toggleExpanded = () =>
+                          setErrorExpanded((prev) => ({
+                            ...prev,
+                            [msgId()]: !prev[msgId()],
+                          }));
+                        const showRaw = !!rawSource && rawSource !== leaf;
+                        const copySource = () => {
+                          const parts: string[] = [];
+                          const header = headerBits.join(" · ");
+                          if (header) parts.push(header);
+                          if (explanationText) parts.push(explanationText);
+                          if (leaf) parts.push(leaf);
+                          if (showRaw) parts.push(`Raw:\n${rawSource}`);
+                          return parts.join("\n\n");
+                        };
+                        return (
+                          <div class="w-full min-w-0 overflow-hidden rounded-md border border-error/20 bg-error/10 text-error text-s select-text">
+                            <div class="flex items-start gap-2 px-2.5 py-1.5">
+                              <Icon
+                                name="circle-exclamation"
+                                class="text-s mt-0.5 flex-shrink-0"
+                              />
+                              <div class="min-w-0 flex-1 flex flex-col gap-1">
+                                <Show when={headerBits.length > 0}>
+                                  <div class="flex flex-wrap items-center gap-1.5">
+                                    <For each={headerBits}>
+                                      {(bit) => (
+                                        <span class="rounded-sm border border-error/30 bg-error/15 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
+                                          {bit}
+                                        </span>
+                                      )}
+                                    </For>
+                                  </div>
+                                </Show>
+                                <Show when={explanationText}>
+                                  <div class="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                                    {explanationText}
+                                  </div>
+                                </Show>
+                                <Show when={leaf && leaf !== explanationText}>
+                                  <div class="whitespace-pre-wrap [overflow-wrap:anywhere] text-error/85">
+                                    {leaf}
+                                  </div>
+                                </Show>
+                                <Show when={showRaw}>
+                                  <div class="mt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={toggleExpanded}
+                                      class="inline-flex items-center gap-1 text-xs font-medium text-error/80 hover:text-error transition-colors cursor-pointer"
+                                    >
+                                      <i
+                                        class={`fa-solid ${
+                                          expanded()
+                                            ? "fa-chevron-down"
+                                            : "fa-chevron-right"
+                                        } text-icon-xs`}
+                                      />
+                                      <span>
+                                        {expanded()
+                                          ? "Hide raw error"
+                                          : "Show raw error"}
                                       </span>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                              <Show when={explanationText}>
-                                <div class="whitespace-pre-wrap [overflow-wrap:anywhere]">
-                                  {explanationText}
-                                </div>
-                              </Show>
-                              <Show when={leaf && leaf !== explanationText}>
-                                <div class="whitespace-pre-wrap [overflow-wrap:anywhere] text-error/85">
-                                  {leaf}
-                                </div>
-                              </Show>
-                              <Show when={showRaw}>
-                                <div class="mt-0.5">
-                                  <button
-                                    type="button"
-                                    onClick={toggleExpanded}
-                                    class="inline-flex items-center gap-1 text-xs font-medium text-error/80 hover:text-error transition-colors cursor-pointer"
-                                  >
-                                    <i
-                                      class={`fa-solid ${
-                                        expanded()
-                                          ? "fa-chevron-down"
-                                          : "fa-chevron-right"
-                                      } text-icon-xs`}
-                                    />
-                                    <span>
-                                      {expanded()
-                                        ? "Hide raw error"
-                                        : "Show raw error"}
-                                    </span>
-                                  </button>
-                                  <Show when={expanded()}>
-                                    <pre class="mt-1 max-h-[240px] overflow-auto rounded-sm border border-error/20 bg-error/5 px-2 py-1.5 text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] text-error/90">
-                                      {rawSource}
-                                    </pre>
-                                  </Show>
-                                </div>
-                              </Show>
+                                    </button>
+                                    <Show when={expanded()}>
+                                      <pre class="mt-1 max-h-[240px] overflow-auto rounded-sm border border-error/20 bg-error/5 px-2 py-1.5 text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] text-error/90">
+                                        {rawSource}
+                                      </pre>
+                                    </Show>
+                                  </div>
+                                </Show>
+                              </div>
                             </div>
+                            <Show when={isLast() && !isLoading()}>
+                              <div class="flex justify-end gap-1 border-t border-error/20 bg-error/5 p-1">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(
+                                        copySource(),
+                                      );
+                                      setErrorCopied(true);
+                                      setTimeout(
+                                        () => setErrorCopied(false),
+                                        1500,
+                                      );
+                                    } catch {}
+                                  }}
+                                  class="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-s font-medium text-error transition-colors hover:bg-error/15 cursor-pointer"
+                                >
+                                  <i
+                                    class={`fa-solid ${errorCopied() ? "fa-check" : "fa-copy"} text-icon`}
+                                  />
+                                  <span>
+                                    {errorCopied() ? "Copied" : "Copy error"}
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={handleRetry}
+                                  disabled={isLoading()}
+                                  class="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-s font-medium text-error transition-colors hover:bg-error/15 disabled:opacity-50 disabled:cursor-default cursor-pointer"
+                                >
+                                  <Icon
+                                    name="rotate-right"
+                                    class="text-icon"
+                                  />
+                                  <span>Try again</span>
+                                </button>
+                              </div>
+                            </Show>
                           </div>
-                          <Show when={isLast() && !isLoading()}>
-                            <div class="flex justify-end gap-1 border-t border-error/20 bg-error/5 p-1">
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await navigator.clipboard.writeText(
-                                      copySource(),
-                                    );
-                                    setErrorCopied(true);
-                                    setTimeout(() => setErrorCopied(false), 1500);
-                                  } catch {}
-                                }}
-                                class="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-s font-medium text-error transition-colors hover:bg-error/15 cursor-pointer"
-                              >
-                                <i
-                                  class={`fa-solid ${errorCopied() ? "fa-check" : "fa-copy"} text-icon`}
-                                />
-                                <span>
-                                  {errorCopied() ? "Copied" : "Copy error"}
-                                </span>
-                              </button>
-                              <button
-                                onClick={handleRetry}
-                                disabled={isLoading()}
-                                class="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-s font-medium text-error transition-colors hover:bg-error/15 disabled:opacity-50 disabled:cursor-default cursor-pointer"
-                              >
-                                <i class="fa-solid fa-rotate-right text-icon" />
-                                <span>Try again</span>
-                              </button>
+                        );
+                      })()}
+                    </Show>
+
+                    <Show when={kind() === "thought"}>
+                      {(() => {
+                        const expanded = () => isThoughtExpanded(msgId());
+                        const streaming = () =>
+                          streamingThoughtId() === msgId();
+                        const preview = () => {
+                          const line = lastNonEmptyLine(msg.content);
+                          return line.length > 140
+                            ? line.slice(0, 137) + "…"
+                            : line;
+                        };
+                        return (
+                          <CollapsibleRow
+                            icon="fa-brain"
+                            iconClass={
+                              streaming()
+                                ? "opacity-90 thought-pulse"
+                                : "opacity-70"
+                            }
+                            label={streaming() ? "Thinking" : "Thought"}
+                            preview={preview()}
+                            expanded={expanded()}
+                            onToggle={() => toggleThought(msgId())}
+                          >
+                            <div
+                              class="chat-markdown-content italic"
+                              innerHTML={renderMarkdown(msg.content)}
+                            />
+                          </CollapsibleRow>
+                        );
+                      })()}
+                    </Show>
+
+                    <Show when={kind() === "tool_call" && msg.toolCall}>
+                      {(() => {
+                        const tc = msg.toolCall!;
+                        const expanded = () =>
+                          thoughtOverride()[msgId()] === "expanded";
+                        const toggle = () => {
+                          const next = expanded() ? "collapsed" : "expanded";
+                          setThoughtOverride((prev) => ({
+                            ...prev,
+                            [msgId()]: next,
+                          }));
+                        };
+                        const statusIcon = () => {
+                          if (tc.status === "pending")
+                            return "fa-spinner fa-spin text-text-muted";
+                          if (tc.status === "error")
+                            return "fa-circle-exclamation text-error";
+                          return "fa-check text-accent";
+                        };
+                        const preview = () => {
+                          const text = (tc.result ?? "").trim();
+                          if (!text) return "";
+                          const first =
+                            text.split("\n").find((l) => l.trim().length > 0) ??
+                            "";
+                          return first.length > 140
+                            ? first.slice(0, 137) + "…"
+                            : first;
+                        };
+                        const formatArgs = () => {
+                          if (!tc.args || Object.keys(tc.args).length === 0)
+                            return "";
+                          try {
+                            return JSON.stringify(tc.args, null, 2);
+                          } catch {
+                            return String(tc.args);
+                          }
+                        };
+                        return (
+                          <CollapsibleRow
+                            icon="fa-wrench"
+                            label={getToolLabel(tc.name)}
+                            preview={preview()}
+                            expanded={expanded()}
+                            onToggle={toggle}
+                            trailing={
+                              <i
+                                class={`fa-solid ${statusIcon()} text-icon-xs flex-shrink-0`}
+                              />
+                            }
+                          >
+                            <div class="space-y-2">
+                              <Show when={formatArgs()}>
+                                <pre class="text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] m-0">
+                                  {formatArgs()}
+                                </pre>
+                              </Show>
+                              <Show when={tc.result}>
+                                <pre class="text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] m-0 max-h-[200px] overflow-auto">
+                                  {tc.result}
+                                </pre>
+                              </Show>
                             </div>
+                          </CollapsibleRow>
+                        );
+                      })()}
+                    </Show>
+
+                    <Show when={kind() === "text"}>
+                      <div class="w-full min-w-0 overflow-hidden rounded-md px-2.5 py-1.5 select-text bg-surface-hover text-text border border-border/60">
+                        <div class="text-s leading-relaxed chat-markdown [&>*:first-child]:mt-0">
+                          <Show when={msg.toolsUsed}>
+                            <ToolsUsedBadge toolsUsed={msg.toolsUsed!} />
+                          </Show>
+                          <div class="chat-markdown-content">
+                            <For each={splitChatContent(msg.content)}>
+                              {(part, index) => {
+                                const blockKey = () => `${msgId()}::${index()}`;
+                                return (
+                                  <Show
+                                    when={part.type === "sql"}
+                                    fallback={
+                                      <div
+                                        class="chat-md-chunk"
+                                        innerHTML={renderMarkdown(
+                                          (part as { content: string }).content,
+                                        )}
+                                      />
+                                    }
+                                  >
+                                    {(() => {
+                                      const code = (part as { code: string })
+                                        .code;
+                                      return (
+                                        <div class="chat-sql-block">
+                                          <pre class="chat-sql-pre">
+                                            <code class="language-sql">
+                                              {code}
+                                            </code>
+                                          </pre>
+                                          <div class="chat-sql-actions">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setApplyMenuFor(
+                                                  applyMenuFor() === blockKey()
+                                                    ? null
+                                                    : blockKey(),
+                                                );
+                                              }}
+                                              class="chat-sql-apply"
+                                            >
+                                              <Icon
+                                                name="code"
+                                                class="text-icon"
+                                              />
+                                              <span>Apply to editor</span>
+                                              <Icon
+                                                name="chevron-down"
+                                                class="text-icon-xs opacity-60"
+                                              />
+                                            </button>
+                                            <Show
+                                              when={
+                                                applyMenuFor() === blockKey()
+                                              }
+                                            >
+                                              <div class="popup-menu absolute left-1 bottom-full mb-1 rounded-lg animate-popover-in">
+                                                <button
+                                                  onClick={() =>
+                                                    handleApplyCode(
+                                                      code,
+                                                      "append",
+                                                    )
+                                                  }
+                                                  class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
+                                                >
+                                                  <Icon
+                                                    name="plus"
+                                                    class="text-icon w-3 text-center"
+                                                  />
+                                                  Append to editor
+                                                </button>
+                                                <button
+                                                  onClick={() =>
+                                                    handleApplyCode(
+                                                      code,
+                                                      "replace",
+                                                    )
+                                                  }
+                                                  class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
+                                                >
+                                                  <Icon
+                                                    name="arrow-right-arrow-left"
+                                                    class="text-icon w-3 text-center"
+                                                  />
+                                                  Replace content
+                                                </button>
+                                                <button
+                                                  onClick={() =>
+                                                    handleApplyCode(
+                                                      code,
+                                                      "new-tab",
+                                                    )
+                                                  }
+                                                  class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
+                                                >
+                                                  <Icon
+                                                    name="file-circle-plus"
+                                                    class="text-icon w-3 text-center"
+                                                  />
+                                                  Open in new tab
+                                                </button>
+                                              </div>
+                                            </Show>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                  </Show>
+                                );
+                              }}
+                            </For>
+                          </div>
+                          <Show when={msg.groundingMetadata}>
+                            <GroundingFooter
+                              metadata={msg.groundingMetadata!}
+                            />
                           </Show>
                         </div>
-                      );
-                    })()}
-                  </Show>
-
-                  <Show when={kind() === "thought"}>
-                    {(() => {
-                      const expanded = () => isThoughtExpanded(msgId());
-                      const streaming = () =>
-                        streamingThoughtId() === msgId();
-                      const preview = () => {
-                        const line = lastNonEmptyLine(msg.content);
-                        return line.length > 140
-                          ? line.slice(0, 137) + "..."
-                          : line;
-                      };
-                      return (
-                        <CollapsibleRow
-                          icon="fa-brain"
-                          iconClass={
-                            streaming()
-                              ? "opacity-90 thought-pulse"
-                              : "opacity-70"
-                          }
-                          label={streaming() ? "Thinking" : "Thought"}
-                          preview={preview()}
-                          expanded={expanded()}
-                          onToggle={() => toggleThought(msgId())}
-                        >
-                          <div
-                            class="chat-markdown-content italic"
-                            innerHTML={renderMarkdown(msg.content)}
-                          />
-                        </CollapsibleRow>
-                      );
-                    })()}
-                  </Show>
-
-                  <Show when={kind() === "tool_call" && msg.toolCall}>
-                    {(() => {
-                      const tc = msg.toolCall!;
-                      const expanded = () =>
-                        thoughtOverride()[msgId()] === "expanded";
-                      const toggle = () => {
-                        const next = expanded() ? "collapsed" : "expanded";
-                        setThoughtOverride((prev) => ({
-                          ...prev,
-                          [msgId()]: next,
-                        }));
-                      };
-                      const statusIcon = () => {
-                        if (tc.status === "pending")
-                          return "fa-spinner fa-spin text-text-muted";
-                        if (tc.status === "error")
-                          return "fa-circle-exclamation text-error";
-                        return "fa-check text-accent";
-                      };
-                      const preview = () => {
-                        const text = (tc.result ?? "").trim();
-                        if (!text) return "";
-                        const first =
-                          text.split("\n").find((l) => l.trim().length > 0) ??
-                          "";
-                        return first.length > 140
-                          ? first.slice(0, 137) + "..."
-                          : first;
-                      };
-                      const formatArgs = () => {
-                        if (!tc.args || Object.keys(tc.args).length === 0)
-                          return "";
-                        try {
-                          return JSON.stringify(tc.args, null, 2);
-                        } catch {
-                          return String(tc.args);
-                        }
-                      };
-                      return (
-                        <CollapsibleRow
-                          icon="fa-wrench"
-                          label={getToolLabel(tc.name)}
-                          preview={preview()}
-                          expanded={expanded()}
-                          onToggle={toggle}
-                          trailing={
-                            <i
-                              class={`fa-solid ${statusIcon()} text-icon-xs flex-shrink-0`}
-                            />
-                          }
-                        >
-                          <div class="space-y-2">
-                            <Show when={formatArgs()}>
-                              <pre class="text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] m-0">
-                                {formatArgs()}
-                              </pre>
-                            </Show>
-                            <Show when={tc.result}>
-                              <pre class="text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] m-0 max-h-[200px] overflow-auto">
-                                {tc.result}
-                              </pre>
-                            </Show>
-                          </div>
-                        </CollapsibleRow>
-                      );
-                    })()}
-                  </Show>
-
-                  <Show when={kind() === "text"}>
-                    <div class="w-full min-w-0 overflow-hidden rounded-md px-2.5 py-1.5 select-text bg-surface-hover text-text border border-border/60">
-                      <div class="text-s leading-relaxed chat-markdown [&>*:first-child]:mt-0">
-                        <Show when={msg.toolsUsed}>
-                          <ToolsUsedBadge toolsUsed={msg.toolsUsed!} />
-                        </Show>
-                        <div class="chat-markdown-content">
-                          <For each={splitChatContent(msg.content)}>
-                            {(part, index) => {
-                              const blockKey = () =>
-                                `${msgId()}::${index()}`;
-                              return (
-                                <Show
-                                  when={part.type === "sql"}
-                                  fallback={
-                                    <div
-                                      class="chat-md-chunk"
-                                      innerHTML={renderMarkdown(
-                                        (part as { content: string }).content,
-                                      )}
-                                    />
-                                  }
-                                >
-                                  {(() => {
-                                    const code = (part as { code: string }).code;
-                                    return (
-                                      <div class="chat-sql-block">
-                                        <pre class="chat-sql-pre">
-                                          <code class="language-sql">{code}</code>
-                                        </pre>
-                                        <div class="chat-sql-actions">
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setApplyMenuFor(
-                                                applyMenuFor() === blockKey()
-                                                  ? null
-                                                  : blockKey(),
-                                              );
-                                            }}
-                                            class="chat-sql-apply"
-                                          >
-                                            <i class="fa-solid fa-code text-icon" />
-                                            <span>Apply to editor</span>
-                                            <i class="fa-solid fa-chevron-down text-icon-xs opacity-60" />
-                                          </button>
-                                          <Show
-                                            when={applyMenuFor() === blockKey()}
-                                          >
-                                            <div class="popup-menu absolute left-1 bottom-full mb-1 rounded-lg animate-popover-in">
-                                              <button
-                                                onClick={() =>
-                                                  handleApplyCode(code, "append")
-                                                }
-                                                class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
-                                              >
-                                                <i class="fa-solid fa-plus text-icon w-3 text-center" />
-                                                Append to editor
-                                              </button>
-                                              <button
-                                                onClick={() =>
-                                                  handleApplyCode(code, "replace")
-                                                }
-                                                class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
-                                              >
-                                                <i class="fa-solid fa-arrow-right-arrow-left text-icon w-3 text-center" />
-                                                Replace content
-                                              </button>
-                                              <button
-                                                onClick={() =>
-                                                  handleApplyCode(code, "new-tab")
-                                                }
-                                                class="popup-menu-item rounded-md mx-1 w-[calc(100%-8px)]"
-                                              >
-                                                <i class="fa-solid fa-file-circle-plus text-icon w-3 text-center" />
-                                                Open in new tab
-                                              </button>
-                                            </div>
-                                          </Show>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </Show>
-                              );
-                            }}
-                          </For>
-                        </div>
-                        <Show when={msg.groundingMetadata}>
-                          <GroundingFooter metadata={msg.groundingMetadata!} />
-                        </Show>
                       </div>
-                    </div>
-                  </Show>
-                </div>
-              );
-            }}
-          </For>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
 
-          <Show when={showThinkingSpinner()}>
-            <div class="flex justify-start">
-              <div class="bg-surface-hover rounded-md px-2.5 py-1.5">
-                <div class="flex items-center gap-1.5 text-s text-text-muted">
-                  <i class="fa-solid fa-spinner fa-spin text-s" />
-                  <span>Thinking...</span>
-                </div>
-              </div>
-            </div>
-          </Show>
-
-          <Show when={error()}>
-            {(err) => (
-              <div class="w-full min-w-0 rounded-md border border-error/20 bg-error/10 text-error px-2.5 py-1.5 text-s select-text">
-                <div class="flex items-start gap-1.5">
-                  <i class="fa-solid fa-circle-exclamation text-s mt-0.5 flex-shrink-0" />
-                  <div class="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                    {err()}
+            <Show when={showThinkingSpinner()}>
+              <div class="flex justify-start">
+                <div class="bg-surface-hover rounded-md px-2.5 py-1.5">
+                  <div class="flex items-center gap-1.5 text-s text-text-muted">
+                    <Icon name="spinner" class="fa-spin text-s" />
+                    <span>Thinking…</span>
                   </div>
                 </div>
               </div>
-            )}
-          </Show>
+            </Show>
 
-          <div ref={messagesEndRef} />
+            <Show when={error()}>
+              {(err) => (
+                <div class="w-full min-w-0 rounded-md border border-error/20 bg-error/10 text-error px-2.5 py-1.5 text-s select-text">
+                  <div class="flex items-start gap-1.5">
+                    <Icon
+                      name="circle-exclamation"
+                      class="text-s mt-0.5 flex-shrink-0"
+                    />
+                    <div class="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                      {err()}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Show>
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          <Show when={showTools() || showModelPicker()}>
+            <div
+              class="chat-panel-backdrop absolute inset-0 z-30 animate-popover-in cursor-pointer"
+              onClick={() => {
+                setShowTools(false);
+                setShowModelPicker(false);
+              }}
+            />
+          </Show>
         </div>
 
-        <Show when={showTools() || showModelPicker()}>
-          <div
-            class="chat-panel-backdrop absolute inset-0 z-30 animate-popover-in cursor-pointer"
-            onClick={() => {
-              setShowTools(false);
-              setShowModelPicker(false);
-            }}
-          />
-        </Show>
-       </div>
-
-        <div class="border-t border-border p-3 bg-surface-header/30 relative">
+        <div class="chat-composer-frame relative m-3 mt-0 p-2">
           <Show when={showTools()}>
             <ToolsPopup
               anchorRef={toolsButtonRef!}
@@ -1637,10 +1686,10 @@ export default function AIChatPanel(props: Props) {
                 }
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder="Ask about your SQL, or paste a reference file..."
+                placeholder="Ask about your SQL, or paste a reference file…"
                 disabled={isLoading()}
                 rows={1}
-                class="w-full bg-surface-panel border border-border rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-all resize-none disabled:opacity-50 overflow-hidden"
+                class="w-full bg-surface-header/30 border border-border/30 rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-colors resize-none disabled:opacity-50 overflow-hidden"
                 style={{ height: "38px", "max-height": "150px" }}
               />
               <div class="flex items-center justify-between gap-2">
@@ -1661,7 +1710,7 @@ export default function AIChatPanel(props: Props) {
                       }
                       class="btn btn-secondary btn-compact"
                     >
-                      <i class="fa-solid fa-paperclip text-icon" />
+                      <Icon name="paperclip" class="text-icon" />
                       <span>Reference</span>
                     </button>
                   </Tooltip>
@@ -1674,7 +1723,7 @@ export default function AIChatPanel(props: Props) {
                       }`}
                       disabled={isLoading()}
                     >
-                      <i class="fa-solid fa-wrench text-icon" />
+                      <Icon name="wrench" class="text-icon" />
                       <span>Tools</span>
                     </button>
                   </Tooltip>
@@ -1690,7 +1739,9 @@ export default function AIChatPanel(props: Props) {
                         }`}
                         disabled={isLoading()}
                       >
-                        <i class={`fa-solid ${getModelIcon(selectedModel())} text-icon`} />
+                        <i
+                          class={`fa-solid ${getModelIcon(selectedModel())} text-icon`}
+                        />
                         <span class="truncate max-w-[120px]">
                           {selectedModelLabel()}
                         </span>
@@ -1705,14 +1756,12 @@ export default function AIChatPanel(props: Props) {
               fallback={
                 <button
                   onClick={handleSendMessage}
-                  disabled={
-                    !input().trim() && draftAttachments().length === 0
-                  }
+                  disabled={!input().trim() && draftAttachments().length === 0}
                   title="Send"
                   aria-label="Send message"
-                  class="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-accent text-accent-text hover:bg-accent-hover transition-all active:scale-95 disabled:bg-surface-hover disabled:text-text-muted disabled:shadow-none disabled:cursor-default cursor-pointer"
+                  class="chat-send-btn"
                 >
-                  <i class="fa-solid fa-paper-plane text-s" />
+                  <Icon name="paper-plane" class="text-s" />
                 </button>
               }
             >
@@ -1720,9 +1769,9 @@ export default function AIChatPanel(props: Props) {
                 onClick={() => abortActiveRequest("restore-baseline")}
                 title="Stop generating"
                 aria-label="Stop generating"
-                class="mt-[6px] w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center rounded-md bg-error/15 text-error border border-error/30 hover:bg-error/25 transition-all active:scale-95 cursor-pointer"
+                class="chat-send-btn chat-stop-btn"
               >
-                <i class="fa-solid fa-stop text-s" />
+                <Icon name="stop" class="text-s" />
               </button>
             </Show>
           </div>
@@ -1731,22 +1780,20 @@ export default function AIChatPanel(props: Props) {
 
       <Show when={showHistory() && portalTarget()}>
         <Portal mount={portalTarget()!}>
-          <div
-            class="dialog-overlay items-start !pt-12"
-            data-visible={historyVisible()}
-            onMouseDown={closeHistory}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Chat history"
+          <DialogShell
+            visible={historyVisible()}
+            onClose={closeHistory}
+            overlayClass="items-start !pt-12"
+            class="mx-4 flex w-full max-w-[36rem] flex-col shadow-2xl"
+            ariaLabel="Chat history"
           >
-            <div class="mx-auto flex h-full w-full max-w-[36rem] flex-col px-4">
-              <div
-                class="dialog-surface flex flex-col shadow-2xl"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
+            <div class="flex h-full w-full flex-col">
                 <div class="px-2 py-2">
                   <div class="relative flex items-center">
-                    <i class="fa-solid fa-clock-rotate-left pointer-events-none absolute left-4 text-text-muted" />
+                    <Icon
+                      name="clock-rotate-left"
+                      class="pointer-events-none absolute left-4 text-text-muted"
+                    />
                     <input
                       ref={historyInputRef}
                       value={historySearch()}
@@ -1755,12 +1802,17 @@ export default function AIChatPanel(props: Props) {
                         setHistoryFocusIndex(-1);
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Escape") { closeHistory(); return; }
+                        if (e.key === "Escape") {
+                          closeHistory();
+                          return;
+                        }
                         const list = filteredConversations();
                         if (list.length === 0) return;
                         if (e.key === "ArrowDown") {
                           e.preventDefault();
-                          setHistoryFocusIndex((i) => Math.min(i + 1, list.length - 1));
+                          setHistoryFocusIndex((i) =>
+                            Math.min(i + 1, list.length - 1),
+                          );
                           return;
                         }
                         if (e.key === "ArrowUp") {
@@ -1771,7 +1823,8 @@ export default function AIChatPanel(props: Props) {
                         if (e.key === "Enter") {
                           e.preventDefault();
                           const idx = historyFocusIndex();
-                          if (idx >= 0 && idx < list.length) void handleLoadConversation(list[idx].id);
+                          if (idx >= 0 && idx < list.length)
+                            void handleLoadConversation(list[idx].id);
                           return;
                         }
                         if (e.key === "Delete") {
@@ -1783,7 +1836,7 @@ export default function AIChatPanel(props: Props) {
                           return;
                         }
                       }}
-                      placeholder="Search conversations..."
+                      placeholder="Search conversations…"
                       spellcheck={false}
                       class="h-12 w-full bg-transparent pl-11 pr-4 text-base text-text placeholder-text-muted outline-none"
                     />
@@ -1793,7 +1846,7 @@ export default function AIChatPanel(props: Props) {
                 <div class="max-h-[58vh] overflow-y-auto p-2 space-y-1">
                   <Show when={filteredConversations().length === 0}>
                     <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                      <i class="fa-solid fa-comments text-2xl opacity-40" />
+                      <Icon name="comments" class="text-2xl opacity-40" />
                       <p class="text-m">
                         {historySearch().trim()
                           ? "No matching conversations"
@@ -1804,12 +1857,15 @@ export default function AIChatPanel(props: Props) {
                   <For each={filteredConversations()}>
                     {(conv, index) => {
                       const formatDate = (ts: number) =>
-                        formatTimestamp(ts, loadExecutionPreferences().appDateFormat);
+                        formatTimestamp(
+                          ts,
+                          loadExecutionPreferences().appDateFormat,
+                        );
                       const isActive = () => history.activeId() === conv.id;
                       const isFocused = () => historyFocusIndex() === index();
                       return (
                         <div
-                          class={`rounded-xl border transition-all duration-200 ${
+                          class={`rounded-xl border transition-colors duration-200 ${
                             isFocused()
                               ? "border-accent/30 bg-accent/5"
                               : isActive()
@@ -1821,22 +1877,32 @@ export default function AIChatPanel(props: Props) {
                             <button
                               type="button"
                               class="min-w-0 flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-left transition-colors"
-                              onClick={() => void handleLoadConversation(conv.id)}
+                              onClick={() =>
+                                void handleLoadConversation(conv.id)
+                              }
                             >
-                              <div class={`truncate text-m font-semibold ${isActive() ? "text-accent" : "text-text"}`}>{conv.title}</div>
+                              <div
+                                class={`truncate text-m font-semibold ${isActive() ? "text-accent" : "text-text"}`}
+                              >
+                                {conv.title}
+                              </div>
                               <div class="mt-0.5 text-s text-text-muted truncate">
-                                {timeAgo(conv.updated_at)} · {formatDate(conv.updated_at)}
+                                {timeAgo(conv.updated_at)} ·{" "}
+                                {formatDate(conv.updated_at)}
                               </div>
                             </button>
                             <Tooltip content="Delete">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  requestDeleteConversation(conv.id, conv.title);
+                                  requestDeleteConversation(
+                                    conv.id,
+                                    conv.title,
+                                  );
                                 }}
-                                class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border/50 bg-surface-header text-text-muted transition-all hover:border-error/40 hover:bg-error/10 hover:text-error cursor-pointer"
+                                class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border/50 bg-surface-header text-text-muted transition-colors hover:border-error/40 hover:bg-error/10 hover:text-error cursor-pointer"
                               >
-                                <i class="fa-solid fa-trash text-[10px]" />
+                                <Icon name="trash" class="text-[10px]" />
                               </button>
                             </Tooltip>
                           </div>
@@ -1845,9 +1911,8 @@ export default function AIChatPanel(props: Props) {
                     }}
                   </For>
                 </div>
-              </div>
             </div>
-          </div>
+          </DialogShell>
         </Portal>
       </Show>
 

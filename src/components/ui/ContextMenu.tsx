@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
+import { Icon } from "./Icons";
 
 export interface ContextMenuItem {
   id: string;
@@ -132,7 +133,7 @@ export default function ContextMenu(props: Props) {
         disabled={item.disabled}
       >
         {item.icon && (
-          <span class="w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-90 text-white [&_i]:!text-white [&_svg]:!text-white">
+          <span class="w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-90">
             {item.icon}
           </span>
         )}
@@ -141,7 +142,7 @@ export default function ContextMenu(props: Props) {
           <span class="text-text-muted text-3xs ml-4">{item.shortcut}</span>
         )}
         {item.children && !isSubmenuItem && (
-          <i class="fa-solid fa-chevron-right text-icon-xs text-white/50" />
+          <Icon name="chevron-right" class="text-icon-xs text-text-muted" />
         )}
       </button>
     );

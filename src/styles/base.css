@@ -19,7 +19,12 @@
   }
 
   .smooth-transition {
-    transition: all var(--duration-slow) var(--ease-in-out);
+    transition:
+      background-color var(--duration-slow) var(--ease-in-out),
+      border-color var(--duration-slow) var(--ease-in-out),
+      color var(--duration-slow) var(--ease-in-out),
+      opacity var(--duration-slow) var(--ease-in-out),
+      transform var(--duration-slow) var(--ease-in-out);
   }
 
   .slide-down-item {
@@ -39,8 +44,8 @@
   }
 
   ::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
   }
 
   ::-webkit-scrollbar-track {
@@ -62,14 +67,15 @@
   ::-webkit-scrollbar-thumb {
     background: var(--color-scrollbar);
     background-clip: padding-box;
-    border: 3px solid transparent;
+    border: 4px solid transparent;
     border-radius: 9999px;
+    min-height: 40px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-muted);
+    background: color-mix(in srgb, var(--color-scrollbar) 50%, white);
     background-clip: padding-box;
-    border: 3px solid transparent;
+    border: 4px solid transparent;
   }
 
   .accordion-content {
@@ -97,4 +103,4 @@
   .scrollbar-gutter-stable {
     scrollbar-gutter: stable;
   }
-}
+}

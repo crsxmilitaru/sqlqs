@@ -36,7 +36,7 @@ import {
   searchKeymap,
   searchPanelOpen,
 } from "@codemirror/search";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { SyntaxNode } from "@lezer/common";
 import {
@@ -49,7 +49,6 @@ import {
   ViewPlugin,
   ViewUpdate,
 } from "@codemirror/view";
-import { showMinimap } from "@replit/codemirror-minimap";
 import { invoke } from "@tauri-apps/api/core";
 import {
   createEffect,
@@ -58,10 +57,10 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { getModifierKeyLabel } from "../../lib/platform";
 import { loadEditorPreferences } from "../../lib/settings";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { sqlLinter } from "../../lib/sql-linter";
+import type { ThemeSelection } from "../../lib/theme";
 import type { DatabaseSchemaCatalogEntry } from "../../lib/types";
 
 const searchScrollbarPlugin = ViewPlugin.fromClass(
@@ -103,6 +102,7 @@ const searchScrollbarPlugin = ViewPlugin.fromClass(
       const scrollbarWidth = scroller.offsetWidth - scroller.clientWidth;
       const minimapWidth = minimapGutter ? minimapGutter.offsetWidth : 0;
       this.dom.style.right = `${minimapWidth + scrollbarWidth}px`;
+      this.dom.style.display = minimapGutter ? "none" : "block";
 
       if (!query || !query.valid || !query.search) return;
 
@@ -137,7 +137,7 @@ interface Props {
   onChange: (value: string) => void;
   onExecute: (selectedSql?: string) => void;
   readOnly?: boolean;
-  theme: { id: string };
+  theme: ThemeSelection;
   currentDatabase?: string;
   onContextMenu?: (e: MouseEvent) => void;
   onRef?: (handle: SqlEditorHandle) => void;
@@ -226,6 +226,7 @@ const TABLE_ALIAS_STOP_WORDS = new Set(
   ),
 );
 const SCHEMA_CATALOG_TTL_MS = 5 * 60 * 1000;
+const SCHEMA_CATALOG_MAX_ENTRIES = 24;
 
 const schemaCatalogCache = new Map<
   string,
@@ -233,6 +234,23 @@ const schemaCatalogCache = new Map<
 >();
 const schemaCatalogLoaders = new Map<string, Promise<SchemaCatalog>>();
 let schemaCatalogGeneration = 0;
+
+function trimSchemaCatalogCache() {
+  const now = Date.now();
+  for (const [database, cached] of schemaCatalogCache) {
+    if (cached.expiresAt <= now) {
+      schemaCatalogCache.delete(database);
+    }
+  }
+
+  while (schemaCatalogCache.size > SCHEMA_CATALOG_MAX_ENTRIES) {
+    const oldestDatabase = schemaCatalogCache.keys().next().value as
+      | string
+      | undefined;
+    if (!oldestDatabase) break;
+    schemaCatalogCache.delete(oldestDatabase);
+  }
+}
 
 function getCachedSchemaCatalog(database: string): SchemaCatalog | undefined {
   const cached = schemaCatalogCache.get(database);
@@ -245,7 +263,18 @@ function getCachedSchemaCatalog(database: string): SchemaCatalog | undefined {
     return undefined;
   }
 
+  schemaCatalogCache.delete(database);
+  schemaCatalogCache.set(database, cached);
   return cached.catalog;
+}
+
+function setCachedSchemaCatalog(database: string, catalog: SchemaCatalog) {
+  schemaCatalogCache.delete(database);
+  schemaCatalogCache.set(database, {
+    catalog,
+    expiresAt: Date.now() + SCHEMA_CATALOG_TTL_MS,
+  });
+  trimSchemaCatalogCache();
 }
 
 export function invalidateSchemaCatalog(database?: string) {
@@ -370,10 +399,7 @@ async function loadSchemaCatalog(database: string): Promise<SchemaCatalog> {
   )
     .then((entries) => {
       const catalog = buildSchemaCatalog(entries);
-      schemaCatalogCache.set(database, {
-        catalog,
-        expiresAt: Date.now() + SCHEMA_CATALOG_TTL_MS,
-      });
+      setCachedSchemaCatalog(database, catalog);
       return catalog;
     })
     .finally(() => {
@@ -1070,6 +1096,94 @@ function capPerSection(options: Completion[], query: string): Completion[] {
 }
 
 const sqlKeywordSource = keywordCompletionSource(MSSQL, true);
+const EDITOR_LINE_GUTTER_CODE_GAP = 11;
+const EDITOR_LINE_GUTTER_NUMBER_GAP = 4;
+const EDITOR_CONTENT_LEFT_MARGIN = 0;
+const EDITOR_LINE_START_PADDING = 0;
+const EDITOR_LINE_END_PADDING = 8;
+const EDITOR_MINIMAP_WIDTH = 70;
+const MINIMAP_CODE_GAP = 10;
+const MINIMAP_MIN_OVERLAY_HEIGHT = 14;
+const MINIMAP_MAX_PIXEL_RATIO = 2;
+const MINIMAP_SQL_KEYWORDS = new Set(
+  [
+    "ADD",
+    "AND",
+    "AS",
+    "ASC",
+    "BETWEEN",
+    "BY",
+    "CASE",
+    "CAST",
+    "COALESCE",
+    "COUNT",
+    "CREATE",
+    "CROSS",
+    "CURRENT_DATE",
+    "DELETE",
+    "DESC",
+    "DISTINCT",
+    "ELSE",
+    "END",
+    "EXISTS",
+    "FROM",
+    "FULL",
+    "GROUP",
+    "HAVING",
+    "IN",
+    "INNER",
+    "INSERT",
+    "INTERVAL",
+    "INTO",
+    "IS",
+    "JOIN",
+    "LEFT",
+    "LIKE",
+    "LIMIT",
+    "NOT",
+    "NULL",
+    "ON",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "PARTITION",
+    "RIGHT",
+    "SELECT",
+    "SET",
+    "SUM",
+    "THEN",
+    "TRUE",
+    "UNION",
+    "UPDATE",
+    "UPPER",
+    "WHEN",
+    "WHERE",
+    "WITH",
+  ].map((keyword) => keyword.toUpperCase()),
+);
+
+type FillMinimapColors = {
+  comment: string;
+  keyword: string;
+  number: string;
+  operator: string;
+  property: string;
+  search: string;
+  string: string;
+};
+
+type FillMinimapMetrics = {
+  clientHeight: number;
+  height: number;
+  maxScrollTop: number;
+  overlayHeight: number;
+  overlayTop: number;
+  pixelRatio: number;
+  scale: number;
+  scrollHeight: number;
+  width: number;
+};
 
 async function wrappedKeywordSource(
   context: CompletionContext,
@@ -1095,15 +1209,488 @@ function buildFontTheme(family: string, size: number) {
   });
 }
 
-function buildMinimapExt() {
-  return showMinimap.of({
-    create: () => {
-      const dom = document.createElement("div");
-      dom.className = "cm-minimap-container";
-      return { dom };
+const editorGutterTheme = EditorView.theme({
+  "&": {
+    "--editor-line-gutter-code-gap": `${EDITOR_LINE_GUTTER_CODE_GAP}px`,
+    "--editor-line-gutter-number-gap": `${EDITOR_LINE_GUTTER_NUMBER_GAP}px`,
+    "--editor-content-left-margin": `${EDITOR_CONTENT_LEFT_MARGIN}px`,
+    "--editor-line-start-padding": `${EDITOR_LINE_START_PADDING}px`,
+    "--editor-line-end-padding": `${EDITOR_LINE_END_PADDING}px`,
+    "--editor-minimap-width": `${EDITOR_MINIMAP_WIDTH}px`,
+    "--editor-minimap-code-gap": `${MINIMAP_CODE_GAP}px`,
+    "--editor-active-line-bg":
+      "color-mix(in srgb, var(--color-surface-panel) 95%, var(--color-text))",
+  },
+  ".cm-scroller > .cm-gutters-before": {
+    backgroundColor: "var(--color-surface-panel)",
+    borderRight: "0",
+    boxShadow: "none",
+    left: "0",
+    overflow: "visible",
+    paddingRight: `${EDITOR_LINE_GUTTER_CODE_GAP}px`,
+    position: "sticky",
+    zIndex: "300",
+  },
+  ".cm-scroller > .cm-gutters-before::after": {
+    backgroundColor: "var(--color-surface-panel)",
+    bottom: "0",
+    content: '""',
+    pointerEvents: "none",
+    position: "absolute",
+    right: "0",
+    top: "0",
+    width: `${EDITOR_LINE_GUTTER_CODE_GAP}px`,
+    zIndex: "1",
+  },
+  ".cm-scroller > .cm-gutters-before .cm-gutter": {
+    backgroundColor: "var(--color-surface-panel)",
+    overflow: "visible",
+    position: "relative",
+    zIndex: "2",
+  },
+  ".cm-scroller > .cm-gutters-before .cm-gutterElement": {
+    backgroundColor: "var(--color-surface-panel)",
+  },
+  ".cm-lineNumbers .cm-gutterElement": {
+    minWidth: "3ch",
+    padding: `0 ${EDITOR_LINE_GUTTER_NUMBER_GAP}px 0 4px`,
+    textAlign: "right",
+  },
+  ".cm-activeLine": {
+    backgroundColor: "var(--editor-active-line-bg)",
+  },
+  ".cm-scroller > .cm-gutters-before .cm-activeLineGutter": {
+    backgroundColor: "var(--editor-active-line-bg)",
+    boxShadow: "none",
+    position: "relative",
+    zIndex: "3",
+  },
+  ".cm-scroller > .cm-gutters-before .cm-activeLineGutter::after": {
+    backgroundColor: "var(--editor-active-line-bg)",
+    bottom: "0",
+    content: '""',
+    left: "100%",
+    pointerEvents: "none",
+    position: "absolute",
+    top: "0",
+    width: `${EDITOR_LINE_GUTTER_CODE_GAP}px`,
+  },
+  ".cm-scroller > .cm-gutters-before + .cm-content": {
+    paddingLeft: `${EDITOR_CONTENT_LEFT_MARGIN}px`,
+  },
+  ".cm-line": {
+    padding: `0 ${EDITOR_LINE_END_PADDING}px 0 ${EDITOR_LINE_START_PADDING}px`,
+  },
+  "&.cm-minimap-enabled .cm-line": {
+    paddingRight: `${
+      EDITOR_MINIMAP_WIDTH + MINIMAP_CODE_GAP + EDITOR_LINE_END_PADDING
+    }px`,
+  },
+});
+
+const editorSafeAreaScrollMargins = EditorView.scrollMargins.of((view) => {
+  const beforeGutter = view.dom.querySelector(
+    ".cm-gutters-before",
+  ) as HTMLElement | null;
+  const minimapGutter = view.dom.querySelector(
+    ".cm-minimap-gutter",
+  ) as HTMLElement | null;
+
+  return {
+    left:
+      (beforeGutter?.offsetWidth ?? 0) +
+      EDITOR_LINE_GUTTER_CODE_GAP +
+      EDITOR_CONTENT_LEFT_MARGIN +
+      EDITOR_LINE_START_PADDING,
+    right: minimapGutter
+      ? minimapGutter.offsetWidth + MINIMAP_CODE_GAP + EDITOR_LINE_END_PADDING
+      : EDITOR_LINE_END_PADDING,
+  };
+});
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+const fillMinimapPlugin = ViewPlugin.fromClass(
+  class {
+    private canvas: HTMLCanvasElement;
+    private dom: HTMLElement;
+    private dragOffsetY: number | null = null;
+    private frame: number | null = null;
+    private inner: HTMLElement;
+    private overlay: HTMLElement;
+    private overlayContainer: HTMLElement;
+    view: EditorView;
+
+    constructor(view: EditorView) {
+      this.view = view;
+      this.dom = document.createElement("div");
+      this.dom.className = "cm-gutters cm-minimap-container cm-minimap-gutter";
+      this.dom.style.width = `${EDITOR_MINIMAP_WIDTH}px`;
+
+      this.inner = document.createElement("div");
+      this.inner.className = "cm-minimap-inner";
+
+      this.canvas = document.createElement("canvas");
+
+      this.overlayContainer = document.createElement("div");
+      this.overlayContainer.className =
+        "cm-minimap-overlay-container cm-minimap-overlay-mouse-over";
+      this.overlay = document.createElement("div");
+      this.overlay.className = "cm-minimap-overlay";
+
+      this.overlayContainer.appendChild(this.overlay);
+      this.inner.appendChild(this.canvas);
+      this.inner.appendChild(this.overlayContainer);
+      this.dom.appendChild(this.inner);
+      view.scrollDOM.insertBefore(this.dom, view.contentDOM.nextSibling);
+
+      this.overlayContainer.addEventListener("mousedown", this.onMouseDown);
+      window.addEventListener("mousemove", this.onMouseMove);
+      window.addEventListener("mouseup", this.onMouseUp);
+      this.schedule(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (
+        update.docChanged ||
+        update.geometryChanged ||
+        update.viewportChanged ||
+        update.selectionSet ||
+        !getSearchQuery(update.startState).eq(getSearchQuery(update.state))
+      ) {
+        this.schedule(update.view);
+      }
+    }
+
+    destroy() {
+      if (this.frame !== null) {
+        cancelAnimationFrame(this.frame);
+      }
+      this.overlayContainer.removeEventListener("mousedown", this.onMouseDown);
+      window.removeEventListener("mousemove", this.onMouseMove);
+      window.removeEventListener("mouseup", this.onMouseUp);
+      this.dom.remove();
+    }
+
+    schedule(view: EditorView) {
+      if (this.frame !== null) {
+        cancelAnimationFrame(this.frame);
+      }
+
+      this.frame = requestAnimationFrame(() => {
+        this.frame = null;
+        this.apply(view);
+      });
+    }
+
+    private apply(view: EditorView) {
+      this.view = view;
+      const metrics = this.measure();
+      const context = this.prepareCanvas(metrics);
+      if (!context) return;
+
+      this.drawDocument(context, metrics);
+      this.drawSearchMatches(context, metrics);
+      this.updateOverlay(metrics);
+    }
+
+    private measure(): FillMinimapMetrics {
+      const width = Math.max(
+        1,
+        Math.floor(this.dom.getBoundingClientRect().width || EDITOR_MINIMAP_WIDTH),
+      );
+      const height = Math.max(
+        1,
+        Math.floor(
+          this.view.scrollDOM.clientHeight ||
+            this.view.dom.getBoundingClientRect().height,
+        ),
+      );
+      const clientHeight = Math.max(1, this.view.scrollDOM.clientHeight);
+      const scrollHeight = Math.max(clientHeight, this.view.scrollDOM.scrollHeight);
+      const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+      const pixelRatio = Math.min(
+        window.devicePixelRatio || 1,
+        MINIMAP_MAX_PIXEL_RATIO,
+      );
+      const rawOverlayHeight = (clientHeight / scrollHeight) * height;
+      const overlayHeight =
+        maxScrollTop > 0
+          ? clamp(rawOverlayHeight, MINIMAP_MIN_OVERLAY_HEIGHT, height)
+          : height;
+      const maxOverlayTop = Math.max(0, height - overlayHeight);
+      const overlayTop =
+        maxScrollTop > 0
+          ? clamp(
+              (this.view.scrollDOM.scrollTop / maxScrollTop) * maxOverlayTop,
+              0,
+              maxOverlayTop,
+            )
+          : 0;
+
+      return {
+        clientHeight,
+        height,
+        maxScrollTop,
+        overlayHeight,
+        overlayTop,
+        pixelRatio,
+        scale: height / scrollHeight,
+        scrollHeight,
+        width,
+      };
+    }
+
+    private prepareCanvas(metrics: FillMinimapMetrics) {
+      const pixelWidth = Math.ceil(metrics.width * metrics.pixelRatio);
+      const pixelHeight = Math.ceil(metrics.height * metrics.pixelRatio);
+      if (this.canvas.width !== pixelWidth) this.canvas.width = pixelWidth;
+      if (this.canvas.height !== pixelHeight) this.canvas.height = pixelHeight;
+      this.canvas.style.width = `${metrics.width}px`;
+      this.canvas.style.height = `${metrics.height}px`;
+
+      const context = this.canvas.getContext("2d");
+      if (!context) return null;
+
+      context.setTransform(
+        metrics.pixelRatio,
+        0,
+        0,
+        metrics.pixelRatio,
+        0,
+        0,
+      );
+      context.clearRect(0, 0, metrics.width, metrics.height);
+      return context;
+    }
+
+    private drawDocument(
+      context: CanvasRenderingContext2D,
+      metrics: FillMinimapMetrics,
+    ) {
+      const colors = this.getColors();
+      const doc = this.view.state.doc;
+      const charWidth = clamp(metrics.width / 46, 1.15, 1.75);
+
+      for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber++) {
+        const line = doc.line(lineNumber);
+        const lineBlock = this.view.lineBlockAt(line.from);
+        const y = lineBlock.top * metrics.scale;
+        const lineHeight = Math.max(0.75, lineBlock.height * metrics.scale);
+        if (y > metrics.height) break;
+        if (y + lineHeight < 0) continue;
+
+        this.drawSqlLine(
+          context,
+          line.text,
+          2,
+          y,
+          lineHeight,
+          charWidth,
+          metrics.width - 4,
+          colors,
+        );
+      }
+    }
+
+    private drawSearchMatches(
+      context: CanvasRenderingContext2D,
+      metrics: FillMinimapMetrics,
+    ) {
+      const query = getSearchQuery(this.view.state);
+      if (!query || !query.valid || !query.search) return;
+
+      const colors = this.getColors();
+      const cursor = query.getCursor(this.view.state.doc) as any;
+      let count = 0;
+
+      while (!cursor.next().done) {
+        const from = cursor.value.from as number;
+        const to = cursor.value.to as number;
+        const block = this.view.lineBlockAt(from);
+        const y = clamp(
+          block.top * metrics.scale,
+          0,
+          Math.max(0, metrics.height - 2),
+        );
+        const height = clamp(block.height * metrics.scale, 2, 5);
+        const isSelected = this.view.state.selection.ranges.some(
+          (range) => range.from === from && range.to === to,
+        );
+
+        context.globalAlpha = isSelected ? 0.96 : 0.74;
+        context.fillStyle = colors.search;
+        context.fillRect(0, y, metrics.width, height);
+        context.globalAlpha = isSelected ? 1 : 0.9;
+        context.fillRect(
+          Math.max(0, metrics.width - 4),
+          y,
+          4,
+          Math.max(height, 3),
+        );
+
+        count++;
+        if (count > 1000) break;
+      }
+
+      context.globalAlpha = 1;
+    }
+
+    private drawSqlLine(
+      context: CanvasRenderingContext2D,
+      text: string,
+      x: number,
+      y: number,
+      lineHeight: number,
+      charWidth: number,
+      maxWidth: number,
+      colors: FillMinimapColors,
+    ) {
+      if (!text) return;
+
+      const tokens =
+        text.match(
+          /--.*|'(?:''|[^'])*'|\[[^\]]+\]|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][\w$#]*\b|\s+|./g,
+        ) ?? [];
+      const blockHeight = clamp(lineHeight * 0.48, 1, 3.2);
+      const blockY = y + Math.max(0, (lineHeight - blockHeight) / 2);
+      const gap = clamp(charWidth * 0.72, 0.65, 1.35);
+
+      for (const token of tokens) {
+        if (x > maxWidth) break;
+
+        if (/^\s+$/.test(token)) {
+          x += token.replace(/\t/g, "    ").length * charWidth * 0.82;
+          continue;
+        }
+
+        const tokenWidth = this.widthForToken(token, charWidth);
+        const visibleWidth = Math.min(
+          Math.max(1, tokenWidth),
+          Math.max(1, maxWidth - x),
+        );
+        context.fillStyle = this.colorForToken(token, colors);
+        context.globalAlpha = this.alphaForToken(token);
+        context.fillRect(x, blockY, visibleWidth, blockHeight);
+
+        x += tokenWidth + gap;
+      }
+
+      context.globalAlpha = 1;
+    }
+
+    private widthForToken(token: string, charWidth: number) {
+      const visualColumns =
+        token.length > 14 ? 14 + Math.sqrt(token.length - 14) * 2 : token.length;
+      const width = visualColumns * charWidth;
+
+      if (/^[()[\],.;:+*/<>=-]+$/.test(token)) {
+        return Math.max(1, width * 0.55);
+      }
+
+      return Math.max(2.2, width);
+    }
+
+    private alphaForToken(token: string) {
+      if (/^[()[\],.;:+*/<>=-]+$/.test(token)) return 0.48;
+      if (token.startsWith("--")) return 0.46;
+      return 0.78;
+    }
+
+    private colorForToken(token: string, colors: FillMinimapColors) {
+      const upperToken = token.toUpperCase();
+      if (token.startsWith("--")) return colors.comment;
+      if (token.startsWith("'")) return colors.string;
+      if (/^\d/.test(token)) return colors.number;
+      if (MINIMAP_SQL_KEYWORDS.has(upperToken)) return colors.keyword;
+      if (/^[()[\],.;:+*/<>=-]+$/.test(token)) return colors.operator;
+      return colors.property;
+    }
+
+    private getColors(): FillMinimapColors {
+      const style = window.getComputedStyle(this.view.dom);
+      const read = (name: string, fallback: string) =>
+        style.getPropertyValue(name).trim() || fallback;
+
+      return {
+        comment: read("--color-text-muted", "rgba(160, 160, 170, 0.8)"),
+        keyword: read("--color-cm-keyword", "#ff71ce"),
+        number: read("--color-warning", "#ffd166"),
+        operator: read("--color-text-muted", "rgba(160, 160, 170, 0.8)"),
+        property: read("--color-cm-property", "#ff6f91"),
+        search: read("--color-warning", "#ffd166"),
+        string: read("--color-cm-type", "#9be564"),
+      };
+    }
+
+    private updateOverlay(metrics: FillMinimapMetrics) {
+      this.overlay.style.height = `${metrics.overlayHeight}px`;
+      this.overlay.style.top = `${metrics.overlayTop}px`;
+
+      if (metrics.maxScrollTop <= 0) {
+        this.overlayContainer.classList.add("cm-minimap-overlay-off");
+      } else {
+        this.overlayContainer.classList.remove("cm-minimap-overlay-off");
+      }
+    }
+
+    private scrollFromClientY(clientY: number, dragOffsetY: number) {
+      const metrics = this.measure();
+      if (metrics.maxScrollTop <= 0) return;
+
+      const rect = this.inner.getBoundingClientRect();
+      const maxMapTop = Math.max(1, metrics.height - metrics.overlayHeight);
+      const mapTop = clamp(clientY - rect.top - dragOffsetY, 0, maxMapTop);
+      this.view.scrollDOM.scrollTop =
+        (mapTop / maxMapTop) * metrics.maxScrollTop;
+      this.updateOverlay(this.measure());
+    }
+
+    private onMouseDown = (event: MouseEvent) => {
+      if (event.button === 2) return;
+      event.preventDefault();
+
+      const metrics = this.measure();
+      if (metrics.maxScrollTop <= 0) return;
+
+      if (event.target === this.overlay) {
+        const overlayRect = this.overlay.getBoundingClientRect();
+        this.dragOffsetY = event.clientY - overlayRect.top;
+      } else {
+        this.dragOffsetY = metrics.overlayHeight / 2;
+      }
+
+      this.overlayContainer.classList.add("cm-minimap-overlay-active");
+      this.scrollFromClientY(event.clientY, this.dragOffsetY);
+    };
+
+    private onMouseMove = (event: MouseEvent) => {
+      if (this.dragOffsetY === null) return;
+      event.preventDefault();
+      this.scrollFromClientY(event.clientY, this.dragOffsetY);
+    };
+
+    private onMouseUp = () => {
+      this.dragOffsetY = null;
+      this.overlayContainer.classList.remove("cm-minimap-overlay-active");
+    };
+  },
+  {
+    eventHandlers: {
+      scroll() {
+        this.schedule(this.view);
+      },
     },
-    showOverlay: "mouse-over",
-  });
+  },
+);
+
+function buildMinimapExt() {
+  return [
+    EditorView.editorAttributes.of({ class: "cm-minimap-enabled" }),
+    fillMinimapPlugin,
+  ];
 }
 
 function buildAutocompletionExt(
@@ -1117,6 +1704,25 @@ function buildAutocompletionExt(
     activateOnCompletion: (completion) =>
       completion.type === "namespace" || completion.type === "constant",
   });
+}
+
+function buildThemeExtension(theme: ThemeSelection): Extension {
+  return theme.mode === "light" ? [] : oneDark;
+}
+
+function buildReadOnlyExtension(readOnly: boolean): Extension {
+  return readOnly
+    ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+    : [linter(sqlLinter, { delay: 500 })];
+}
+
+function buildPlaceholderText(
+  readOnly: boolean,
+  currentDatabase: string | undefined,
+): string {
+  return readOnly && !currentDatabase
+    ? "Select a database to enable the SQL editor."
+    : `-- Write your SQL query here…`;
 }
 
 export default function SqlEditor(props: Props) {
@@ -1134,8 +1740,9 @@ export default function SqlEditor(props: Props) {
   const minimapCompartment = new Compartment();
   const autocompleteCompartment = new Compartment();
   const fontThemeCompartment = new Compartment();
-  const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
-
+  const themeCompartment = new Compartment();
+  const readOnlyCompartment = new Compartment();
+  const placeholderCompartment = new Compartment();
   let lastSearchString = "";
   let lastCount = -1;
 
@@ -1260,11 +1867,12 @@ export default function SqlEditor(props: Props) {
   };
 
   createEffect(() => {
-    const theme = props.theme;
-    const currentDatabase = props.currentDatabase;
-    const readOnly = props.readOnly;
-
     if (!containerRef) return;
+
+    const initialTheme = untrack(() => props.theme);
+    const initialCurrentDatabase = untrack(() => props.currentDatabase);
+    const initialReadOnly = untrack(() => Boolean(props.readOnly));
+    const initialWrapLines = untrack(() => Boolean(props.wrapLines));
 
     const runExecute = (view: EditorView) => {
       const selection = view.state.selection.main;
@@ -1371,10 +1979,6 @@ export default function SqlEditor(props: Props) {
         }
       }
     });
-    const placeholderText =
-      readOnly && !currentDatabase
-        ? "Select a database to enable the SQL editor."
-        : `-- Write your SQL query here... (F5 or ${executeShortcutLabel} to execute)`;
 
     const initialPrefs = loadEditorPreferences();
 
@@ -1416,7 +2020,9 @@ export default function SqlEditor(props: Props) {
         search(),
         highlightSelectionMatches(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        ...(theme.id === "light" || theme.id === "soft-light" ? [] : [oneDark]),
+        themeCompartment.of(buildThemeExtension(initialTheme)),
+        editorGutterTheme,
+        editorSafeAreaScrollMargins,
         fontThemeCompartment.of(
           buildFontTheme(initialPrefs.fontFamily, initialPrefs.fontSize),
         ),
@@ -1433,15 +2039,19 @@ export default function SqlEditor(props: Props) {
         ]),
         updateListener,
         pasteHandler,
-        placeholderExt(placeholderText),
-        wrapCompartment.of(props.wrapLines ? EditorView.lineWrapping : []),
+        placeholderCompartment.of(
+          placeholderExt(
+            buildPlaceholderText(
+              initialReadOnly,
+              initialCurrentDatabase,
+            ),
+          ),
+        ),
+        wrapCompartment.of(initialWrapLines ? EditorView.lineWrapping : []),
         minimapCompartment.of(
           initialPrefs.minimap ? buildMinimapExt() : [],
         ),
-        ...(readOnly
-          ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
-          : []),
-        ...(readOnly ? [] : [linter(sqlLinter, { delay: 500 })]),
+        readOnlyCompartment.of(buildReadOnlyExtension(initialReadOnly)),
       ],
     });
 
@@ -1624,6 +2234,33 @@ export default function SqlEditor(props: Props) {
         ),
       });
     }
+  });
+
+  createEffect(() => {
+    const theme = props.theme;
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: themeCompartment.reconfigure(buildThemeExtension(theme)),
+    });
+  });
+
+  createEffect(() => {
+    const readOnly = Boolean(props.readOnly);
+    const currentDatabase = props.currentDatabase;
+    if (!viewRef) return;
+    viewRef.dispatch({
+      effects: [
+        readOnlyCompartment.reconfigure(buildReadOnlyExtension(readOnly)),
+        placeholderCompartment.reconfigure(
+          placeholderExt(
+            buildPlaceholderText(
+              readOnly,
+              currentDatabase,
+            ),
+          ),
+        ),
+      ],
+    });
   });
 
   const editorPrefs = createMemo(() => loadEditorPreferences());

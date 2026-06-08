@@ -1,0 +1,125 @@
+@layer components {
+
+  .col-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+
+  .col-resizer:hover,
+  .col-resizer:active {
+    background: var(--color-accent);
+    opacity: 0.5;
+  }
+
+
+  .results-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-m);
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .results-table th:first-child,
+  .results-table td:first-child {
+    width: var(--results-row-number-width, 36px) !important;
+    min-width: var(--results-row-number-width, 36px) !important;
+    max-width: var(--results-row-number-width, 36px) !important;
+    padding: 0 !important;
+    text-align: center;
+    position: sticky;
+    left: 0;
+  }
+
+  .results-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-surface-table);
+    border-bottom: 1px solid var(--color-border);
+    padding: 6px 12px;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--color-text-muted);
+  }
+
+  .results-table th:first-child {
+    z-index: 3;
+  }
+
+  .results-table td {
+    border-bottom: 1px solid var(--color-border-subtle);
+    padding: 4px 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: text;
+  }
+
+  .results-table td:first-child {
+    z-index: 2;
+    background-color: var(--color-surface-table);
+  }
+
+  .results-table tr:hover td {
+    background: var(--color-surface-hover);
+  }
+
+  .results-table tr:hover td:first-child {
+    background-color: var(--color-surface-hover);
+  }
+
+  .results-table tr.selected td {
+    background: var(--color-surface-active);
+  }
+
+  .results-table tr.selected td:first-child {
+    background-color: var(--color-surface-active);
+  }
+
+  .results-filter-input {
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-active);
+    color: var(--color-text);
+    font-size: var(--text-s);
+    font-weight: 500;
+    line-height: 22px;
+    outline: none;
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      color var(--duration-fast) ease;
+  }
+
+  .results-filter-input:hover {
+    border-color: var(--color-border-muted);
+    background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  }
+
+  .results-filter-input:focus {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  }
+
+  .results-filter-input:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+    outline-offset: 1px;
+  }
+
+  .results-filter-input::placeholder {
+    color: color-mix(in srgb, var(--color-text-muted) 78%, transparent);
+  }
+
+}

@@ -1,79 +1,104 @@
+interface IconProps {
+  name: string;
+  class?: string;
+  family?: "solid" | "regular" | "brands";
+  fixedWidth?: boolean;
+  label?: string;
+}
+
+export function Icon(props: IconProps) {
+  const hasFullClass = () => /\bfa-(solid|regular|brands)\b/.test(props.name);
+  const styleClass = () =>
+    hasFullClass()
+      ? ""
+      : props.family === "regular"
+        ? "fa-regular"
+        : props.family === "brands"
+          ? "fa-brands"
+          : "fa-solid";
+  const nameClass = () =>
+    props.name.startsWith("fa-") ? props.name : `fa-${props.name}`;
+  return (
+    <i
+      class={`${styleClass()} ${nameClass()} ${props.fixedWidth === false ? "" : "fa-fw"} ${props.class || ""}`}
+      aria-hidden={props.label ? undefined : "true"}
+      aria-label={props.label}
+    />
+  );
+}
+
 export function IconDatabase(props: { class?: string }) {
   return (
-    <i class={`fa-solid fa-database fa-fw text-xs ${props.class || ""}`} />
+    <Icon name="database" class={`text-xs ${props.class || ""}`} />
   );
 }
 
 export function IconTable(props: { class?: string }) {
-  return <i class={`fa-solid fa-table fa-fw text-xs ${props.class || ""}`} />;
+  return <Icon name="table" class={`text-xs ${props.class || ""}`} />;
 }
 
 export function IconView(props: { class?: string }) {
   return (
-    <i class={`fa-solid fa-table-list fa-fw text-xs ${props.class || ""}`} />
+    <Icon name="table-list" class={`text-xs ${props.class || ""}`} />
   );
 }
 
 export function IconColumn(props: { class?: string }) {
   return (
-    <i class={`fa-solid fa-columns fa-fw text-2xs ${props.class || ""}`} />
+    <Icon name="columns" class={`text-2xs ${props.class || ""}`} />
   );
 }
 
 export function IconProcedure(props: { class?: string }) {
-  return <i class={`fa-solid fa-gears fa-fw text-xs ${props.class || ""}`} />;
+  return <Icon name="gears" class={`text-xs ${props.class || ""}`} />;
 }
 
 export function IconFunction(props: { class?: string }) {
   return (
-    <i
-      class={`fa-solid fa-square-root-variable fa-fw text-xs ${props.class || ""}`}
-    />
+    <Icon name="square-root-variable" class={`text-xs ${props.class || ""}`} />
   );
 }
 
 export function IconTrigger(props: { class?: string }) {
-  return <i class={`fa-solid fa-bolt fa-fw text-xs ${props.class || ""}`} />;
+  return <Icon name="bolt" class={`text-xs ${props.class || ""}`} />;
 }
 
 export function IconType(props: { class?: string }) {
-  return <i class={`fa-solid fa-shapes fa-fw text-xs ${props.class || ""}`} />;
+  return <Icon name="shapes" class={`text-xs ${props.class || ""}`} />;
 }
 
 export function IconPlay(props: { class?: string }) {
-  return <i class={`fa-solid fa-play fa-fw ${props.class || ""}`} />;
+  return <Icon name="play" class={props.class} />;
 }
 
 export function IconChevronRight(props: { class?: string }) {
   return (
-    <i
-      class={`fa-solid fa-chevron-right fa-fw text-3xs ${props.class || ""}`}
-    />
+    <Icon name="chevron-right" class={`text-3xs ${props.class || ""}`} />
   );
 }
 
 export function IconCopy(props: { class?: string }) {
-  return <i class={`fa-solid fa-copy fa-fw ${props.class || ""}`} />;
+  return <Icon name="copy" class={props.class} />;
 }
 
 export function IconFormat(props: { class?: string }) {
-  return <i class={`fa-solid fa-align-left fa-fw ${props.class || ""}`} />;
+  return <Icon name="align-left" class={props.class} />;
 }
 
 export function IconSave(props: { class?: string }) {
-  return <i class={`fa-solid fa-bookmark fa-fw ${props.class || ""}`} />;
+  return <Icon name="bookmark" class={props.class} />;
 }
 
 export function IconFloppy(props: { class?: string }) {
-  return <i class={`fa-solid fa-floppy-disk fa-fw ${props.class || ""}`} />;
+  return <Icon name="floppy-disk" class={props.class} />;
 }
 
 export function IconSearch(props: { class?: string }) {
   return (
-    <i class={`fa-solid fa-magnifying-glass fa-fw ${props.class || ""}`} />
+    <Icon name="magnifying-glass" class={props.class} />
   );
 }
 
 export function IconWrapText(props: { class?: string }) {
-  return <i class={`fa-solid fa-paragraph fa-fw ${props.class || ""}`} />;
+  return <Icon name="paragraph" class={props.class} />;
 }

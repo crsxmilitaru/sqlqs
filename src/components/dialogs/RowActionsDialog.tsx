@@ -9,6 +9,9 @@ import {
 } from "solid-js";
 import { loadExecutionPreferences } from "../../lib/settings";
 import type { ResultSet } from "../../lib/types";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 import Tooltip from "../ui/Tooltip";
 
 export type RowActionMode = "edit" | "duplicate" | "delete";
@@ -306,7 +309,7 @@ export default function RowActionsDialog(props: Props) {
 
   const blockedReason = createMemo(() => {
     if (props.mode === "duplicate") return null;
-    if (metadataLoading()) return "Loading primary key metadata...";
+    if (metadataLoading()) return "Loading primary key metadata…";
     if (metadataError()) return metadataError();
     if (primaryKeyCols().size === 0) {
       return "This table has no primary key. Edit and delete are disabled for safety.";
@@ -372,11 +375,11 @@ export default function RowActionsDialog(props: Props) {
     if (executing()) {
       switch (props.mode) {
         case "edit":
-          return "Saving...";
+          return "Saving…";
         case "duplicate":
-          return "Inserting...";
+          return "Inserting…";
         case "delete":
-          return "Deleting...";
+          return "Deleting…";
       }
     }
 
@@ -545,17 +548,12 @@ export default function RowActionsDialog(props: Props) {
     !isBinaryType(column.type_name);
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={props.onClose}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[600px] max-h-[80vh] flex flex-col shadow-2xl"
+      ariaLabel={title()}
     >
-      <div
-        class="dialog-surface w-[600px] max-h-[80vh] flex flex-col shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
           <div class="flex items-center gap-3">
             <div
@@ -565,24 +563,17 @@ export default function RowActionsDialog(props: Props) {
                   : "bg-accent/10 text-accent"
               }`}
             >
-              <i class={`fa-solid ${modeIcon()} text-sm`} />
+              <Icon name={modeIcon()} class="text-sm" />
             </div>
             <h2 class="text-m font-semibold text-text">{title()}</h2>
           </div>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              onClick={props.onClose}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} />
         </div>
 
         <Show when={props.mode === "delete"}>
           <div class="mx-6 mt-4 p-3 rounded-lg bg-error/5 border border-error/15">
             <p class="text-sm text-error/90 flex items-center gap-2">
-              <i class="fa-solid fa-triangle-exclamation" />
+              <Icon name="triangle-exclamation" />
               This will permanently delete this row. This action cannot be
               undone.
             </p>
@@ -593,7 +584,7 @@ export default function RowActionsDialog(props: Props) {
           {(reason) => (
             <div class="mx-6 mt-4 p-3 rounded-lg bg-warning/5 border border-warning/20">
               <p class="text-sm text-warning/90 flex items-center gap-2">
-                <i class="fa-solid fa-shield-halved" />
+                <Icon name="shield-halved" />
                 {reason()}
               </p>
             </div>
@@ -683,7 +674,7 @@ export default function RowActionsDialog(props: Props) {
                                   }
                                   class="w-7 h-7 rounded-md border border-border/30 bg-surface/40 text-text-muted/60 hover:text-text hover:bg-surface/60 flex items-center justify-center transition-colors cursor-pointer shrink-0"
                                 >
-                                  <i class="fa-solid fa-pencil text-[9px]" />
+                                  <Icon name="pencil" class="text-[9px]" />
                                 </button>
                               </Tooltip>
                             </div>
@@ -781,7 +772,7 @@ export default function RowActionsDialog(props: Props) {
                             onClick={() => updateValue(i(), null)}
                             class="w-7 h-7 rounded-md border border-border/30 bg-surface/40 text-text-muted/60 hover:text-error/80 hover:bg-error/5 hover:border-error/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 mt-1"
                           >
-                            <i class="fa-solid fa-ban text-[9px]" />
+                            <Icon name="ban" class="text-[9px]" />
                           </button>
                         </Tooltip>
                       </Show>
@@ -816,24 +807,23 @@ export default function RowActionsDialog(props: Props) {
             type="button"
             onClick={handleConfirm}
             disabled={confirmDisabled()}
-            class={`btn px-6 py-1.5 gap-2 transition-all ${
+            class={`btn px-6 py-1.5 gap-2 ${
               success()
-                ? "bg-success border-success text-white"
+                ? "btn-success"
                 : isDanger()
-                  ? "bg-error border-error text-white hover:!bg-error/90 hover:!border-error/90"
+                  ? "btn-danger"
                   : "btn-primary"
             }`}
           >
             <Show when={success()}>
-              <i class="fa-solid fa-check text-[11px]" />
+              <Icon name="check" class="text-[11px]" />
             </Show>
             <Show when={executing()}>
-              <div class="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
             </Show>
             {confirmLabel()}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

@@ -47,7 +47,15 @@ import {
   type SqlKeywordCase,
   type UpdateChannel,
 } from "../../lib/settings";
-import { loadTheme, saveTheme, THEMES } from "../../lib/theme";
+import {
+  loadTheme,
+  saveTheme,
+  THEMES,
+  type ThemeOption,
+  type ThemeSelection,
+  registerCustomThemes,
+  getThemeMode,
+} from "../../lib/theme";
 import type {
   AppSettings,
   GeminiStatus,
@@ -56,8 +64,18 @@ import type {
 } from "../../lib/types";
 import ConnectionDialog from "../dialogs/ConnectionDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import ThemeDialog from "../dialogs/ThemeDialog";
 import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
+import { Icon } from "../ui/Icons";
+import {
+  ConnectionRow,
+  RangeSetting,
+  SettingsSection,
+  SettingTitle,
+  ThemeCard,
+  ToggleSetting,
+} from "./SettingsComponents";
 
 interface Props {
   onClose: () => void;
@@ -66,7 +84,7 @@ interface Props {
   checkingForUpdates: boolean;
   updateMessage: string | null;
   updateMessageTone: UpdateMessageTone;
-  onThemeChange?: (theme: { id: string }) => void;
+  onThemeChange?: (theme: ThemeSelection) => void;
   renderLayout?: (sidebar: JSX.Element, content: JSX.Element) => JSX.Element;
 }
 
@@ -111,6 +129,16 @@ export default function SettingsView(props: Props) {
   const [activeTab, setActiveTab] = createSignal<Tab>("general");
   const [search, setSearch] = createSignal("");
   const [themeId, setThemeId] = createSignal(currentTheme.id);
+  const [customThemes, setCustomThemes] = createSignal<ThemeOption[]>([]);
+  const activeTheme = createMemo(() =>
+    [...THEMES, ...customThemes()].find((t) => t.id === themeId()),
+  );
+  const activeThemeMode = createMemo(
+    () => activeTheme()?.mode ?? getThemeMode(themeId()),
+  );
+  const [editingTheme, setEditingTheme] = createSignal<ThemeOption | null>(null);
+  const [isCreatingTheme, setIsCreatingTheme] = createSignal(false);
+  const [themeToDelete, setThemeToDelete] = createSignal<ThemeOption | null>(null);
   const [persistTabs, setPersistTabs] = createSignal(prefs.persistTabs);
   const [confirmCloseUnsaved, setConfirmCloseUnsaved] = createSignal(
     prefs.confirmCloseUnsaved,
@@ -209,7 +237,44 @@ export default function SettingsView(props: Props) {
       }
     });
     void refreshConnections();
+    void refreshCustomThemes();
   });
+
+  async function refreshCustomThemes() {
+    try {
+      const themes = await invoke<ThemeOption[]>("list_custom_themes");
+      setCustomThemes(themes);
+      registerCustomThemes(themes);
+    } catch {}
+  }
+
+  async function handleSaveCustomTheme(theme: ThemeOption) {
+    try {
+      await invoke("save_custom_theme", { theme });
+      await refreshCustomThemes();
+      handleThemeChange(theme.id, theme);
+      setIsCreatingTheme(false);
+      setEditingTheme(null);
+    } catch (err) {
+      console.error("Failed to save custom theme:", err);
+    }
+  }
+
+  async function handleDeleteCustomTheme() {
+    const toDelete = themeToDelete();
+    if (!toDelete) return;
+    try {
+      await invoke("delete_custom_theme", { id: toDelete.id });
+      await refreshCustomThemes();
+      if (themeId() === toDelete.id) {
+        handleThemeChange("dark");
+      }
+    } catch (err) {
+      console.error("Failed to delete custom theme:", err);
+    } finally {
+      setThemeToDelete(null);
+    }
+  }
 
   async function refreshConnections() {
     try {
@@ -381,10 +446,13 @@ export default function SettingsView(props: Props) {
     await open(REPOSITORY_URL);
   }
 
-  function handleThemeChange(newThemeId: string) {
+  function handleThemeChange(newThemeId: string, customThemeData?: ThemeOption) {
     setThemeId(newThemeId);
-    saveTheme(newThemeId);
-    props.onThemeChange?.({ id: newThemeId });
+    saveTheme(newThemeId, customThemeData);
+    props.onThemeChange?.({
+      id: newThemeId,
+      mode: customThemeData?.mode ?? getThemeMode(newThemeId),
+    });
   }
 
   interface Section {
@@ -402,27 +470,16 @@ export default function SettingsView(props: Props) {
       title: "Restore tabs on startup",
       keywords: "restore tabs startup persist session",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Restore tabs on startup
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Keep your open tabs between app restarts
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !persistTabs();
-                setPersistTabs(next);
-                savePersistTabs(next);
-              }}
-              class="settings-toggle"
-              data-checked={persistTabs()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Restore tabs on startup"
+          description="Keep your open tabs between app restarts"
+          checked={persistTabs()}
+          onToggle={() => {
+            const next = !persistTabs();
+            setPersistTabs(next);
+            savePersistTabs(next);
+          }}
+        />
       ),
     },
     {
@@ -431,27 +488,16 @@ export default function SettingsView(props: Props) {
       title: "Confirm close unsaved",
       keywords: "confirm close unsaved warning prompt tabs",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Confirm close unsaved
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Prompt before closing a tab with unsaved SQL changes
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !confirmCloseUnsaved();
-                setConfirmCloseUnsaved(next);
-                saveConfirmCloseUnsaved(next);
-              }}
-              class="settings-toggle"
-              data-checked={confirmCloseUnsaved()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Confirm close unsaved"
+          description="Prompt before closing a tab with unsaved SQL changes"
+          checked={confirmCloseUnsaved()}
+          onToggle={() => {
+            const next = !confirmCloseUnsaved();
+            setConfirmCloseUnsaved(next);
+            saveConfirmCloseUnsaved(next);
+          }}
+        />
       ),
     },
     {
@@ -460,37 +506,25 @@ export default function SettingsView(props: Props) {
       title: "Auto-connect on startup",
       keywords: "auto connect startup automatically open last connection",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Auto-connect on startup
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Automatically attempt to connect to the last used connection
-              </p>
-            </div>
-            <button
-              onClick={async () => {
-                const next = !autoConnectStartup();
-                setAutoConnectStartup(next);
-                saveAutoConnectStartup(next);
-                try {
-                  const settings: AppSettings =
-                    await invoke("load_connections");
-                  settings.auto_connect_startup = next;
-                  await invoke("save_connections_settings", {
-                    payload: settings,
-                  });
-                } catch (err) {
-                  const _unused = err;
-                }
-              }}
-              class="settings-toggle"
-              data-checked={autoConnectStartup()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Auto-connect on startup"
+          description="Automatically attempt to connect to the last used connection"
+          checked={autoConnectStartup()}
+          onToggle={async () => {
+            const next = !autoConnectStartup();
+            setAutoConnectStartup(next);
+            saveAutoConnectStartup(next);
+            try {
+              const settings: AppSettings = await invoke("load_connections");
+              settings.auto_connect_startup = next;
+              await invoke("save_connections_settings", {
+                payload: settings,
+              });
+            } catch (err) {
+              console.error("Failed to save auto-connect setting", err);
+            }
+          }}
+        />
       ),
     },
     {
@@ -500,28 +534,21 @@ export default function SettingsView(props: Props) {
       keywords:
         "reveal current database explorer sidebar expand scroll focus auto",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Reveal current database in explorer
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                When you switch databases from the editor, expand and scroll to
-                that database in the left panel
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !revealCurrentDb();
-                setRevealCurrentDb(next);
-                saveRevealCurrentDatabaseInExplorer(next);
-              }}
-              class="settings-toggle"
-              data-checked={revealCurrentDb()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Reveal current database in explorer"
+          description={
+            <>
+              When you switch databases from the editor, expand and scroll to
+              that database in the left panel
+            </>
+          }
+          checked={revealCurrentDb()}
+          onToggle={() => {
+            const next = !revealCurrentDb();
+            setRevealCurrentDb(next);
+            saveRevealCurrentDatabaseInExplorer(next);
+          }}
+        />
       ),
     },
     {
@@ -530,40 +557,19 @@ export default function SettingsView(props: Props) {
       title: "History limit",
       keywords: "history limit queries max maximum",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between mb-3">
-            <div>
-              <h4 class="text-m font-medium text-text">History limit</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Maximum number of queries to keep in history
-              </p>
-            </div>
-            <span class="text-m font-medium text-accent tabular-nums">
-              {maxHistory()}
-            </span>
-          </div>
-          <input
-            type="range"
-            min={MIN_MAX_HISTORY}
-            max={MAX_MAX_HISTORY}
-            step={10}
-            value={maxHistory()}
-            onInput={(e) => {
-              const val = Number.parseInt(
-                (e.target as HTMLInputElement).value,
-                10,
-              );
-              setMaxHistory(val);
-              saveMaxHistoryItems(val);
-            }}
-            class="settings-range"
-          />
-          <div class="flex justify-between text-s text-text-muted mt-2">
-            <span>{MIN_MAX_HISTORY}</span>
-            <span>{DEFAULT_MAX_HISTORY} (default)</span>
-            <span>{MAX_MAX_HISTORY}</span>
-          </div>
-        </div>
+        <RangeSetting
+          title="History limit"
+          description="Maximum number of queries to keep in history"
+          value={maxHistory()}
+          min={MIN_MAX_HISTORY}
+          max={MAX_MAX_HISTORY}
+          step={10}
+          defaultValue={DEFAULT_MAX_HISTORY}
+          onInput={(value) => {
+            setMaxHistory(value);
+            saveMaxHistoryItems(value);
+          }}
+        />
       ),
     },
     {
@@ -572,14 +578,12 @@ export default function SettingsView(props: Props) {
       title: "Font family",
       keywords: "font family typeface cascadia fira consolas mono editor",
       render: () => (
-        <div class="settings-section">
+        <SettingsSection>
           <div class="flex items-center justify-between mb-3">
-            <div>
-              <h4 class="text-m font-medium text-text">Font family</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Typeface used by the SQL editor
-              </p>
-            </div>
+            <SettingTitle
+              title="Font family"
+              description="Typeface used by the SQL editor"
+            />
             <div class="min-w-[220px]">
               <Dropdown
                 value={fontFamily()}
@@ -600,7 +604,7 @@ export default function SettingsView(props: Props) {
           >
             SELECT * FROM users WHERE id = 42;
           </div>
-        </div>
+        </SettingsSection>
       ),
     },
     {
@@ -609,40 +613,19 @@ export default function SettingsView(props: Props) {
       title: "Font size",
       keywords: "font size editor zoom",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between mb-3">
-            <div>
-              <h4 class="text-m font-medium text-text">Font size</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Editor font size in pixels
-              </p>
-            </div>
-            <span class="text-m font-medium text-accent tabular-nums">
-              {fontSize()}px
-            </span>
-          </div>
-          <input
-            type="range"
-            min={MIN_EDITOR_FONT_SIZE}
-            max={MAX_EDITOR_FONT_SIZE}
-            step={1}
-            value={fontSize()}
-            onInput={(e) => {
-              const val = Number.parseInt(
-                (e.target as HTMLInputElement).value,
-                10,
-              );
-              setFontSize(val);
-              saveEditorFontSize(val);
-            }}
-            class="settings-range"
-          />
-          <div class="flex justify-between text-s text-text-muted mt-2">
-            <span>{MIN_EDITOR_FONT_SIZE}</span>
-            <span>{DEFAULT_EDITOR_FONT_SIZE} (default)</span>
-            <span>{MAX_EDITOR_FONT_SIZE}</span>
-          </div>
-        </div>
+        <RangeSetting
+          title="Font size"
+          description="Editor font size in pixels"
+          value={fontSize()}
+          valueLabel={`${fontSize()}px`}
+          min={MIN_EDITOR_FONT_SIZE}
+          max={MAX_EDITOR_FONT_SIZE}
+          defaultValue={DEFAULT_EDITOR_FONT_SIZE}
+          onInput={(value) => {
+            setFontSize(value);
+            saveEditorFontSize(value);
+          }}
+        />
       ),
     },
     {
@@ -651,25 +634,16 @@ export default function SettingsView(props: Props) {
       title: "Line numbers",
       keywords: "line numbers gutter editor",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Line numbers</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Show line numbers in the editor gutter
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !editorLineNumbers();
-                setEditorLineNumbers(next);
-                saveEditorLineNumbers(next);
-              }}
-              class="settings-toggle"
-              data-checked={editorLineNumbers()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Line numbers"
+          description="Show line numbers in the editor gutter"
+          checked={editorLineNumbers()}
+          onToggle={() => {
+            const next = !editorLineNumbers();
+            setEditorLineNumbers(next);
+            saveEditorLineNumbers(next);
+          }}
+        />
       ),
     },
     {
@@ -678,25 +652,16 @@ export default function SettingsView(props: Props) {
       title: "Minimap",
       keywords: "minimap code overview scroll editor",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Minimap</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Show a code minimap on the right edge of the editor
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !editorMinimap();
-                setEditorMinimap(next);
-                saveEditorMinimap(next);
-              }}
-              class="settings-toggle"
-              data-checked={editorMinimap()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Minimap"
+          description="Show a code minimap on the right edge of the editor"
+          checked={editorMinimap()}
+          onToggle={() => {
+            const next = !editorMinimap();
+            setEditorMinimap(next);
+            saveEditorMinimap(next);
+          }}
+        />
       ),
     },
     {
@@ -705,25 +670,16 @@ export default function SettingsView(props: Props) {
       title: "Auto-complete",
       keywords: "autocomplete intellisense suggestions completion editor",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Auto-complete</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Show SQL suggestions as you type
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !editorAutocomplete();
-                setEditorAutocomplete(next);
-                saveEditorAutocomplete(next);
-              }}
-              class="settings-toggle"
-              data-checked={editorAutocomplete()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Auto-complete"
+          description="Show SQL suggestions as you type"
+          checked={editorAutocomplete()}
+          onToggle={() => {
+            const next = !editorAutocomplete();
+            setEditorAutocomplete(next);
+            saveEditorAutocomplete(next);
+          }}
+        />
       ),
     },
     {
@@ -732,25 +688,16 @@ export default function SettingsView(props: Props) {
       title: "Format SQL on paste",
       keywords: "format paste auto format sql clipboard editor",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Format SQL on paste</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Automatically format pasted SQL using T-SQL conventions
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !editorFormatOnPaste();
-                setEditorFormatOnPaste(next);
-                saveEditorFormatOnPaste(next);
-              }}
-              class="settings-toggle"
-              data-checked={editorFormatOnPaste()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Format SQL on paste"
+          description="Automatically format pasted SQL using T-SQL conventions"
+          checked={editorFormatOnPaste()}
+          onToggle={() => {
+            const next = !editorFormatOnPaste();
+            setEditorFormatOnPaste(next);
+            saveEditorFormatOnPaste(next);
+          }}
+        />
       ),
     },
     {
@@ -998,28 +945,21 @@ export default function SettingsView(props: Props) {
       keywords:
         "execution confirm destructive update delete truncate where guard safety",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Confirm destructive queries
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Ask before running UPDATE / DELETE without a WHERE clause, or
-                TRUNCATE
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !execConfirmDestructive();
-                setExecConfirmDestructiveSignal(next);
-                saveExecConfirmDestructive(next);
-              }}
-              class="settings-toggle"
-              data-checked={execConfirmDestructive()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Confirm destructive queries"
+          description={
+            <>
+              Ask before running UPDATE / DELETE without a WHERE clause, or
+              TRUNCATE
+            </>
+          }
+          checked={execConfirmDestructive()}
+          onToggle={() => {
+            const next = !execConfirmDestructive();
+            setExecConfirmDestructiveSignal(next);
+            saveExecConfirmDestructive(next);
+          }}
+        />
       ),
     },
     {
@@ -1029,28 +969,20 @@ export default function SettingsView(props: Props) {
       keywords:
         "execution double click row edit results grid open dialog mouse",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Double-click row to edit
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Open the row editor when double-clicking a row in the results
-                grid
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !execDoubleClickEditRow();
-                setExecDoubleClickEditRow(next);
-                saveExecDoubleClickEditRow(next);
-              }}
-              class="settings-toggle"
-              data-checked={execDoubleClickEditRow()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Double-click row to edit"
+          description={
+            <>
+              Open the row editor when double-clicking a row in the results grid
+            </>
+          }
+          checked={execDoubleClickEditRow()}
+          onToggle={() => {
+            const next = !execDoubleClickEditRow();
+            setExecDoubleClickEditRow(next);
+            saveExecDoubleClickEditRow(next);
+          }}
+        />
       ),
     },
     {
@@ -1059,20 +991,18 @@ export default function SettingsView(props: Props) {
       title: "Saved connections",
       keywords: "connection server database list saved manage reorder",
       render: () => (
-        <div class="settings-section">
+        <SettingsSection>
           <div class="flex items-center justify-between mb-3">
-            <div>
-              <h4 class="text-m font-medium text-text">Saved connections</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Manage how connections appear in the start menu
-              </p>
-            </div>
+            <SettingTitle
+              title="Saved connections"
+              description="Manage how connections appear in the start menu"
+            />
             <div class="flex gap-2">
               <button
                 onClick={() => setAddingConnection(true)}
                 class="btn btn-secondary px-3 py-1.5"
               >
-                <i class="fa-solid fa-plus mr-1.5" />
+                <Icon name="plus" class="mr-1.5" />
                 Add
               </button>
               <button
@@ -1080,14 +1010,14 @@ export default function SettingsView(props: Props) {
                 disabled={connections().length === 0}
                 class="btn btn-secondary px-3 py-1.5"
               >
-                <i class="fa-solid fa-file-export mr-1.5" />
+                <Icon name="file-export" class="mr-1.5" />
                 Export
               </button>
               <button
                 onClick={triggerImport}
                 class="btn btn-secondary px-3 py-1.5"
               >
-                <i class="fa-solid fa-file-import mr-1.5" />
+                <Icon name="file-import" class="mr-1.5" />
                 Import
               </button>
               <input
@@ -1124,57 +1054,21 @@ export default function SettingsView(props: Props) {
             <div class="flex flex-col gap-1.5">
               <For each={connections()}>
                 {(conn, i) => (
-                  <div class="flex items-center gap-3 px-3 py-2.5 rounded-md border border-border bg-surface hover:bg-surface-hover transition-colors">
-                    <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                      <span class="text-m font-medium text-text truncate">
-                        {conn.name}
-                      </span>
-                      <span class="text-s text-text-muted truncate">
-                        {summarizeConnection(conn)}
-                      </span>
-                    </div>
-                    <div class="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => moveConnection(i(), -1)}
-                        disabled={i() === 0}
-                        title="Move up"
-                        class="btn btn-secondary px-2 py-1.5 disabled:opacity-30"
-                      >
-                        <i class="fa-solid fa-arrow-up text-s" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveConnection(i(), 1)}
-                        disabled={i() === connections().length - 1}
-                        title="Move down"
-                        class="btn btn-secondary px-2 py-1.5 disabled:opacity-30"
-                      >
-                        <i class="fa-solid fa-arrow-down text-s" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingConnection(conn)}
-                        title="Edit"
-                        class="btn btn-secondary px-2 py-1.5"
-                      >
-                        <i class="fa-solid fa-pen text-s" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeletingConnection(conn)}
-                        title="Delete"
-                        class="btn btn-secondary px-2 py-1.5 text-error"
-                      >
-                        <i class="fa-solid fa-trash text-s" />
-                      </button>
-                    </div>
-                  </div>
+                  <ConnectionRow
+                    connection={conn}
+                    summary={summarizeConnection(conn)}
+                    index={i()}
+                    total={connections().length}
+                    onMoveUp={() => moveConnection(i(), -1)}
+                    onMoveDown={() => moveConnection(i(), 1)}
+                    onEdit={() => setEditingConnection(conn)}
+                    onDelete={() => setDeletingConnection(conn)}
+                  />
                 )}
               </For>
             </div>
           </Show>
-        </div>
+        </SettingsSection>
       ),
     },
     {
@@ -1183,65 +1077,64 @@ export default function SettingsView(props: Props) {
       title: "Theme",
       keywords: "theme color appearance dark light",
       render: () => (
-        <div>
-          <h4 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">
-            Theme
-          </h4>
-          <div class="grid grid-cols-2 gap-2.5">
-            <For each={THEMES}>
-              {(theme) => (
-                <button
-                  onClick={() => handleThemeChange(theme.id)}
-                  class={`flex flex-col gap-2 p-3 rounded-lg border transition-all text-left ${
-                    themeId() === theme.id
-                      ? "border-accent bg-accent/8 ring-1 ring-accent/25"
-                      : "border-border bg-surface hover:bg-surface-hover hover:border-overlay-md"
-                  }`}
-                >
-                  <div class="font-medium text-m flex items-center justify-between">
-                    {theme.name}
-                    {themeId() === theme.id && (
-                      <i class="fa-solid fa-check text-accent text-s" />
-                    )}
-                  </div>
-                  <div
-                    class="flex h-10 w-full rounded-md overflow-hidden border border-border/50"
-                    style={{
-                      "background-color": theme.colors["--color-surface-panel"],
-                    }}
-                  >
-                    <div
-                      class="w-10 h-full border-r border-border/30"
-                      style={{
-                        "background-color": theme.colors["--color-surface"],
-                      }}
+        <div class="flex flex-col gap-6">
+          <div>
+            <h4 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">
+              Built-in Themes
+            </h4>
+            <div class="grid grid-cols-2 gap-2.5">
+              <For each={THEMES}>
+                {(theme) => (
+                  <ThemeCard
+                    theme={theme}
+                    selected={themeId() === theme.id}
+                    onSelect={() => handleThemeChange(theme.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </div>
+
+          <div class="h-px bg-border/40 w-full" />
+
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-s font-medium text-text-muted uppercase tracking-wider">
+                Custom Themes
+              </h4>
+              <button
+                type="button"
+                onClick={() => setIsCreatingTheme(true)}
+                class="btn btn-secondary px-3 py-1.5 cursor-pointer text-s flex items-center gap-1.5"
+              >
+                <Icon name="plus" />
+                Create Theme
+              </button>
+            </div>
+
+            <Show
+              when={customThemes().length > 0}
+              fallback={
+                <div class="text-s text-text-muted px-1 py-4 text-center border border-dashed border-border rounded-lg bg-surface/30">
+                  No custom themes yet. Click "Create Theme" to design one!
+                </div>
+              }
+            >
+              <div class="grid grid-cols-2 gap-2.5">
+                <For each={customThemes()}>
+                  {(theme) => (
+                    <ThemeCard
+                      theme={theme}
+                      selected={themeId() === theme.id}
+                      custom
+                      onSelect={() => handleThemeChange(theme.id, theme)}
+                      onEdit={() => setEditingTheme(theme)}
+                      onDelete={() => setThemeToDelete(theme)}
                     />
-                    <div class="flex-1 p-2 flex flex-col gap-1.5 relative">
-                      <div
-                        class="h-1.5 w-1/2 rounded-full"
-                        style={{
-                          "background-color":
-                            theme.colors["--color-surface-active"],
-                        }}
-                      />
-                      <div
-                        class="h-1.5 w-3/4 rounded-full"
-                        style={{
-                          "background-color":
-                            theme.colors["--color-surface-hover"],
-                        }}
-                      />
-                      <div
-                        class="absolute bottom-2 right-2 w-3 h-3 rounded-full"
-                        style={{
-                          "background-color": theme.colors["--color-accent"],
-                        }}
-                      />
-                    </div>
-                  </div>
-                </button>
-              )}
-            </For>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         </div>
       ),
@@ -1260,11 +1153,11 @@ export default function SettingsView(props: Props) {
             </div>
             <div class="ml-auto">
               {geminiStatus().hasKey ? (
-                <span class="px-2.5 py-1 bg-success/10 text-success text-s font-semibold rounded-full border border-success/20">
+                <span class="settings-status-badge success">
                   CONFIGURED
                 </span>
               ) : (
-                <span class="px-2.5 py-1 bg-warning/10 text-warning text-s font-semibold rounded-full border border-warning/20">
+                <span class="settings-status-badge warning">
                   REQUIRED
                 </span>
               )}
@@ -1284,15 +1177,18 @@ export default function SettingsView(props: Props) {
                     onInput={(e) =>
                       setApiKey((e.target as HTMLInputElement).value)
                     }
-                    placeholder="Paste your API key here..."
+                    placeholder="Paste your API key here…"
                     class="pr-9"
                   />
                   <button
+                    type="button"
                     onClick={() => setShowApiKey(!showApiKey())}
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                    class="settings-secret-toggle"
+                    aria-label={showApiKey() ? "Hide Gemini API key" : "Show Gemini API key"}
                   >
-                    <i
-                      class={`fa-solid ${showApiKey() ? "fa-eye-slash" : "fa-eye"} text-s`}
+                    <Icon
+                      name={showApiKey() ? "eye-slash" : "eye"}
+                      class="text-s"
                     />
                   </button>
                 </div>
@@ -1309,7 +1205,7 @@ export default function SettingsView(props: Props) {
                   href="https://aistudio.google.com/app/apikey"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-accent hover:underline"
+                  class="settings-inline-link"
                   onClick={(e) => {
                     e.preventDefault();
                     void open("https://aistudio.google.com/app/apikey");
@@ -1337,11 +1233,11 @@ export default function SettingsView(props: Props) {
             </div>
             <div class="ml-auto">
               {braveHasKey() ? (
-                <span class="px-2.5 py-1 bg-success/10 text-success text-s font-semibold rounded-full border border-success/20">
+                <span class="settings-status-badge success">
                   CONFIGURED
                 </span>
               ) : (
-                <span class="px-2.5 py-1 bg-overlay-md/40 text-text-muted text-s font-semibold rounded-full border border-border">
+                <span class="settings-status-badge muted">
                   OPTIONAL
                 </span>
               )}
@@ -1361,15 +1257,18 @@ export default function SettingsView(props: Props) {
                     onInput={(e) =>
                       setBraveKey((e.target as HTMLInputElement).value)
                     }
-                    placeholder="Paste your Brave Search API key here..."
+                    placeholder="Paste your Brave Search API key here…"
                     class="pr-9"
                   />
                   <button
+                    type="button"
                     onClick={() => setShowBraveKey(!showBraveKey())}
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors"
+                    class="settings-secret-toggle"
+                    aria-label={showBraveKey() ? "Hide Brave Search API key" : "Show Brave Search API key"}
                   >
-                    <i
-                      class={`fa-solid ${showBraveKey() ? "fa-eye-slash" : "fa-eye"} text-s`}
+                    <Icon
+                      name={showBraveKey() ? "eye-slash" : "eye"}
+                      class="text-s"
                     />
                   </button>
                 </div>
@@ -1386,7 +1285,7 @@ export default function SettingsView(props: Props) {
                   href="https://api-dashboard.search.brave.com/app/keys"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-accent hover:underline"
+                  class="settings-inline-link"
                   onClick={(e) => {
                     e.preventDefault();
                     void open(
@@ -1408,28 +1307,21 @@ export default function SettingsView(props: Props) {
       title: "Notify when AI responds",
       keywords: "ai notifications notify desktop background reply",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Notify when AI responds
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Show a desktop notification when a chat reply arrives and the
-                window is in the background
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !aiNotifications();
-                setAiNotifications(next);
-                saveAiNotifications(next);
-              }}
-              class="settings-toggle"
-              data-checked={aiNotifications()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Notify when AI responds"
+          description={
+            <>
+              Show a desktop notification when a chat reply arrives and the
+              window is in the background
+            </>
+          }
+          checked={aiNotifications()}
+          onToggle={() => {
+            const next = !aiNotifications();
+            setAiNotifications(next);
+            saveAiNotifications(next);
+          }}
+        />
       ),
     },
     {
@@ -1455,20 +1347,19 @@ export default function SettingsView(props: Props) {
             <For each={UPDATE_CHANNEL_OPTIONS}>
               {(option) => (
                 <button
+                  type="button"
                   onClick={() => {
                     setUpdateChannel(option.value);
                     saveUpdateChannel(option.value);
                   }}
-                  class={`rounded-md border px-3 py-2 text-left transition-colors ${
-                    updateChannel() === option.value
-                      ? "border-accent bg-accent/10 text-text"
-                      : "border-border bg-surface hover:bg-surface-hover text-text-muted"
+                  class={`settings-option-card ${
+                    updateChannel() === option.value ? "is-selected" : ""
                   }`}
                 >
                   <span class="flex items-center justify-between gap-2 text-m font-medium">
                     {option.label}
                     {updateChannel() === option.value && (
-                      <i class="fa-solid fa-check text-accent text-s" />
+                      <Icon name="check" class="text-accent text-s" />
                     )}
                   </span>
                   <span class="mt-1 block text-s text-text-muted">
@@ -1487,27 +1378,16 @@ export default function SettingsView(props: Props) {
       title: "Automatically check for updates",
       keywords: "auto automatic check updates startup version",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Automatically check for updates
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Check for new versions in the background on startup
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const next = !autoCheckUpdates();
-                setAutoCheckUpdates(next);
-                saveAutoCheckUpdates(next);
-              }}
-              class="settings-toggle"
-              data-checked={autoCheckUpdates()}
-            />
-          </div>
-        </div>
+        <ToggleSetting
+          title="Automatically check for updates"
+          description="Check for new versions in the background on startup"
+          checked={autoCheckUpdates()}
+          onToggle={() => {
+            const next = !autoCheckUpdates();
+            setAutoCheckUpdates(next);
+            saveAutoCheckUpdates(next);
+          }}
+        />
       ),
     },
     {
@@ -1535,7 +1415,7 @@ export default function SettingsView(props: Props) {
             class="btn btn-primary w-full py-2"
           >
             {props.checkingForUpdates
-              ? "Checking for updates..."
+              ? "Checking for updates…"
               : "Check for Updates"}
           </button>
           {props.updateMessage && (
@@ -1571,17 +1451,17 @@ export default function SettingsView(props: Props) {
 
           <div class="settings-section">
             <div class="space-y-3">
-              <div class="flex items-center justify-between py-1">
+              <div class="settings-about-row">
                 <span class="text-m text-text-muted">Version</span>
                 <span class="text-m font-medium text-text">
                   {props.version ?? "unknown"}
                 </span>
               </div>
-              <div class="flex items-center justify-between py-1">
+              <div class="settings-about-row">
                 <span class="text-m text-text-muted">Author</span>
                 <span class="text-m text-text">Cristian Militaru</span>
               </div>
-              <div class="flex items-center justify-between py-1">
+              <div class="settings-about-row">
                 <span class="text-m text-text-muted">License</span>
                 <span class="text-m text-text">ISC</span>
               </div>
@@ -1594,9 +1474,13 @@ export default function SettingsView(props: Props) {
               <a
                 href={REPOSITORY_URL}
                 onClick={handleOpenRepository}
-                class="inline-flex items-center gap-2 text-m text-accent transition-colors hover:text-accent-hover font-medium"
+                class="settings-external-link"
               >
-                <i class="fa-brands fa-github text-base opacity-80" />
+                <Icon
+                  name="github"
+                  family="brands"
+                  class="text-base opacity-80"
+                />
                 View Source on GitHub
               </a>
               <a
@@ -1605,9 +1489,9 @@ export default function SettingsView(props: Props) {
                   e.preventDefault();
                   void open(`${REPOSITORY_URL}/issues`);
                 }}
-                class="inline-flex items-center gap-2 text-m text-accent transition-colors hover:text-accent-hover font-medium"
+                class="settings-external-link"
               >
-                <i class="fa-solid fa-bug text-base opacity-80" />
+                <Icon name="bug" class="text-base opacity-80" />
                 Report an Issue
               </a>
             </div>
@@ -1650,14 +1534,20 @@ export default function SettingsView(props: Props) {
 
   const sidebarNode = (
     <>
-      <div class="px-3 pt-4 pb-2">
+      <div class="app-panel-header">
+        <span class="app-section-title">Settings</span>
+      </div>
+      <div class="px-3 pt-2 pb-2">
         <div class="relative">
-          <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-s text-text-muted pointer-events-none" />
+          <Icon
+            name="magnifying-glass"
+            class="settings-search-icon"
+          />
           <Input
             type="search"
             value={search()}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
-            placeholder="Search settings..."
+            placeholder="Search settings…"
             class="pl-8"
           />
         </div>
@@ -1674,7 +1564,7 @@ export default function SettingsView(props: Props) {
                 !isSearching() && activeTab() === tab.id ? "active" : ""
               }`}
             >
-              <i class={tab.icon} />
+              <Icon name={tab.icon} />
               {tab.label}
             </button>
           )}
@@ -1767,6 +1657,35 @@ export default function SettingsView(props: Props) {
           />
         )}
       </Show>
+      <Show when={isCreatingTheme()}>
+        <ThemeDialog
+          onClose={() => setIsCreatingTheme(false)}
+          onSave={handleSaveCustomTheme}
+          activeThemeColors={activeTheme()?.colors}
+          activeThemeMode={activeThemeMode()}
+        />
+      </Show>
+      <Show when={editingTheme()}>
+        {(theme) => (
+          <ThemeDialog
+            editTheme={theme()}
+            onClose={() => setEditingTheme(null)}
+            onSave={handleSaveCustomTheme}
+          />
+        )}
+      </Show>
+      <Show when={themeToDelete()}>
+        {(theme) => (
+          <ConfirmDialog
+            title="Delete custom theme?"
+            message={`Are you sure you want to delete the custom theme "${theme().name}"? This action cannot be undone.`}
+            confirmLabel="Delete"
+            variant="danger"
+            onConfirm={handleDeleteCustomTheme}
+            onCancel={() => setThemeToDelete(null)}
+          />
+        )}
+      </Show>
     </>
   );
 
@@ -1785,7 +1704,7 @@ export default function SettingsView(props: Props) {
         <div class="w-[260px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
           {sidebarNode}
         </div>
-        <div class="flex-1 p-8 md:p-12 overflow-y-auto relative bg-surface-panel">
+        <div class="flex-1 p-8 md:p-12 overflow-y-auto scrollbar-gutter-stable relative bg-surface-panel">
           {contentNode}
         </div>
       </div>

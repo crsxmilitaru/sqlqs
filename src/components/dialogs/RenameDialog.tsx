@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { loadExecutionPreferences } from "../../lib/settings";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
-import Tooltip from "../ui/Tooltip";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 interface Props {
   database: string;
@@ -69,13 +71,6 @@ export default function RenameDialog(props: Props) {
       inputRef?.select();
     });
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !executing()) {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   const fullName = () =>
@@ -140,22 +135,19 @@ export default function RenameDialog(props: Props) {
   const confirmDisabled = () => executing() || success() || !!validation();
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={() => !executing() && props.onClose()}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[480px] shadow-2xl"
+      ariaLabel={`Rename ${objectTypeLabel(props.objectType)}`}
+      closeOnOverlay={!executing()}
+      closeOnEscape={!executing()}
     >
-      <div
-        class="dialog-surface w-[480px] shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <form onSubmit={handleSubmit}>
           <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-accent/10 text-accent shrink-0">
-                <i class="fa-solid fa-i-cursor text-sm" />
+                <Icon name="i-cursor" class="text-sm" />
               </div>
               <div class="flex flex-col min-w-0">
                 <h2 class="text-m font-semibold text-text">
@@ -169,16 +161,7 @@ export default function RenameDialog(props: Props) {
                 </p>
               </div>
             </div>
-            <Tooltip content="Close" placement="bottom">
-              <button
-                type="button"
-                onClick={props.onClose}
-                disabled={executing()}
-                class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40"
-              >
-                &times;
-              </button>
-            </Tooltip>
+            <DialogCloseButton onClick={props.onClose} disabled={executing()} />
           </div>
 
           <div class="px-6 py-4 flex flex-col gap-3">
@@ -199,7 +182,7 @@ export default function RenameDialog(props: Props) {
             </label>
 
             <div class="flex items-start gap-2 p-3 rounded-lg bg-warning/5 border border-warning/20 text-xs text-warning/90">
-              <i class="fa-solid fa-triangle-exclamation mt-0.5" />
+              <Icon name="triangle-exclamation" class="mt-0.5" />
               <span>
                 <code>sp_rename</code> only updates the object's name. Other
                 objects that reference it by name (procedures, views, triggers,
@@ -226,23 +209,18 @@ export default function RenameDialog(props: Props) {
             <button
               type="submit"
               disabled={confirmDisabled()}
-              class={`btn px-6 py-1.5 gap-2 transition-all ${
-                success()
-                  ? "bg-success border-success text-white"
-                  : "btn-primary"
-              }`}
-            >
-              <Show when={success()}>
-                <i class="fa-solid fa-check text-[11px]" />
-              </Show>
+              class={`btn px-6 py-1.5 gap-2 ${success() ? "btn-success" : "btn-primary"}`}
+          >
+            <Show when={success()}>
+                <Icon name="check" class="text-[11px]" />
+            </Show>
               <Show when={executing()}>
-                <div class="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
               </Show>
-              {success() ? "Renamed" : executing() ? "Renaming..." : "Rename"}
+              {success() ? "Renamed" : executing() ? "Renaming…" : "Rename"}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

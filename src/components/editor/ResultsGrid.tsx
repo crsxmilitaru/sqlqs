@@ -15,7 +15,9 @@ import type { QueryResult, ResultSet } from "../../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import EmptyState from "../ui/EmptyState";
-import RowActionsDialog, { type RowActionMode } from "../dialogs/RowActionsDialog";
+import RowActionsDialog, {
+  type RowActionMode,
+} from "../dialogs/RowActionsDialog";
 
 interface Props {
   result?: QueryResult;
@@ -65,6 +67,7 @@ function ErrorSection(props: {
         <div class="flex items-center gap-2">
           <Show when={props.onSendToChat}>
             <button
+              type="button"
               onClick={() => props.onSendToChat?.(props.error)}
               class="btn btn-secondary h-7 px-3 gap-2"
             >
@@ -73,12 +76,14 @@ function ErrorSection(props: {
             </button>
           </Show>
           <button
+            type="button"
             onClick={handleCopy}
-            class={`btn btn-secondary h-7 px-3 gap-2 transition-all ${copied() ? "text-success border-success/30 bg-success/5" : ""
-              }`}
+            class={`btn btn-secondary h-7 px-3 gap-2 transition-colors ${
+              copied() ? "text-success border-success/30 bg-success/5" : ""
+            }`}
           >
             <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
-            <span>{copied() ? "Copied!" : "Copy Error"}</span>
+            <span>{copied() ? "Copied" : "Copy Error"}</span>
           </button>
         </div>
       </div>
@@ -291,6 +296,10 @@ function VirtualGrid(props: {
   const colWidths = createMemo(() =>
     autoWidths().map((w, i) => colOverrides()[i] ?? w),
   );
+  const rowNumberColWidth = createMemo(() => {
+    const maxRowNumber = Math.max(processedRows().length, 1);
+    return Math.max(36, String(maxRowNumber).length * charWidth + 18);
+  });
 
   let dragRef: { colIndex: number; startX: number; startWidth: number } | null =
     null;
@@ -383,31 +392,29 @@ function VirtualGrid(props: {
         <div class="flex items-center justify-end px-1 gap-2">
           <div class="flex items-center gap-2">
             <button
+              type="button"
               onClick={copyAsMarkdown}
-              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${copied() ? "text-success border-success/30 bg-success/5" : ""
-                }`}
+              class={`btn btn-table ${copied() ? "is-success" : ""}`}
               title="Copy table as Markdown"
             >
               <i
-                class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-[10px]`}
+                class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-2xs`}
               />
-              <span class="text-[11px] font-medium">
-                {copied() ? "Copied!" : "Copy"}
-              </span>
+              <span>{copied() ? "Copied" : "Copy"}</span>
             </button>
             <button
+              type="button"
+              aria-label="Export results"
               onClick={handleExportClick}
-              class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${exportMenuPos() ? "bg-surface-active text-text" : ""
-                }`}
+              class={`btn btn-table ${exportMenuPos() ? "is-active" : ""}`}
               title="Export results"
             >
-              <i class="fa-solid fa-download text-[10px]" />
-              <span class="text-[11px] font-medium hidden xs:block">
-                Export
-              </span>
+              <i class="fa-solid fa-download text-2xs" />
+              <span class="hidden xs:block">Export</span>
               <i
-                class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${exportMenuPos() ? "rotate-180" : ""
-                  }`}
+                class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
+                  exportMenuPos() ? "rotate-180" : ""
+                }`}
               />
             </button>
             <Show when={exportMenuPos()}>
@@ -445,21 +452,22 @@ function VirtualGrid(props: {
             <div class="relative">
               <button
                 ref={columnSelectorButtonRef}
+                type="button"
                 onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen())}
-                class={`flex items-center gap-2 h-[26px] px-2.5 rounded-md border border-border/30 bg-surface/40 text-text-muted hover:text-text hover:bg-surface/60 transition-all cursor-pointer ${isColumnSelectorOpen() ? "bg-surface-active text-text" : ""
-                  }`}
+                class={`btn btn-table ${isColumnSelectorOpen() ? "is-active" : ""}`}
                 title="Column visibility"
               >
-                <i class="fa-solid fa-table-columns text-[10px]" />
-                <span class="text-[11px] font-medium">Columns</span>
+                <i class="fa-solid fa-table-columns text-2xs" />
+                <span>Columns</span>
                 <Show when={hiddenColumnIndices().size > 0}>
-                  <span class="flex items-center justify-center w-3.5 h-3.5 rounded-full bg-accent text-white text-[9px] font-bold">
+                  <span class="btn-table-badge">
                     {hiddenColumnIndices().size}
                   </span>
                 </Show>
                 <i
-                  class={`fa-solid fa-chevron-down text-[8px] opacity-40 transition-transform ${isColumnSelectorOpen() ? "rotate-180" : ""
-                    }`}
+                  class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
+                    isColumnSelectorOpen() ? "rotate-180" : ""
+                  }`}
                 />
               </button>
               <Show when={isColumnSelectorOpen()}>
@@ -481,9 +489,15 @@ function VirtualGrid(props: {
         class="results-table-container overflow-auto rounded-lg border border-border/20 flex-1"
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >
-        <table class="results-table" style={{ "table-layout": "fixed" }}>
+        <table
+          class="results-table"
+          style={{
+            "table-layout": "fixed",
+            "--results-row-number-width": `${rowNumberColWidth()}px`,
+          }}
+        >
           <colgroup>
-            <col style={{ width: "28px" }} />
+            <col style={{ width: `${rowNumberColWidth()}px` }} />
             <For each={visibleColIndices()}>
               {(ci) => <col style={{ width: `${colWidths()[ci]}px` }} />}
             </For>
@@ -494,11 +508,16 @@ function VirtualGrid(props: {
               <th class="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
                 <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
                   <button
+                    type="button"
+                    aria-label={
+                      showFilters() ? "Hide column filters" : "Show column filters"
+                    }
                     onClick={() => setShowFilters(!showFilters())}
-                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${Object.values(filters()).some((v) => v.trim())
+                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${
+                      Object.values(filters()).some((v) => v.trim())
                         ? "text-accent"
                         : "text-text-muted/60"
-                      }`}
+                    }`}
                     title="Toggle filters"
                   >
                     <i class="fa-solid fa-filter text-[10px]" />
@@ -515,8 +534,10 @@ function VirtualGrid(props: {
                   const col = props.resultSet.columns[i];
                   return (
                     <th class="bg-surface-table border-b border-r border-border/40 px-3 py-1.5 align-top">
-                      <div
-                        class="flex items-center justify-between gap-3 cursor-pointer select-none hover:text-text transition-colors"
+                      <button
+                        type="button"
+                        aria-label={`Sort by ${col.name}`}
+                        class="flex w-full items-center justify-between gap-3 cursor-pointer select-none border-0 bg-transparent p-0 text-left text-inherit hover:text-text transition-colors"
                         onClick={() => handleSort(i)}
                       >
                         <span class="truncate">{col.name}</span>
@@ -531,20 +552,24 @@ function VirtualGrid(props: {
                             }
                           >
                             <i
-                              class={`fa-solid ${sortConfig()!.direction === "asc"
+                              class={`fa-solid ${
+                                sortConfig()!.direction === "asc"
                                   ? "fa-sort-up mt-1"
                                   : "fa-sort-down mb-1"
-                                } text-accent text-[10px] w-2 flex justify-center`}
+                              } text-accent text-[10px] w-2 flex justify-center`}
                             />
                           </Show>
                         </div>
-                      </div>
+                      </button>
                       <Show when={showFilters()}>
                         <div class="mt-1.5 mb-0.5">
                           <input
                             type="text"
-                            class="w-full bg-surface border border-border/40 rounded px-1.5 py-0.5 text-xs text-text outline-none focus:border-accent font-normal"
-                            placeholder="Filter..."
+                            name={`filter-${i}`}
+                            autocomplete="off"
+                            aria-label={`Filter ${col.name}`}
+                            class="results-filter-input"
+                            placeholder="Filter…"
                             value={filters()[i] || ""}
                             onInput={(e) =>
                               setFilters((prev) => ({
@@ -587,7 +612,7 @@ function VirtualGrid(props: {
                     onContextMenu={(e) => props.onContextMenu(e, originalIndex)}
                     onDblClick={() => props.onRowDoubleClick?.(originalIndex)}
                   >
-                    <td class="text-center px-0 text-text-muted/60 border-r border-border/10">
+                    <td class="text-center px-0 text-text-muted/60 border-r border-r-border/10">
                       {visualIndex() + 1}
                     </td>
                     <For each={visibleColIndices()}>
@@ -603,7 +628,7 @@ function VirtualGrid(props: {
                         return (
                           <td
                             title={formattedValue}
-                            class="border-r border-border/5"
+                            class="border-r border-r-border/5"
                           >
                             {cell != null ? (
                               formattedValue
@@ -676,7 +701,7 @@ export default function ResultsGrid(props: Props) {
             icon={
               <div class="mb-5 h-8 w-8 rounded-full border-[3px] border-accent/20 border-t-accent animate-spin" />
             }
-            title={<span class="animate-pulse">Executing query...</span>}
+            title={<span class="animate-pulse">Executing query…</span>}
           />
         </div>
       }
@@ -835,8 +860,8 @@ export default function ResultsGrid(props: Props) {
                             <i class="fa-solid fa-circle-exclamation" />
                             {result().result_sets.length > 1
                               ? `Result set ${i() + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
-                              : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}
-                            {" "}(Execution row limit in Settings → Execution).
+                              : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
+                            (Execution row limit in Settings → Execution).
                           </div>
                         </Show>
                         <VirtualGrid

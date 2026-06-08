@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { loadExecutionPreferences } from "../../lib/settings";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
-import Tooltip from "../ui/Tooltip";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import DialogShell from "../ui/DialogShell";
+import { Icon } from "../ui/Icons";
 
 interface Props {
   database: string;
@@ -44,13 +46,6 @@ export default function DropConfirmDialog(props: Props) {
       confirmRef?.focus();
     });
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !executing()) {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   const fullName = () =>
@@ -89,21 +84,18 @@ export default function DropConfirmDialog(props: Props) {
   };
 
   return (
-    <div
-      class="dialog-overlay"
-      data-visible={visible()}
-      onMouseDown={() => !executing() && props.onClose()}
-      role="dialog"
-      aria-modal="true"
+    <DialogShell
+      visible={visible()}
+      onClose={props.onClose}
+      class="w-[480px] shadow-2xl"
+      ariaLabel={`Drop ${typeLabel()}`}
+      closeOnOverlay={!executing()}
+      closeOnEscape={!executing()}
     >
-      <div
-        class="dialog-surface w-[480px] shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-6 py-4 border-b border-overlay-xs">
           <div class="flex items-center gap-3 min-w-0">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-error/10 text-error shrink-0">
-              <i class="fa-solid fa-trash-can text-sm" />
+              <Icon name="trash-can" class="text-sm" />
             </div>
             <div class="flex flex-col min-w-0">
               <h2 class="text-m font-semibold text-text">Drop {typeLabel()}</h2>
@@ -115,21 +107,12 @@ export default function DropConfirmDialog(props: Props) {
               </p>
             </div>
           </div>
-          <Tooltip content="Close" placement="bottom">
-            <button
-              type="button"
-              onClick={props.onClose}
-              disabled={executing()}
-              class="text-text-muted hover:bg-surface-overlay hover:text-text rounded-lg w-8 h-8 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40"
-            >
-              &times;
-            </button>
-          </Tooltip>
+          <DialogCloseButton onClick={props.onClose} disabled={executing()} />
         </div>
 
         <div class="px-6 py-4">
           <div class="flex items-start gap-2 p-3 rounded-lg bg-error/5 border border-error/15 text-sm text-error/90">
-            <i class="fa-solid fa-triangle-exclamation mt-0.5" />
+            <Icon name="triangle-exclamation" class="mt-0.5" />
             <span>
               This will permanently drop the {typeLabel().toLowerCase()}.
               Dependent objects will fail until updated, and this action cannot
@@ -158,26 +141,21 @@ export default function DropConfirmDialog(props: Props) {
             type="button"
             onClick={handleConfirm}
             disabled={executing() || success()}
-            class={`btn px-6 py-1.5 gap-2 transition-all ${
-              success()
-                ? "bg-success border-success text-white"
-                : "bg-error border-error text-white hover:!bg-error/90 hover:!border-error/90"
-            }`}
+            class={`btn px-6 py-1.5 gap-2 ${success() ? "btn-success" : "btn-danger"}`}
           >
             <Show when={success()}>
-              <i class="fa-solid fa-check text-[11px]" />
+              <Icon name="check" class="text-[11px]" />
             </Show>
             <Show when={executing()}>
-              <div class="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
             </Show>
             {success()
               ? "Dropped"
               : executing()
-                ? "Dropping..."
+                ? "Dropping…"
                 : `Drop ${typeLabel()}`}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogShell>
   );
 }

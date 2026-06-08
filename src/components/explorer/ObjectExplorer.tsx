@@ -1,5 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { loadRevealCurrentDatabaseInExplorer } from "../../lib/settings";
 import type { JSX } from "solid-js";
 import type { SavedQuery } from "../../hooks/useSavedQueries";
@@ -100,8 +110,7 @@ const ROOT_SECTION_OBJECT_TYPE = {
   "root:queries": "QUERIES_FOLDER",
   "root:history": "HISTORY_FOLDER",
 } as const satisfies Record<RootSectionId, string>;
-type RootSectionObjectType =
-  (typeof ROOT_SECTION_OBJECT_TYPE)[RootSectionId];
+type RootSectionObjectType = (typeof ROOT_SECTION_OBJECT_TYPE)[RootSectionId];
 const MIN_SECTION_HEIGHT = 160;
 const DEFAULT_SECTION_HEIGHTS: ExplorerSectionHeights = {
   saved: 160,
@@ -132,11 +141,8 @@ function initExpandedSections(): Set<string> {
   return expanded;
 }
 
-const ICON_WRAP = "w-4 flex justify-center flex-shrink-0";
-const SECTION_HEADER =
-  "flex items-center justify-between px-3 py-2 mx-0.5 mb-1 flex-shrink-0 cursor-pointer bg-surface-header hover:bg-surface-hover rounded-md text-text transition-colors group";
-const LIST_ROW =
-  "rounded-md px-4 py-1.5 cursor-pointer group whitespace-nowrap select-text transition-colors";
+const ICON_WRAP = "object-icon-wrap";
+const LIST_ROW = "explorer-list-row group";
 
 function Chevron(props: { expanded: boolean }) {
   return (
@@ -180,7 +186,7 @@ function SectionHeader(props: {
 }) {
   return (
     <div
-      class={SECTION_HEADER}
+      class="explorer-section-header group"
       onClick={props.onToggle}
       onContextMenu={props.onContextMenu}
     >
@@ -281,25 +287,25 @@ function ObjectIcon(props: { type: string }) {
     case "procedure":
       return (
         <div class={ICON_WRAP}>
-          <IconProcedure class="text-purple-400 w-3.5 h-3.5" />
+          <IconProcedure class="object-icon-procedure w-3.5 h-3.5" />
         </div>
       );
     case "function":
       return (
         <div class={ICON_WRAP}>
-          <IconFunction class="text-orange-400 w-3.5 h-3.5" />
+          <IconFunction class="object-icon-function w-3.5 h-3.5" />
         </div>
       );
     case "trigger":
       return (
         <div class={ICON_WRAP}>
-          <IconTrigger class="text-red-400 w-3.5 h-3.5" />
+          <IconTrigger class="object-icon-trigger w-3.5 h-3.5" />
         </div>
       );
     case "type":
       return (
         <div class={ICON_WRAP}>
-          <IconType class="text-blue-400 w-3.5 h-3.5" />
+          <IconType class="object-icon-type w-3.5 h-3.5" />
         </div>
       );
     case "column":
@@ -372,17 +378,17 @@ export default function ObjectExplorer(props: Props) {
     table: string;
     sql?: string;
     objectType:
-    | "TABLE"
-    | "VIEW"
-    | "PROCEDURE"
-    | "FUNCTION"
-    | "TRIGGER"
-    | "TYPE"
-    | "DATABASE"
-    | "HISTORY"
-    | RootSectionObjectType
-    | "SAVED_QUERY"
-    | "FOLDER";
+      | "TABLE"
+      | "VIEW"
+      | "PROCEDURE"
+      | "FUNCTION"
+      | "TRIGGER"
+      | "TYPE"
+      | "DATABASE"
+      | "HISTORY"
+      | RootSectionObjectType
+      | "SAVED_QUERY"
+      | "FOLDER";
     savedQueryFilePath?: string;
   } | null>(null);
 
@@ -404,10 +410,7 @@ export default function ObjectExplorer(props: Props) {
   function persistCollapsedSections(expandedSet: Set<string>) {
     try {
       const collapsed = ROOT_SECTIONS.filter((s) => !expandedSet.has(s));
-      localStorage.setItem(
-        EXPLORER_COLLAPSED_KEY,
-        JSON.stringify(collapsed),
-      );
+      localStorage.setItem(EXPLORER_COLLAPSED_KEY, JSON.stringify(collapsed));
     } catch (err) {
       void err;
     }
@@ -493,9 +496,9 @@ export default function ObjectExplorer(props: Props) {
       const startSaved = heights.saved;
       const maxSaved = containerRef
         ? containerRef.clientHeight -
-        MIN_SECTION_HEIGHT -
-        (expanded().has("root:history") ? heights.history : 36) -
-        48
+          MIN_SECTION_HEIGHT -
+          (expanded().has("root:history") ? heights.history : 34) -
+          48
         : Infinity;
 
       const onMove = (ev: MouseEvent) => {
@@ -672,9 +675,7 @@ export default function ObjectExplorer(props: Props) {
     });
   }
 
-  function getRootSectionMenu(
-    type: RootSectionObjectType,
-  ): ContextMenuItem[] {
+  function getRootSectionMenu(type: RootSectionObjectType): ContextMenuItem[] {
     switch (type) {
       case "DATABASE_FOLDER":
         return [
@@ -916,18 +917,21 @@ export default function ObjectExplorer(props: Props) {
 
   return (
     <div class="flex flex-col h-full bg-transparent">
+      <div class="app-panel-header">
+        <span class="app-section-title">Explorer</span>
+      </div>
       <div
         ref={containerRef}
         class="flex-1 overflow-hidden p-2 text-s flex flex-col gap-1 explorer-content"
       >
         <div
-          class={`flex flex-col overflow-hidden ${activeResizer() ? "" : "transition-all duration-300 ease-in-out"}`}
+          class={`flex flex-col overflow-hidden ${activeResizer() ? "" : "transition-[flex-grow,flex-basis,min-height] duration-300 ease-in-out"}`}
           style={{
             "flex-grow": expanded().has("root:databases") ? 1 : 0,
-            "flex-basis": expanded().has("root:databases") ? "0%" : "36px",
+            "flex-basis": expanded().has("root:databases") ? "0%" : "34px",
             "min-height": expanded().has("root:databases")
               ? `${MIN_SECTION_HEIGHT}px`
-              : "36px",
+              : "34px",
           }}
         >
           <SectionHeader
@@ -945,7 +949,7 @@ export default function ObjectExplorer(props: Props) {
                       e.stopPropagation();
                       props.onRefreshDatabases!();
                     }}
-                    class="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+                    class="explorer-section-action"
                   >
                     <i class="fa-solid fa-rotate text-s" />
                   </button>
@@ -966,7 +970,7 @@ export default function ObjectExplorer(props: Props) {
             {props.databases.length > 0 && (
               <div class="mb-2 h-7 flex-shrink-0">
                 <FilterInput
-                  placeholder="Filter databases..."
+                  placeholder="Filter databases…"
                   value={folderFilters()["root:databases"] || ""}
                   onChange={(v) => updateFilter("root:databases", v)}
                 />
@@ -978,157 +982,168 @@ export default function ObjectExplorer(props: Props) {
                 {(db) => {
                   onCleanup(() => dbRowRefs.delete(db));
                   return (
-                  <div style={{ display: "flex", "flex-direction": "column" }}>
-                    <div
-                      ref={(el) => dbRowRefs.set(db, el)}
-                      class={`tree-node cursor-pointer ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.objectType === "DATABASE" ? "bg-surface-active" : ""}`}
-                      style={{ "--depth": "0" }}
-                      onClick={() => handleDbClick(db)}
-                      onDblClick={() => props.onDatabaseChange(db)}
-                      onContextMenu={(e) =>
-                        handleContextMenu(e, db, "", "", "DATABASE")
-                      }
-                    >
-                      <ObjectIcon type="database" />
-                      <span
-                        class={`truncate flex-1 min-w-0 ${db === props.currentDatabase ? "font-bold" : ""}`}
+                    <div class="flex flex-col">
+                      <div
+                        ref={(el) => dbRowRefs.set(db, el)}
+                        class={`tree-node cursor-pointer ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.objectType === "DATABASE" ? "bg-surface-active" : ""}`}
+                        style={{ "--depth": "0" }}
+                        onClick={() => handleDbClick(db)}
+                        onDblClick={() => props.onDatabaseChange(db)}
+                        onContextMenu={(e) =>
+                          handleContextMenu(e, db, "", "", "DATABASE")
+                        }
                       >
-                        {db}
-                      </span>
-                      {loading().has(db) && (
-                        <span class="text-text-muted ml-1 animate-pulse">
-                          ...
-                        </span>
-                      )}
-                      <Chevron expanded={expanded().has(db)} />
-                    </div>
-
-                    <div
-                      class={`accordion-content ${expanded().has(db) ? "expanded" : ""}`}
-                    >
-                      <div class="accordion-inner">
-                        <Show
-                          when={tableCache()[db]}
-                          fallback={
-                            <Show when={expanded().has(db)}>
-                              <div class="tree-node" style={{ "--depth": "1" }}>
-                                <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
-                                  Loading objects...
-                                </span>
-                              </div>
-                            </Show>
-                          }
+                        <ObjectIcon type="database" />
+                        <span
+                          class={`truncate flex-1 min-w-0 ${db === props.currentDatabase ? "font-bold" : ""}`}
                         >
-                          <div>
-                            <For each={groupDatabaseObjects(tableCache()[db] ?? [])}>
-                              {(group) => {
-                                const folderId = `${db}:${group.key}`;
-                                const isOpen = () => expanded().has(folderId);
-                                const filter = () =>
-                                  (
-                                    folderFilters()[folderId] || ""
-                                  ).toLowerCase();
-                                const filtered = () => {
-                                  const f = filter();
-                                  return f
-                                    ? group.items.filter(
-                                      (o) =>
-                                        o.schema_name
-                                          .toLowerCase()
-                                          .includes(f) ||
-                                        o.name.toLowerCase().includes(f),
-                                    )
-                                    : group.items;
-                                };
-                                const canDblClick =
-                                  group.objectType === "TABLE" ||
-                                  group.objectType === "VIEW";
+                          {db}
+                        </span>
+                        {loading().has(db) && (
+                          <span class="text-text-muted ml-1 animate-pulse">
+                            …
+                          </span>
+                        )}
+                        <Chevron expanded={expanded().has(db)} />
+                      </div>
 
-                                return (
-                                  <div>
-                                    <div
-                                      class={`tree-node cursor-pointer group relative ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.table === group.key && contextMenu()!.objectType === "FOLDER" ? "bg-surface-active" : ""}`}
-                                      style={{ "--depth": "1" }}
-                                      onClick={() => toggle(folderId)}
-                                      onContextMenu={(e) =>
-                                        handleContextMenu(
-                                          e,
-                                          db,
-                                          "",
-                                          group.key,
-                                          "FOLDER",
+                      <div
+                        class={`accordion-content ${expanded().has(db) ? "expanded" : ""}`}
+                      >
+                        <div class="accordion-inner">
+                          <Show
+                            when={tableCache()[db]}
+                            fallback={
+                              <Show when={expanded().has(db)}>
+                                <div
+                                  class="tree-node"
+                                  style={{ "--depth": "1" }}
+                                >
+                                  <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
+                                    Loading objects…
+                                  </span>
+                                </div>
+                              </Show>
+                            }
+                          >
+                            <div>
+                              <For
+                                each={groupDatabaseObjects(
+                                  tableCache()[db] ?? [],
+                                )}
+                              >
+                                {(group) => {
+                                  const folderId = `${db}:${group.key}`;
+                                  const isOpen = () => expanded().has(folderId);
+                                  const filter = () =>
+                                    (
+                                      folderFilters()[folderId] || ""
+                                    ).toLowerCase();
+                                  const filtered = () => {
+                                    const f = filter();
+                                    return f
+                                      ? group.items.filter(
+                                          (o) =>
+                                            o.schema_name
+                                              .toLowerCase()
+                                              .includes(f) ||
+                                            o.name.toLowerCase().includes(f),
                                         )
-                                      }
-                                    >
-                                      <i
-                                        class={`fa-solid ${isOpen() ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-warning w-4 text-center text-s`}
-                                      />
-                                      <span class="truncate flex-1 min-w-0">
-                                        {group.label} ({group.items.length})
-                                      </span>
-                                      <Chevron expanded={isOpen()} />
-                                    </div>
-                                    <Show when={isOpen()}>
-                                      <div class="accordion-content expanded">
-                                        <div class="accordion-inner">
-                                          <div class="explorer-filter-nested mb-1 h-7 flex-shrink-0">
-                                            <FilterInput
-                                              placeholder={`Filter ${group.label.toLowerCase()}...`}
-                                              value={
-                                                folderFilters()[folderId] || ""
-                                              }
-                                              onChange={(v) =>
-                                                updateFilter(folderId, v)
-                                              }
-                                              focusOnMount
-                                            />
-                                          </div>
-                                          <For each={filtered()}>
-                                            {(o) => (
-                                              <div
-                                                class={`tree-node cursor-pointer ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.schema === o.schema_name && contextMenu()!.table === o.name ? "bg-surface-active" : ""}`}
-                                                style={{ "--depth": "2" }}
-                                                onDblClick={
-                                                  canDblClick
-                                                    ? () =>
-                                                      handleTableDoubleClick(
-                                                        db,
-                                                        o.schema_name,
-                                                        o.name,
-                                                      )
-                                                    : undefined
-                                                }
-                                                onContextMenu={(e) =>
-                                                  handleContextMenu(
-                                                    e,
-                                                    db,
-                                                    o.schema_name,
-                                                    o.name,
-                                                    group.objectType,
-                                                  )
-                                                }
-                                              >
-                                                <ObjectIcon
-                                                  type={group.iconName}
-                                                />
-                                                <span class="truncate flex-1 min-w-0">
-                                                  {o.schema_name}.{o.name}
-                                                </span>
-                                              </div>
-                                            )}
-                                          </For>
-                                        </div>
+                                      : group.items;
+                                  };
+                                  const canDblClick =
+                                    group.objectType === "TABLE" ||
+                                    group.objectType === "VIEW";
+
+                                  return (
+                                    <div>
+                                      <div
+                                        class={`tree-node cursor-pointer group relative ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.table === group.key && contextMenu()!.objectType === "FOLDER" ? "bg-surface-active" : ""}`}
+                                        style={{ "--depth": "1" }}
+                                        onClick={() => toggle(folderId)}
+                                        onContextMenu={(e) =>
+                                          handleContextMenu(
+                                            e,
+                                            db,
+                                            "",
+                                            group.key,
+                                            "FOLDER",
+                                          )
+                                        }
+                                      >
+                                        <i
+                                          class={`fa-solid ${isOpen() ? "fa-folder-open" : "fa-folder"} flex-shrink-0 text-warning w-4 text-center text-s`}
+                                        />
+                                        <span class="truncate flex-1 min-w-0">
+                                          {group.label}
+                                        </span>
+                                        <span class="explorer-badge">
+                                          {group.items.length}
+                                        </span>
+                                        <Chevron expanded={isOpen()} />
                                       </div>
-                                    </Show>
-                                  </div>
-                                );
-                              }}
-                            </For>
-                          </div>
-                        </Show>
+                                      <Show when={isOpen()}>
+                                        <div class="accordion-content expanded">
+                                          <div class="accordion-inner">
+                                            <div class="explorer-filter-nested mb-1 h-7 flex-shrink-0">
+                                              <FilterInput
+                                                placeholder={`Filter ${group.label.toLowerCase()}…`}
+                                                value={
+                                                  folderFilters()[folderId] ||
+                                                  ""
+                                                }
+                                                onChange={(v) =>
+                                                  updateFilter(folderId, v)
+                                                }
+                                                focusOnMount
+                                              />
+                                            </div>
+                                            <For each={filtered()}>
+                                              {(o) => (
+                                                <div
+                                                  class={`tree-node cursor-pointer ${contextMenu()?.visible && contextMenu()!.database === db && contextMenu()!.schema === o.schema_name && contextMenu()!.table === o.name ? "bg-surface-active" : ""}`}
+                                                  style={{ "--depth": "2" }}
+                                                  onDblClick={
+                                                    canDblClick
+                                                      ? () =>
+                                                          handleTableDoubleClick(
+                                                            db,
+                                                            o.schema_name,
+                                                            o.name,
+                                                          )
+                                                      : undefined
+                                                  }
+                                                  onContextMenu={(e) =>
+                                                    handleContextMenu(
+                                                      e,
+                                                      db,
+                                                      o.schema_name,
+                                                      o.name,
+                                                      group.objectType,
+                                                    )
+                                                  }
+                                                >
+                                                  <ObjectIcon
+                                                    type={group.iconName}
+                                                  />
+                                                  <span class="truncate flex-1 min-w-0">
+                                                    {o.schema_name}.{o.name}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </For>
+                                          </div>
+                                        </div>
+                                      </Show>
+                                    </div>
+                                  );
+                                }}
+                              </For>
+                            </div>
+                          </Show>
+                        </div>
                       </div>
                     </div>
-                  </div>
                   );
                 }}
               </For>
@@ -1144,22 +1159,22 @@ export default function ObjectExplorer(props: Props) {
         )}
 
         <div
-          class={`flex flex-col mt-1 overflow-hidden ${activeResizer() ? "" : "transition-all duration-300 ease-in-out"}`}
+          class={`flex flex-col mt-1 overflow-hidden ${activeResizer() ? "" : "transition-[flex-grow,flex-basis,min-height] duration-300 ease-in-out"}`}
           style={{
             "flex-grow":
               expanded().has("root:queries") &&
-                !expanded().has("root:databases")
+              !expanded().has("root:databases")
                 ? 1
                 : 0,
             "flex-basis": !expanded().has("root:queries")
-              ? "36px"
+              ? "34px"
               : expanded().has("root:databases")
                 ? `${sectionHeights().saved}px`
                 : "0%",
             "flex-shrink": 0,
             "min-height": expanded().has("root:queries")
               ? `${MIN_SECTION_HEIGHT}px`
-              : "36px",
+              : "34px",
           }}
         >
           <SectionHeader
@@ -1177,7 +1192,7 @@ export default function ObjectExplorer(props: Props) {
                       e.stopPropagation();
                       props.onOpenSavedQueriesFolder!();
                     }}
-                    class="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-text transition-colors cursor-pointer"
+                    class="explorer-section-action"
                   >
                     <i class="fa-regular fa-folder-open text-[12px]" />
                   </button>
@@ -1199,7 +1214,7 @@ export default function ObjectExplorer(props: Props) {
               {(props.savedQueries ?? []).length > 0 && (
                 <div class="mb-1 h-7 flex-shrink-0">
                   <FilterInput
-                    placeholder="Filter queries..."
+                    placeholder="Filter queries…"
                     value={folderFilters()["root:queries"] || ""}
                     onChange={(v) => updateFilter("root:queries", v)}
                   />
@@ -1218,7 +1233,12 @@ export default function ObjectExplorer(props: Props) {
                     {(item) => (
                       <Tooltip content={item.title} placement="right">
                         <div
-                          class={`${LIST_ROW} ${contextMenu()?.visible && contextMenu()!.sql === item.id ? "bg-white/10" : "hover:bg-surface-hover"}`}
+                          class={`${LIST_ROW} ${
+                            contextMenu()?.visible &&
+                            contextMenu()!.sql === item.id
+                              ? "is-selected"
+                              : ""
+                          }`}
                           onClick={() =>
                             props.onLoadSavedQuery?.(item.filePath, item.title)
                           }
@@ -1257,22 +1277,22 @@ export default function ObjectExplorer(props: Props) {
         )}
 
         <div
-          class={`flex flex-col mt-1 overflow-hidden ${activeResizer() ? "" : "transition-all duration-300 ease-in-out"}`}
+          class={`flex flex-col mt-1 overflow-hidden ${activeResizer() ? "" : "transition-[flex-grow,flex-basis,min-height] duration-300 ease-in-out"}`}
           style={{
             "flex-grow":
               expanded().has("root:history") &&
-                !expanded().has("root:databases")
+              !expanded().has("root:databases")
                 ? 1
                 : 0,
             "flex-basis": !expanded().has("root:history")
-              ? "36px"
+              ? "34px"
               : expanded().has("root:databases")
                 ? `${sectionHeights().history}px`
                 : "0%",
             "flex-shrink": 0,
             "min-height": expanded().has("root:history")
               ? `${MIN_SECTION_HEIGHT}px`
-              : "36px",
+              : "34px",
           }}
         >
           <SectionHeader
@@ -1291,7 +1311,7 @@ export default function ObjectExplorer(props: Props) {
                       e.stopPropagation();
                       confirmClearHistory();
                     }}
-                    class="w-4 h-4 flex items-center justify-center rounded-md hover:bg-black/20 text-text-muted hover:text-error transition-colors cursor-pointer"
+                    class="explorer-section-action explorer-section-action-danger"
                   >
                     <i class="fa-solid fa-trash-can text-s" />
                   </button>
@@ -1313,7 +1333,7 @@ export default function ObjectExplorer(props: Props) {
               {(props.executedQueries ?? []).length > 0 && (
                 <div class="mb-1 h-7 flex-shrink-0">
                   <FilterInput
-                    placeholder="Filter history..."
+                    placeholder="Filter history…"
                     value={folderFilters()["root:history"] || ""}
                     onChange={(v) => updateFilter("root:history", v)}
                   />
@@ -1332,7 +1352,13 @@ export default function ObjectExplorer(props: Props) {
                     {(item) => (
                       <Tooltip content={item.sql} placement="right">
                         <div
-                          class={`${LIST_ROW} ${contextMenu()?.visible && contextMenu()!.sql === item.sql && contextMenu()!.objectType === "HISTORY" ? "bg-white/10" : "hover:bg-surface-hover"}`}
+                          class={`${LIST_ROW} ${
+                            contextMenu()?.visible &&
+                            contextMenu()!.sql === item.sql &&
+                            contextMenu()!.objectType === "HISTORY"
+                              ? "is-selected"
+                              : ""
+                          }`}
                           onClick={() =>
                             props.onSelect(
                               item.sql,

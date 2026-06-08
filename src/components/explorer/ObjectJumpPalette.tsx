@@ -15,6 +15,7 @@ import type {
 } from "../../lib/types";
 import type { ContextMenuItem } from "../ui/ContextMenu";
 import {
+  Icon,
   IconFunction,
   IconProcedure,
   IconTable,
@@ -22,6 +23,7 @@ import {
   IconType,
   IconView,
 } from "../ui/Icons";
+import DialogShell from "../ui/DialogShell";
 import type { ExplorerObjectType } from "./ObjectMenu";
 import { buildObjectExplorerMenuItems } from "./ObjectMenu";
 
@@ -133,15 +135,15 @@ function renderObjectIcon(type: string) {
     case "VIEW":
       return <IconView class="h-4 w-4 text-success" />;
     case "PROCEDURE":
-      return <IconProcedure class="h-4 w-4 text-purple-400" />;
+      return <IconProcedure class="h-4 w-4 object-icon-procedure" />;
     case "FUNCTION":
-      return <IconFunction class="h-4 w-4 text-orange-400" />;
+      return <IconFunction class="h-4 w-4 object-icon-function" />;
     case "TRIGGER":
-      return <IconTrigger class="h-4 w-4 text-red-400" />;
+      return <IconTrigger class="h-4 w-4 object-icon-trigger" />;
     case "TYPE":
-      return <IconType class="h-4 w-4 text-blue-400" />;
+      return <IconType class="h-4 w-4 object-icon-type" />;
     default:
-      return <i class="fa-solid fa-cube text-xs text-text-muted" />;
+      return <Icon name="cube" class="text-xs text-text-muted" />;
   }
 }
 
@@ -521,8 +523,8 @@ export default function ObjectJumpPalette(props: Props) {
     effectiveDatabaseCount() === 0;
   const loadingMessage = () =>
     effectiveDatabaseCount() === 0
-      ? "Indexing objects across the whole server..."
-      : "Searching objects across the whole server...";
+      ? "Indexing objects across the whole server…"
+      : "Searching objects across the whole server…";
   const emptyStateMessage = () => {
     const filtered = typeFilter() !== null;
     if (isSearching()) {
@@ -538,32 +540,30 @@ export default function ObjectJumpPalette(props: Props) {
     effectiveIndexing()
       ? effectiveDatabaseCount() > 0
         ? `Indexing ${effectiveProcessedDatabaseCount()}/${effectiveDatabaseCount()} DBs${failedDatabaseCount() > 0 ? ` | ${failedDatabaseCount()} failed` : ""}`
-        : "Indexing server objects..."
+        : "Indexing server objects…"
       : effectiveDatabaseCount() > 0
         ? `${effectiveDatabaseCount()} DBs indexed${failedDatabaseCount() > 0 ? ` | ${failedDatabaseCount()} failed` : ""}`
         : effectiveInitialized()
           ? "No databases indexed"
-          : "Starting object index...";
+          : "Starting object index…";
 
   return (
     <Show when={props.open && portalTarget()}>
       <Portal mount={portalTarget()!}>
-        <div
-          class="dialog-overlay items-start !pt-12"
-          data-visible={visible()}
-          onMouseDown={props.onClose}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Jump to database object"
+        <DialogShell
+          visible={visible()}
+          onClose={props.onClose}
+          overlayClass="items-start !pt-12"
+          class="flex flex-col shadow-2xl"
+          ariaLabel="Jump to database object"
         >
           <div class="mx-auto flex h-full w-full max-w-2xl flex-col px-4">
-            <div
-              class="dialog-surface flex flex-col shadow-2xl"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
               <div class="px-2 py-2">
                 <div class="relative flex items-center">
-                  <i class="fa-solid fa-magnifying-glass pointer-events-none absolute left-4 text-text-muted" />
+                  <Icon
+                    name="magnifying-glass"
+                    class="pointer-events-none absolute left-4 text-text-muted"
+                  />
                   <input
                     ref={inputRef}
                     value={query()}
@@ -571,7 +571,7 @@ export default function ObjectJumpPalette(props: Props) {
                       setQuery((event.target as HTMLInputElement).value)
                     }
                     onKeyDown={handleKeyDown}
-                    placeholder="Jump to a table, procedure, function, trigger, or type..."
+                    placeholder="Jump to a table, procedure, function, trigger, or type…"
                     spellcheck={false}
                     class="h-12 w-full bg-transparent pl-11 pr-4 text-base text-text placeholder-text-muted outline-none"
                   />
@@ -622,7 +622,7 @@ export default function ObjectJumpPalette(props: Props) {
                   when={!(!canShowResults() && showLoader())}
                   fallback={
                     <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                      <i class="fa-solid fa-spinner animate-spin text-xl" />
+                      <Icon name="spinner" class="animate-spin text-xl" />
                       <p class="text-m">{loadingMessage()}</p>
                     </div>
                   }
@@ -631,7 +631,10 @@ export default function ObjectJumpPalette(props: Props) {
                     when={!searchError()}
                     fallback={
                       <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                        <i class="fa-solid fa-triangle-exclamation text-xl text-warning" />
+                        <Icon
+                          name="triangle-exclamation"
+                          class="text-xl text-warning"
+                        />
                         <p class="text-m">{searchError()}</p>
                       </div>
                     }
@@ -640,7 +643,7 @@ export default function ObjectJumpPalette(props: Props) {
                       when={!hasNoScope()}
                       fallback={
                         <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                          <i class="fa-solid fa-database text-2xl opacity-50" />
+                          <Icon name="database" class="text-2xl opacity-50" />
                           <p class="text-m">
                             No databases are available for object search.
                           </p>
@@ -651,7 +654,7 @@ export default function ObjectJumpPalette(props: Props) {
                         when={canShowResults()}
                         fallback={
                           <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                            <i class="fa-solid fa-compass text-2xl opacity-50" />
+                            <Icon name="compass" class="text-2xl opacity-50" />
                             <p class="text-m">{emptyStateMessage()}</p>
                           </div>
                         }
@@ -676,9 +679,9 @@ export default function ObjectJumpPalette(props: Props) {
 
                               return (
                                 <div
-                                  class={`rounded-xl border transition-all duration-200 ${
+                                  class={`rounded-xl border transition-colors duration-200 ${
                                     isExpanded()
-                                      ? "border-border/70 bg-surface-active/80 shadow-[0_18px_50px_-30px_rgba(0,0,0,0.9)]"
+                                      ? "border-border/70 bg-surface-active/80 shadow-[0_18px_50px_-30px_var(--color-shadow-deep)]"
                                       : isActive()
                                         ? "border-border/60 bg-surface-active/60"
                                         : "border-transparent bg-transparent hover:border-border/40 hover:bg-surface-hover/60"
@@ -735,13 +738,16 @@ export default function ObjectJumpPalette(props: Props) {
                                           {object.database}
                                         </span>
                                         <span
-                                          class={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/50 bg-surface-header text-text-muted transition-all duration-200 ${
+                                          class={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/50 bg-surface-header text-text-muted transition-[color,transform] duration-200 ${
                                             isExpanded()
                                               ? "rotate-180 text-text"
                                               : ""
                                           }`}
                                         >
-                                          <i class="fa-solid fa-chevron-down text-[10px]" />
+                                          <Icon
+                                            name="chevron-down"
+                                            class="text-[10px]"
+                                          />
                                         </span>
                                       </div>
                                     </button>
@@ -756,7 +762,7 @@ export default function ObjectJumpPalette(props: Props) {
                                   >
                                     <div class="overflow-hidden">
                                       <div
-                                        class={`mb-1.5 rounded-xl border border-border/60 bg-surface-panel/95 p-2 transition-all duration-300 ${
+                                        class={`mb-1.5 rounded-xl border border-border/60 bg-surface-panel/95 p-2 transition-transform duration-300 ${
                                           isExpanded()
                                             ? "translate-y-0"
                                             : "-translate-y-2"
@@ -776,7 +782,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                   <div class="animate-in fade-in-0 slide-in-from-top-2 rounded-xl border border-border/50 bg-surface-header/60 p-2 duration-300">
                                                     <div class="mb-2 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
                                                       <Show when={item.icon}>
-                                                        <span class="flex h-4 w-4 items-center justify-center text-white/80 [&_i]:!text-white/80 [&_svg]:!text-white/80">
+                                                        <span class="flex h-4 w-4 items-center justify-center text-accent-text/80 [&_i]:!text-accent-text/80 [&_svg]:!text-accent-text/80">
                                                           {item.icon}
                                                         </span>
                                                       </Show>
@@ -803,20 +809,23 @@ export default function ObjectJumpPalette(props: Props) {
                                                                   child,
                                                                 )
                                                               }
-                                                              class={`animate-in fade-in-0 slide-in-from-top-2 flex items-center gap-3 rounded-lg border border-border/50 bg-surface-panel/80 px-3 py-2 text-left text-s transition-all duration-200 ${
+                                                              class={`animate-in fade-in-0 slide-in-from-top-2 flex items-center gap-3 rounded-lg border border-border/50 bg-surface-panel/80 px-3 py-2 text-left text-s transition-colors duration-200 ${
                                                                 child.disabled
                                                                   ? "cursor-not-allowed text-text-muted/50"
                                                                   : "cursor-pointer text-text-muted hover:border-border hover:bg-surface-hover hover:text-text"
                                                               }`}
                                                             >
-                                                              <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center text-white/85 [&_i]:!text-white/85 [&_svg]:!text-white/85">
+                                                              <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent-text/85 [&_i]:!text-accent-text/85 [&_svg]:!text-accent-text/85">
                                                                 <Show
                                                                   when={isRunning()}
                                                                   fallback={
                                                                     child.icon
                                                                   }
                                                                 >
-                                                                  <i class="fa-solid fa-spinner animate-spin text-[11px]" />
+                                                                  <Icon
+                                                                    name="spinner"
+                                                                    class="animate-spin text-[11px]"
+                                                                  />
                                                                 </Show>
                                                               </span>
                                                               <span class="flex-1">
@@ -843,7 +852,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                   onClick={() =>
                                                     void handleActionClick(item)
                                                   }
-                                                  class={`animate-in fade-in-0 slide-in-from-top-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-s transition-all duration-200 ${
+                                                  class={`animate-in fade-in-0 slide-in-from-top-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-s transition-colors duration-200 ${
                                                     item.disabled
                                                       ? "cursor-not-allowed border-border/40 bg-surface-header/40 text-text-muted/50"
                                                       : item.danger
@@ -851,12 +860,15 @@ export default function ObjectJumpPalette(props: Props) {
                                                         : "cursor-pointer border-border/50 bg-surface-header/60 text-text-muted hover:border-border hover:bg-surface-hover hover:text-text"
                                                   }`}
                                                 >
-                                                  <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center text-white/85 [&_i]:!text-white/85 [&_svg]:!text-white/85">
+                                                  <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent-text/85 [&_i]:!text-accent-text/85 [&_svg]:!text-accent-text/85">
                                                     <Show
                                                       when={isRunning()}
                                                       fallback={item.icon}
                                                     >
-                                                      <i class="fa-solid fa-spinner animate-spin text-[11px]" />
+                                                      <Icon
+                                                        name="spinner"
+                                                        class="animate-spin text-[11px]"
+                                                      />
                                                     </Show>
                                                   </span>
                                                   <span class="flex-1">
@@ -889,14 +901,13 @@ export default function ObjectJumpPalette(props: Props) {
                 </span>
                 <span class="flex items-center gap-1.5">
                   <Show when={effectiveIndexing()}>
-                    <i class="fa-solid fa-spinner animate-spin text-xs" />
+                    <Icon name="spinner" class="animate-spin text-xs" />
                   </Show>
                   <span>{footerStatus()}</span>
                 </span>
               </div>
-            </div>
           </div>
-        </div>
+        </DialogShell>
       </Portal>
     </Show>
   );
