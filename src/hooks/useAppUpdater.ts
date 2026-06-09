@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createEffect, createSignal, onMount } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -65,7 +65,24 @@ export function useAppUpdater() {
   );
   const [updateAvailableChannel, setUpdateAvailableChannel] =
     createSignal<UpdateChannel | null>(null);
+  const [updateDialogVisible, setUpdateDialogVisible] = createSignal(false);
   let isChecking = false;
+
+  createEffect(() => {
+    const selectedChannel = loadUpdateChannel();
+    const pendingChannel = updateAvailableChannel();
+
+    if (pendingChannel && pendingChannel !== selectedChannel) {
+      setUpdateAvailable(null);
+      setUpdateAvailableChannel(null);
+      setUpdateDialogVisible(false);
+      setUpdateStatus({
+        checking: false,
+        message: null,
+        tone: "info",
+      });
+    }
+  });
 
   onMount(async () => {
     try {
@@ -148,6 +165,7 @@ export function useAppUpdater() {
       if (!update) {
         setUpdateAvailable(null);
         setUpdateAvailableChannel(null);
+        setUpdateDialogVisible(false);
         setUpdateStatus({
           checking: false,
           message: manual
@@ -160,6 +178,7 @@ export function useAppUpdater() {
 
       setUpdateAvailable(update);
       setUpdateAvailableChannel(channel);
+      setUpdateDialogVisible(true);
       setUpdateStatus({
         checking: false,
         message: updateAvailableMessage(channel, update),
@@ -169,6 +188,7 @@ export function useAppUpdater() {
     } catch (error) {
       setUpdateAvailable(null);
       setUpdateAvailableChannel(null);
+      setUpdateDialogVisible(false);
       const { message, configurationIssue, tone } = formatUpdaterError(error);
       const shouldHideMessage = !manual && configurationIssue;
       setUpdateStatus({
@@ -183,6 +203,7 @@ export function useAppUpdater() {
   };
 
   const installUpdate = async (update: Update) => {
+    setUpdateDialogVisible(false);
     setUpdateAvailable(null);
     setUpdateAvailableChannel(null);
     setUpdateStatus({
@@ -219,9 +240,8 @@ export function useAppUpdater() {
   };
 
   const cancelUpdate = (update: Update) => {
-    setUpdateAvailable(null);
+    setUpdateDialogVisible(false);
     const channel = updateAvailableChannel() ?? loadUpdateChannel();
-    setUpdateAvailableChannel(null);
     setUpdateStatus({
       checking: false,
       message: updateAvailableMessage(channel, update),
@@ -234,6 +254,8 @@ export function useAppUpdater() {
     updateStatus,
     updateAvailable,
     updateAvailableChannel,
+    updateDialogVisible,
+    setUpdateDialogVisible,
     checkForUpdates,
     installUpdate,
     cancelUpdate,

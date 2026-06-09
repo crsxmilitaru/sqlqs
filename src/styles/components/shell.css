@@ -202,14 +202,13 @@
 
   .titlebar-search {
     position: relative;
-    width: 360px;
-    max-width: 40vw;
+    width: clamp(180px, 28vw, 360px);
     height: 28px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--spacing-m);
-    padding: 0 var(--spacing-m) 0 var(--spacing-l);
+    padding: 0 var(--spacing-m);
     color: var(--color-text-muted);
     cursor: pointer;
     user-select: none;

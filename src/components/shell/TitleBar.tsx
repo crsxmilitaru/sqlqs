@@ -36,6 +36,8 @@ interface Props {
   dialogOpen?: boolean;
   aiChatOpen: boolean;
   onToggleAiChat: () => void;
+  updateAvailable?: boolean;
+  onViewUpdateDetails?: () => void;
   hideAppContent?: boolean;
   hasTabs: boolean;
 }
@@ -246,7 +248,7 @@ export default function TitleBar(props: Props) {
         </div>
 
         {!props.hideAppContent && props.connected && (
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center no-drag z-[9999]">
+          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center no-drag">
             <Tooltip content={objectJumpTooltip()} placement="bottom">
               <div
                 onClick={props.onToggleObjectJump}
@@ -280,6 +282,20 @@ export default function TitleBar(props: Props) {
                 </span>
               </button>
             </Tooltip>
+          )}
+          {!props.hideAppContent && props.updateAvailable && props.onViewUpdateDetails && (
+            <div class="flex items-center self-center">
+              <Tooltip content="A new version is ready to install" placement="bottom">
+                <button
+                  onClick={props.onViewUpdateDetails}
+                  class="titlebar-text-btn text-accent"
+                >
+                  <i class="fa-solid fa-circle-arrow-up" />
+                  Update
+                </button>
+              </Tooltip>
+              <div class="ui-divider mx-2" />
+            </div>
           )}
           {!props.hideAppContent && (
             <div class="flex items-center self-center">

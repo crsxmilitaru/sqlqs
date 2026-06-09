@@ -16,6 +16,8 @@ use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;

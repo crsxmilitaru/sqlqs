@@ -84,6 +84,8 @@ interface Props {
   checkingForUpdates: boolean;
   updateMessage: string | null;
   updateMessageTone: UpdateMessageTone;
+  updateReady?: boolean;
+  onViewUpdateDetails?: () => void;
   onThemeChange?: (theme: ThemeSelection) => void;
   renderLayout?: (sidebar: JSX.Element, content: JSX.Element) => JSX.Element;
 }
@@ -1409,15 +1411,25 @@ export default function SettingsView(props: Props) {
               {props.version ?? "—"}
             </span>
           </div>
-          <button
-            onClick={() => void props.onCheckForUpdates()}
-            disabled={props.checkingForUpdates}
-            class="btn btn-primary w-full py-2"
-          >
-            {props.checkingForUpdates
-              ? "Checking for updates…"
-              : "Check for Updates"}
-          </button>
+          {props.updateReady && props.onViewUpdateDetails ? (
+            <button
+              onClick={props.onViewUpdateDetails}
+              class="btn btn-primary w-full py-2"
+            >
+              <i class="fa-solid fa-circle-arrow-up mr-2" />
+              Update Available
+            </button>
+          ) : (
+            <button
+              onClick={() => void props.onCheckForUpdates()}
+              disabled={props.checkingForUpdates}
+              class="btn btn-primary w-full py-2"
+            >
+              {props.checkingForUpdates
+                ? "Checking for updates…"
+                : "Check for Updates"}
+            </button>
+          )}
           {props.updateMessage && (
             <p class={`text-s mt-3 text-center ${updateMessageClass()}`}>
               {props.updateMessage}

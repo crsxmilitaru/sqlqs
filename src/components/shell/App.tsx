@@ -130,6 +130,8 @@ export default function App() {
     updateStatus,
     updateAvailable,
     updateAvailableChannel,
+    updateDialogVisible,
+    setUpdateDialogVisible,
     checkForUpdates,
     installUpdate,
     cancelUpdate,
@@ -601,7 +603,7 @@ export default function App() {
   const hasBlockingDialog = () =>
     isConnectionDialogOpen() ||
     isSettingsOpen() ||
-    !!updateAvailable() ||
+    updateDialogVisible() ||
     backupRestoreDatabase() !== null ||
     !!propertiesTarget() ||
     !!renameTarget() ||
@@ -853,6 +855,8 @@ export default function App() {
         objectJumpOpen={isObjectJumpOpen()}
         objectJumpIndexStatus={objectJumpIndexStatus()}
         hideAppContent={isSettingsOpen()}
+        updateAvailable={!!updateAvailable()}
+        onViewUpdateDetails={() => setUpdateDialogVisible(true)}
         hasTabs={tabs().length > 0}
       />
 
@@ -865,6 +869,8 @@ export default function App() {
             checkingForUpdates={updateStatus().checking}
             updateMessage={updateStatus().message}
             updateMessageTone={updateStatus().tone}
+            updateReady={!!updateAvailable()}
+            onViewUpdateDetails={() => setUpdateDialogVisible(true)}
             onThemeChange={setTheme}
             renderLayout={(sidebar, content) => (
               <>
@@ -973,7 +979,7 @@ export default function App() {
         />
       )}
 
-      {updateAvailable() && (
+      {updateDialogVisible() && updateAvailable() && (
         <UpdateDialog
           channel={updateAvailableChannel() ?? "stable"}
           version={updateAvailable()!.version}
