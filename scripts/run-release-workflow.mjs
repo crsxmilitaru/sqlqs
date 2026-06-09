@@ -1,11 +1,11 @@
 import { execSync } from "child_process";
-import { stdin as input, stdout as output } from "process";
+import { argv, exit, stdin as input, stdout as output } from "process";
 import { readFileSync } from "fs";
 import readline from "readline/promises";
 
-const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-(preview)\.(\d+))?$/;
+const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-(preview))?$/;
 
-let requestedWorkflow = process.argv[2];
+let requestedWorkflow = argv[2];
 
 function run(cmd, inherit = false) {
   const result = execSync(cmd, {
@@ -21,13 +21,13 @@ function parseVersion(version) {
     throw new Error(`Invalid package version: ${version}`);
   }
 
-  const [, major, minor, patch, prerelease, previewNumber] = match;
+  const [, major, minor, patch, prerelease] = match;
   return {
     major: Number(major),
     minor: Number(minor),
     patch: Number(patch),
     core: `${major}.${minor}.${patch}`,
-    previewNumber: prerelease === "preview" ? Number(previewNumber) : null,
+    isPreview: prerelease === "preview",
   };
 }
 
@@ -96,20 +96,20 @@ function versionForPreview(bump) {
   const base = compareVersions(dev, master) > 0 ? dev : master;
 
   if (bump === "next") {
-    if (dev.previewNumber === null || compareVersions(dev, master) <= 0) {
+    if (!dev.isPreview || compareVersions(dev, master) <= 0) {
       throw new Error(
         "No current preview series found. Select 'minor' or 'major' to start one.",
       );
     }
-    return `${dev.core}-preview.${dev.previewNumber + 1}`;
+    return `${dev.core}-preview`;
   }
 
   if (bump === "minor") {
-    return `${base.major}.${base.minor + 1}.0-preview.1`;
+    return `${base.major}.${base.minor + 1}.0-preview`;
   }
 
   if (bump === "major") {
-    return `${base.major + 1}.0.0-preview.1`;
+    return `${base.major + 1}.0.0-preview`;
   }
 
   throw new Error("Invalid preview bump. Use next, minor, or major.");
@@ -232,9 +232,9 @@ async function main() {
     console.log(`\nSuccess: Released and pushed stable v${releaseVersion} to GitHub.`);
   } else if (workflow === "preview") {
     console.log("Step 5: Select preview bump type:");
-    console.log("  [next]  Increment current preview number (e.g. preview.1 -> preview.2)");
-    console.log("  [minor] Start a new minor preview series (e.g. 1.0.0 -> 1.1.0-preview.1)");
-    console.log("  [major] Start a new major preview series (e.g. 1.0.0 -> 2.0.0-preview.1)");
+    console.log("  [next]  Reuse the current preview series (e.g. 1.1.0-preview)");
+    console.log("  [minor] Start a new minor preview series (e.g. 1.0.0 -> 1.1.0-preview)");
+    console.log("  [major] Start a new major preview series (e.g. 1.0.0 -> 2.0.0-preview)");
     const bump = await prompt("Select bump (Enter=next, or type 'minor'/'major'): ", "next");
 
     if (!/^(next|minor|major)$/.test(bump)) {
@@ -255,19 +255,23 @@ async function main() {
     run(`node scripts/set-version.mjs ${previewVersion}`, true);
     console.log("OK: Version files updated.\n");
 
-    console.log("Step 8: Committing, tagging, and pushing changes...");
-    commitVersionFiles(`Preview v${previewVersion}`);
-    console.log("OK: Created local commit.");
-    run(`git tag -f v${previewVersion}`, true);
-    console.log(`OK: Created git tag: v${previewVersion}`);
+    console.log("Step 8: Committing and pushing changes...");
+    if (run("git status --porcelain")) {
+      commitVersionFiles(`Preview v${previewVersion}`);
+      console.log("OK: Created local commit.");
+    } else {
+      run(`git commit --allow-empty -m "Preview v${previewVersion}"`, true);
+      console.log("OK: Version files already match. Created empty preview commit.");
+    }
 
     run("git push origin dev", true);
-    run(`git push origin -f v${previewVersion}`, true);
-    console.log(`\nSuccess: Released and pushed preview v${previewVersion} to GitHub.`);
+    console.log(
+      `\nSuccess: Pushed dev. Preview CI will publish v${previewVersion}.`,
+    );
   }
 }
 
 main().catch((err) => {
   console.error(`Error: ${err.message ?? err}`);
-  process.exit(1);
+  exit(1);
 });

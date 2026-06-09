@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Update } from "@tauri-apps/plugin-updater";
-import { loadUpdateChannel } from "../lib/settings";
+import { loadUpdateChannel, type UpdateChannel } from "../lib/settings";
 import type { UpdateMessageTone } from "../lib/types";
 
 interface UpdateStatus {
@@ -45,6 +45,14 @@ const UPDATE_CHANNEL_LABELS = {
   preview: "Preview",
 } as const;
 
+function updateAvailableMessage(channel: UpdateChannel, update: Update) {
+  if (channel === "preview") {
+    return "A new preview build is ready to install.";
+  }
+
+  return `Version ${update.version} is ready to install.`;
+}
+
 export function useAppUpdater() {
   const [appVersion, setAppVersion] = createSignal<string | null>(null);
   const [updateStatus, setUpdateStatus] = createSignal<UpdateStatus>({
@@ -55,6 +63,8 @@ export function useAppUpdater() {
   const [updateAvailable, setUpdateAvailable] = createSignal<Update | null>(
     null,
   );
+  const [updateAvailableChannel, setUpdateAvailableChannel] =
+    createSignal<UpdateChannel | null>(null);
   let isChecking = false;
 
   onMount(async () => {
@@ -129,13 +139,15 @@ export function useAppUpdater() {
       const metadata = await invoke<UpdateMetadata | null>(
         "check_update_channel",
         {
-          channel
+          channel,
         },
       );
       const update = metadata
         ? new Update(metadata as ConstructorParameters<typeof Update>[0])
         : null;
       if (!update) {
+        setUpdateAvailable(null);
+        setUpdateAvailableChannel(null);
         setUpdateStatus({
           checking: false,
           message: manual
@@ -147,13 +159,16 @@ export function useAppUpdater() {
       }
 
       setUpdateAvailable(update);
+      setUpdateAvailableChannel(channel);
       setUpdateStatus({
         checking: false,
-        message: `${channelLabel} update ${update.version} is available.`,
+        message: updateAvailableMessage(channel, update),
         tone: "info",
       });
       return "update-available";
     } catch (error) {
+      setUpdateAvailable(null);
+      setUpdateAvailableChannel(null);
       const { message, configurationIssue, tone } = formatUpdaterError(error);
       const shouldHideMessage = !manual && configurationIssue;
       setUpdateStatus({
@@ -169,6 +184,7 @@ export function useAppUpdater() {
 
   const installUpdate = async (update: Update) => {
     setUpdateAvailable(null);
+    setUpdateAvailableChannel(null);
     setUpdateStatus({
       checking: true,
       message: `Downloading and installing ${update.version}...`,
@@ -204,9 +220,11 @@ export function useAppUpdater() {
 
   const cancelUpdate = (update: Update) => {
     setUpdateAvailable(null);
+    const channel = updateAvailableChannel() ?? loadUpdateChannel();
+    setUpdateAvailableChannel(null);
     setUpdateStatus({
       checking: false,
-      message: `Update ${update.version} is available.`,
+      message: updateAvailableMessage(channel, update),
       tone: "info",
     });
   };
@@ -215,6 +233,7 @@ export function useAppUpdater() {
     appVersion,
     updateStatus,
     updateAvailable,
+    updateAvailableChannel,
     checkForUpdates,
     installUpdate,
     cancelUpdate,

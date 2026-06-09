@@ -2,17 +2,79 @@ name: Preview
 
 on:
   push:
-    tags:
-      - 'v*.*.*-preview.*'
+    branches:
+      - dev
 
 permissions:
   contents: write
 
+concurrency:
+  group: preview-release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Prepare preview release
+    runs-on: ubuntu-latest
+    outputs:
+      release-version: ${{ steps.preview.outputs.release-version }}
+      release-tag: ${{ steps.preview.outputs.release-tag }}
+      changelog: ${{ steps.preview.outputs.changelog }}
+    steps:
+      - name: Checkout preview version
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare preview tag and changelog
+        id: preview
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -e "const fs = require('fs'); console.log(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview$ ]]; then
+            echo "::error::Current package version must be a preview version, got: $VERSION"
+            exit 1
+          fi
+
+          TAG_NAME="v$VERSION.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          PREV_TAG="$(
+            gh api --paginate "repos/$REPOSITORY/releases" \
+              --jq '.[] | select(.prerelease == true and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$"))) | .tag_name' \
+              | sort -V \
+              | tail -n 1 \
+              || true
+          )"
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG="$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
+          else
+            CHANGELOG="$(git log -n 10 --pretty=format:"- %s (%h)" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Routine update"
+          fi
+
+          git tag -f "$TAG_NAME" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG_NAME" --force
+
+          echo "release-version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release-tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
   preview:
     name: Preview (${{ matrix.os }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     env:
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release-version }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release-tag }}
+      SQLQS_BUILD_COMMIT: ${{ github.sha }}
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
       HAS_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_P8 != '' }}
       HAS_APPLE_NOTARIZATION: ${{ (secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_P8 != '') || (secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '') }}
@@ -33,10 +95,9 @@ jobs:
       - name: Extract version
         shell: bash
         run: |
-          TAG_NAME="${{ github.ref_name }}"
-          VERSION="${TAG_NAME#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
-            echo "::error::Invalid preview tag: $TAG_NAME"
+          VERSION="${{ env.RELEASE_VERSION }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview$ ]]; then
+            echo "::error::Invalid preview version: $VERSION"
             exit 1
           fi
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -44,21 +105,11 @@ jobs:
       - name: Generate changelog
         id: changelog
         shell: bash
+        env:
+          CHANGELOG_BODY: ${{ needs.prepare.outputs.changelog }}
         run: |
-          # Fetch tags so we can diff
-          git fetch --tags --depth=100 || true
-          CURRENT_TAG="${{ github.ref_name }}"
-          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${CURRENT_TAG}" | grep -viE "^- (preview|bump version|v[0-9])" || true)
-          else
-            CHANGELOG=$(git log -n 10 --pretty=format:"- %s (%h)" | grep -viE "^- (preview|bump version|v[0-9])" || true)
-          fi
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="- Routine update"
-          fi
           echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
@@ -126,7 +177,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         with:
-          tagName: v${{ env.RELEASE_VERSION }}
+          tagName: ${{ env.RELEASE_TAG }}
           releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
           releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
@@ -143,10 +194,50 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
         with:
-          tagName: v${{ env.RELEASE_VERSION }}
+          tagName: ${{ env.RELEASE_TAG }}
           releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
           releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
           prerelease: true
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
           includeUpdaterJson: true
+
+  cleanup:
+    name: Remove old preview releases
+    needs:
+      - prepare
+      - preview
+    runs-on: ubuntu-latest
+    if: ${{ success() }}
+    steps:
+      - name: Delete superseded preview releases and tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          CURRENT_TAG: ${{ needs.prepare.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+
+          while IFS=$'\t' read -r RELEASE_ID RELEASE_TAG; do
+            if [ -z "${RELEASE_ID:-}" ] || [ -z "${RELEASE_TAG:-}" ] || [ "$RELEASE_TAG" = "$CURRENT_TAG" ]; then
+              continue
+            fi
+            echo "Deleting superseded preview release $RELEASE_TAG"
+            gh api -X DELETE "repos/$REPOSITORY/releases/$RELEASE_ID"
+          done < <(
+            gh api --paginate "repos/$REPOSITORY/releases" \
+              --jq '.[] | select(.prerelease == true and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$"))) | [.id, .tag_name] | @tsv'
+          )
+
+          while read -r REF; do
+            if [ -z "${REF:-}" ] || [ "$REF" = "refs/tags/$CURRENT_TAG" ]; then
+              continue
+            fi
+            TAG_NAME="${REF#refs/tags/}"
+            echo "Deleting superseded preview tag $TAG_NAME"
+            gh api -X DELETE "repos/$REPOSITORY/git/$REF" || true
+          done < <(
+            gh api --paginate "repos/$REPOSITORY/git/matching-refs/tags/v" \
+              --jq '.[] | select(.ref | test("^refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$")) | .ref'
+          )

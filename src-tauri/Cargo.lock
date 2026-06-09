@@ -3924,7 +3924,7 @@ dependencies = [
 
 [[package]]
 name = "sqlqs"
-version = "0.4.0-preview.3"
+version = "0.4.0-preview"
 dependencies = [
  "arboard",
  "dirs",

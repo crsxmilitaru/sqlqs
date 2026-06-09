@@ -129,6 +129,7 @@ export default function App() {
     appVersion,
     updateStatus,
     updateAvailable,
+    updateAvailableChannel,
     checkForUpdates,
     installUpdate,
     cancelUpdate,
@@ -974,8 +975,9 @@ export default function App() {
 
       {updateAvailable() && (
         <UpdateDialog
+          channel={updateAvailableChannel() ?? "stable"}
           version={updateAvailable()!.version}
-          currentVersion={updateAvailable()!.currentVersion}
+          body={updateAvailable()!.body}
           onInstall={() => installUpdate(updateAvailable()!)}
           onCancel={() => cancelUpdate(updateAvailable()!)}
         />

@@ -7,6 +7,21 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+      },
+    },
+    rules: {
+      "no-console": "off",
+      "no-empty": "off",
+    },
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,

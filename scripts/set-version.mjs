@@ -1,10 +1,10 @@
 import { readFileSync, writeFileSync } from "fs";
 
 const version = process.argv[2]?.replace(/^v/, "");
-const versionPattern = /^\d+\.\d+\.\d+(?:-preview\.\d+)?$/;
+const versionPattern = /^\d+\.\d+\.\d+(?:-preview)?$/;
 
 if (!version || !versionPattern.test(version)) {
-  console.error("Usage: node scripts/set-version.mjs <x.y.z[-preview.n]>");
+  console.error("Usage: node scripts/set-version.mjs <x.y.z[-preview]>");
   process.exit(1);
 }
 
@@ -17,10 +17,11 @@ function writeJson(path, value) {
 }
 
 function replaceRequired(path, contents, pattern, replacement) {
-  const next = contents.replace(pattern, replacement);
-  if (next === contents) {
-    throw new Error(`Could not update version in ${path}`);
+  if (!pattern.test(contents)) {
+    throw new Error(`Could not find version in ${path}`);
   }
+
+  const next = contents.replace(pattern, replacement);
   return next;
 }
 

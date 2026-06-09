@@ -30,12 +30,38 @@ const STABLE_UPDATE_ENDPOINT: &str =
     "https://github.com/crsxmilitaru/sqlqs/releases/latest/download/latest.json";
 const GITHUB_RELEASES_ENDPOINT: &str =
     "https://api.github.com/repos/crsxmilitaru/sqlqs/releases?per_page=100";
+const GITHUB_TAG_REF_ENDPOINT: &str =
+    "https://api.github.com/repos/crsxmilitaru/sqlqs/git/ref/tags/";
 
 #[derive(Deserialize)]
 struct GitHubRelease {
     tag_name: String,
     prerelease: bool,
     draft: bool,
+    target_commitish: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRefObject {
+    sha: String,
+    #[serde(rename = "type")]
+    kind: String,
+    url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubRef {
+    object: GitHubRefObject,
+}
+
+#[derive(Deserialize)]
+struct GitHubTag {
+    object: GitHubRefObject,
+}
+
+struct PreviewUpdateEndpoint {
+    url: String,
+    build_commit: Option<String>,
 }
 
 fn is_sql_path(path: &Path) -> bool {
@@ -69,9 +95,25 @@ struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
-fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64)> {
+fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64, u64)> {
     let version = tag.strip_prefix('v').unwrap_or(tag);
-    let (base, preview) = version.split_once("-preview.")?;
+    let (base, preview_suffix) = version.split_once("-preview")?;
+    if !preview_suffix.is_empty() && !preview_suffix.starts_with('.') {
+        return None;
+    }
+
+    let (preview_build, preview_attempt) = if preview_suffix.is_empty() {
+        (0, 0)
+    } else {
+        let mut parts = preview_suffix.trim_start_matches('.').split('.');
+        let build = parts.next()?.parse().ok()?;
+        let attempt = parts.next().map_or(Some(0), |part| part.parse().ok())?;
+        if parts.next().is_some() {
+            return None;
+        }
+        (build, attempt)
+    };
+
     let mut parts = base.split('.');
     let major = parts.next()?.parse().ok()?;
     let minor = parts.next()?.parse().ok()?;
@@ -79,12 +121,77 @@ fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64)> {
     if parts.next().is_some() {
         return None;
     }
-    let preview = preview.parse().ok()?;
-    Some((major, minor, patch, preview))
+    Some((major, minor, patch, preview_build, preview_attempt))
 }
 
-async fn latest_preview_update_endpoint() -> Result<String, String> {
-    let releases = reqwest::Client::new()
+fn current_build_commit() -> Option<&'static str> {
+    option_env!("SQLQS_BUILD_COMMIT").filter(|commit| !commit.trim().is_empty())
+}
+
+fn looks_like_commit(value: &str) -> bool {
+    let value = value.trim();
+    (7..=40).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn commits_match(current: &str, latest: &str) -> bool {
+    let current = current.trim().to_ascii_lowercase();
+    let latest = latest.trim().to_ascii_lowercase();
+
+    if current.is_empty() || latest.is_empty() {
+        return false;
+    }
+
+    current == latest
+        || (current.len() >= 7 && latest.starts_with(&current))
+        || (latest.len() >= 7 && current.starts_with(&latest))
+}
+
+async fn resolve_preview_tag_commit(client: &reqwest::Client, tag: &str) -> Option<String> {
+    let release_ref = client
+        .get(format!("{GITHUB_TAG_REF_ENDPOINT}{tag}"))
+        .header(reqwest::header::USER_AGENT, "SQL Query Studio")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json::<GitHubRef>()
+        .await
+        .ok()?;
+
+    if release_ref.object.kind == "commit" && looks_like_commit(&release_ref.object.sha) {
+        return Some(release_ref.object.sha);
+    }
+
+    if release_ref.object.kind != "tag" {
+        return None;
+    }
+
+    let tag_url = release_ref.object.url?;
+    let tag = client
+        .get(tag_url)
+        .header(reqwest::header::USER_AGENT, "SQL Query Studio")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json::<GitHubTag>()
+        .await
+        .ok()?;
+
+    if tag.object.kind == "commit" && looks_like_commit(&tag.object.sha) {
+        Some(tag.object.sha)
+    } else {
+        None
+    }
+}
+
+async fn latest_preview_update_endpoint() -> Result<PreviewUpdateEndpoint, String> {
+    let client = reqwest::Client::new();
+    let releases = client
         .get(GITHUB_RELEASES_ENDPOINT)
         .header(reqwest::header::USER_AGENT, "SQL Query Studio")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -97,19 +204,31 @@ async fn latest_preview_update_endpoint() -> Result<String, String> {
         .await
         .map_err(|err| format!("Could not read preview releases: {err}"))?;
 
-    let latest_tag = releases
+    let latest_release = releases
         .into_iter()
         .filter(|release| release.prerelease && !release.draft)
         .filter_map(|release| {
-            parse_preview_tag(&release.tag_name).map(|version| (version, release.tag_name))
+            parse_preview_tag(&release.tag_name).map(|version| (version, release))
         })
         .max_by_key(|(version, _)| *version)
-        .map(|(_, tag)| tag)
+        .map(|(_, release)| release)
         .ok_or_else(|| "No published preview release metadata found yet.".to_string())?;
 
-    Ok(format!(
-        "https://github.com/crsxmilitaru/sqlqs/releases/download/{latest_tag}/latest.json"
-    ))
+    let build_commit = resolve_preview_tag_commit(&client, &latest_release.tag_name)
+        .await
+        .or_else(|| {
+            latest_release
+                .target_commitish
+                .filter(|commit| looks_like_commit(commit))
+        });
+
+    Ok(PreviewUpdateEndpoint {
+        url: format!(
+            "https://github.com/crsxmilitaru/sqlqs/releases/download/{}/latest.json",
+            latest_release.tag_name
+        ),
+        build_commit,
+    })
 }
 
 #[tauri::command]
@@ -117,9 +236,17 @@ async fn check_update_channel<R: tauri::Runtime>(
     webview: tauri::Webview<R>,
     channel: String,
 ) -> Result<Option<UpdateMetadata>, String> {
+    let preview_build_commit;
     let endpoint = match channel.as_str() {
-        "stable" => STABLE_UPDATE_ENDPOINT.to_string(),
-        "preview" => latest_preview_update_endpoint().await?,
+        "stable" => {
+            preview_build_commit = None;
+            STABLE_UPDATE_ENDPOINT.to_string()
+        }
+        "preview" => {
+            let preview_endpoint = latest_preview_update_endpoint().await?;
+            preview_build_commit = preview_endpoint.build_commit;
+            preview_endpoint.url
+        }
         other => return Err(format!("Unknown update channel: {other}")),
     };
 
@@ -130,7 +257,21 @@ async fn check_update_channel<R: tauri::Runtime>(
         .map_err(|err| err.to_string())?;
 
     if channel == "preview" {
-        builder = builder.version_comparator(|current, update| update.version != current);
+        let current_build_commit = current_build_commit().map(ToOwned::to_owned);
+        builder = builder.version_comparator(move |current, update| {
+            if update.version != current {
+                return true;
+            }
+
+            match (
+                current_build_commit.as_deref(),
+                preview_build_commit.as_deref(),
+            ) {
+                (None, Some(_)) => true,
+                (Some(current), Some(latest)) => !commits_match(current, latest),
+                _ => false,
+            }
+        });
     }
 
     let updater = builder.build().map_err(|err| err.to_string())?;

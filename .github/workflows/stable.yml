@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout release version
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Extract version
         shell: bash
@@ -39,6 +41,24 @@ jobs:
             exit 1
           fi
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          CURRENT_TAG="${{ github.ref_name }}"
+          PREV_TAG="$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*-*' 2>/dev/null || true)"
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG="$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${CURRENT_TAG}" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
+          else
+            CHANGELOG="$(git log -n 10 --pretty=format:"- %s (%h)" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Routine update"
+          fi
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -107,7 +127,7 @@ jobs:
         with:
           tagName: v${{ env.RELEASE_VERSION }}
           releaseName: "SQL Query Studio v${{ env.RELEASE_VERSION }}"
-          releaseBody: ""
+          releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
           prerelease: false
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
@@ -124,7 +144,7 @@ jobs:
         with:
           tagName: v${{ env.RELEASE_VERSION }}
           releaseName: "SQL Query Studio v${{ env.RELEASE_VERSION }}"
-          releaseBody: ""
+          releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
           prerelease: false
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
