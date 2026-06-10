@@ -28,6 +28,7 @@ import {
   type ChatReference,
   type ChatTextAttachment,
   type GeminiModelOption,
+  type GeminiThinkingLevel,
 } from "../../lib/ai";
 import { getToolLabel, type ToolExecutionContext } from "../../lib/ai-tools";
 import {
@@ -542,6 +543,9 @@ export default function AIChatPanel(props: Props) {
   const [selectedModel, setSelectedModel] = createSignal(
     AiService.getModel() ?? "",
   );
+  const [thinkingLevel, setThinkingLevel] = createSignal<GeminiThinkingLevel>(
+    AiService.getThinkingLevel(),
+  );
   const [pendingDelete, setPendingDelete] = createSignal<{
     id: string;
     title: string;
@@ -681,6 +685,11 @@ export default function AIChatPanel(props: Props) {
   const handleModelChange = (value: string) => {
     setSelectedModel(value);
     AiService.setModel(value);
+  };
+
+  const handleThinkingLevelChange = (level: GeminiThinkingLevel) => {
+    setThinkingLevel(level);
+    AiService.setThinkingLevel(level);
   };
 
   createEffect(() => {
@@ -888,7 +897,15 @@ export default function AIChatPanel(props: Props) {
         {
           onThoughtDelta: (text) => appendDelta("thought", text),
           onThoughtEnd: () => {
-            if (isCurrentRequest()) setStreamingThoughtId(null);
+            if (!isCurrentRequest()) return;
+            const finishedThoughtId = streamingThoughtId();
+            setStreamingThoughtId(null);
+            if (finishedThoughtId) {
+              setThoughtOverride((prev) => ({
+                ...prev,
+                [finishedThoughtId]: "collapsed",
+              }));
+            }
           },
           onTextDelta: (text) => appendDelta("text", text),
           onTextEnd: () => {},
@@ -1665,7 +1682,9 @@ export default function AIChatPanel(props: Props) {
               anchorRef={modelPickerButtonRef!}
               models={availableModels()}
               selected={selectedModel()}
+              thinkingLevel={thinkingLevel()}
               onSelect={handleModelChange}
+              onThinkingLevelChange={handleThinkingLevelChange}
               onClose={() => setShowModelPicker(false)}
             />
           </Show>

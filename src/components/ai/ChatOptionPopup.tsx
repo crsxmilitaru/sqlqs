@@ -18,6 +18,7 @@ interface Props {
   title: string;
   items: ChatOptionItem[];
   headerActionLabel?: JSX.Element;
+  footer?: JSX.Element;
   onHeaderAction?: () => void;
   onSelect: (id: string) => void;
   onClose: () => void;
@@ -40,7 +41,7 @@ export default function ChatOptionPopup(props: Props) {
   return (
     <div
       ref={popupRef}
-      class="absolute bottom-full left-0 right-0 z-50 bg-surface-panel border-t border-border rounded-t-lg animate-popover-in overflow-hidden"
+      class="absolute bottom-full left-0 right-0 z-50 mb-2 bg-surface-panel border border-border rounded-lg animate-popover-in overflow-hidden"
     >
       <div class="bg-surface-header/30">
         <div class="flex items-center justify-between px-3 py-2 border-b border-border/60">
@@ -128,6 +129,9 @@ export default function ChatOptionPopup(props: Props) {
             }}
           </For>
         </div>
+        <Show when={props.footer}>
+          <div class="border-t border-border/60 p-2">{props.footer}</div>
+        </Show>
       </div>
     </div>
   );

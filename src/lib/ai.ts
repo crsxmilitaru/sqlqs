@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from "@google/genai";
 import {
   executeTool,
   getEnabledToolDeclarations,
@@ -10,12 +10,16 @@ import {
 import type { GeminiStatus } from "./types";
 
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
+const GEMINI_THINKING_LEVEL_STORAGE_KEY = "sqlqs_gemini_thinking_level";
+const GEMINI_THINKING_ENABLED_STORAGE_KEY = "sqlqs_gemini_thinking_enabled";
 const MAX_TOOL_TURNS = 8;
 
 export interface GeminiModelOption {
   id: string;
   label: string;
 }
+
+export type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 type GeminiCategory = "pro" | "flash" | "flash-lite";
 
@@ -93,6 +97,60 @@ function pickLatestByCategory(rawModels: any[]): GeminiModelOption[] {
 
 function pickPreferredModel(models: GeminiModelOption[]): GeminiModelOption | undefined {
   return models.find((m) => /flash-lite/.test(m.id)) ?? models[0];
+}
+
+function usesThinkingLevel(modelId: string): boolean {
+  return /^gemini-(?!2\.5-)\d/.test(modelId);
+}
+
+function canUseMinimalThinking(modelId: string): boolean {
+  return usesThinkingLevel(modelId) && /(^|-)flash(?:-lite)?($|-)/.test(modelId);
+}
+
+function normalizeThinkingLevel(
+  modelId: string,
+  level: GeminiThinkingLevel,
+): GeminiThinkingLevel {
+  if (
+    level === "minimal" &&
+    usesThinkingLevel(modelId) &&
+    !canUseMinimalThinking(modelId)
+  ) {
+    return "low";
+  }
+  return level;
+}
+
+function toThinkingLevelEnum(level: GeminiThinkingLevel): ThinkingLevel {
+  switch (level) {
+    case "minimal":
+      return ThinkingLevel.MINIMAL;
+    case "low":
+      return ThinkingLevel.LOW;
+    case "high":
+      return ThinkingLevel.HIGH;
+    case "medium":
+    default:
+      return ThinkingLevel.MEDIUM;
+  }
+}
+
+function buildThinkingConfig(
+  modelId: string,
+  thinkingLevel: GeminiThinkingLevel,
+): ThinkingConfig {
+  const config: ThinkingConfig = { includeThoughts: true };
+
+  if (!usesThinkingLevel(modelId)) {
+    return config;
+  }
+
+  return {
+    ...config,
+    thinkingLevel: toThinkingLevelEnum(
+      normalizeThinkingLevel(modelId, thinkingLevel),
+    ),
+  };
 }
 
 export type ChatReference = "editor" | "selected" | "result";
@@ -384,6 +442,26 @@ export const AiService = {
     return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY);
   },
 
+  setThinkingLevel(level: GeminiThinkingLevel) {
+    localStorage.setItem(GEMINI_THINKING_LEVEL_STORAGE_KEY, level);
+  },
+
+  getThinkingLevel(): GeminiThinkingLevel {
+    const stored = localStorage.getItem(GEMINI_THINKING_LEVEL_STORAGE_KEY);
+    if (
+      stored === "minimal" ||
+      stored === "low" ||
+      stored === "medium" ||
+      stored === "high"
+    ) {
+      return stored;
+    }
+
+    return localStorage.getItem(GEMINI_THINKING_ENABLED_STORAGE_KEY) === "false"
+      ? "minimal"
+      : "medium";
+  },
+
   async getStatus(): Promise<GeminiStatus> {
     return {
       hasKey: !!(await this.getApiKey()),
@@ -465,6 +543,7 @@ RULES:
 
     const genAI = new GoogleGenAI({ apiKey });
     const modelId = await this.resolveModel();
+    const thinkingLevel = this.getThinkingLevel();
     const systemPrompt = this.buildSystemPrompt(context.currentDatabase);
 
     const enabledTools = loadEnabledTools();
@@ -509,7 +588,7 @@ RULES:
           tools: toolsConfig.length > 0 ? toolsConfig : undefined,
           temperature: 0.7,
           maxOutputTokens: 4096,
-          thinkingConfig: { includeThoughts: true },
+          thinkingConfig: buildThinkingConfig(modelId, thinkingLevel),
         },
       });
 
