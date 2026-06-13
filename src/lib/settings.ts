@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import type { QueryTabHistoryEntry } from "./types";
 
 const STORAGE_KEY_PERSIST_TABS = "sqlqs_persist_tabs";
 const STORAGE_KEY_CONFIRM_CLOSE_UNSAVED = "sqlqs_confirm_close_unsaved";
@@ -526,6 +527,7 @@ export function saveEditorFormatOnPaste(value: boolean) {
 export interface SavedTab {
   title: string;
   sql: string;
+  history?: QueryTabHistoryEntry[];
   userTitle?: boolean;
   sourceId?: string;
   pinned?: boolean;
@@ -534,7 +536,41 @@ export interface SavedTab {
 export function saveTabs(tabs: SavedTab[]) {
   try {
     localStorage.setItem(STORAGE_KEY_SAVED_TABS, JSON.stringify(tabs));
-  } catch { }
+  } catch {
+    try {
+      const tabsWithoutHistory = tabs.map(
+        ({ history: _history, ...tab }) => tab,
+      );
+      localStorage.setItem(
+        STORAGE_KEY_SAVED_TABS,
+        JSON.stringify(tabsWithoutHistory),
+      );
+    } catch { }
+  }
+}
+
+function normalizeSavedHistoryEntry(
+  entry: any,
+  index: number,
+): QueryTabHistoryEntry {
+  const trimmedLabel =
+    typeof entry.label === "string" ? entry.label.trim() : "";
+  const label = trimmedLabel ? trimmedLabel.slice(0, 80) : undefined;
+  const createdAt =
+    typeof entry.createdAt === "number" &&
+    Number.isFinite(entry.createdAt) &&
+    !Number.isNaN(new Date(entry.createdAt).getTime())
+      ? entry.createdAt
+      : Date.now();
+  const trimmedId = typeof entry.id === "string" ? entry.id.trim() : "";
+
+  return {
+    id: trimmedId || `history-${createdAt}-${index}`,
+    sql: entry.sql.replace(/\r\n/g, "\n"),
+    createdAt,
+    type: entry.type === "action" ? "action" : "typing",
+    label,
+  };
 }
 
 export function loadSavedTabs(): SavedTab[] {
@@ -543,9 +579,22 @@ export function loadSavedTabs(): SavedTab[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (t: any) => typeof t.title === "string" && typeof t.sql === "string",
-    );
+    return parsed
+      .filter(
+        (t: any) => typeof t.title === "string" && typeof t.sql === "string",
+      )
+      .map((t: any) => ({
+        title: t.title,
+        sql: t.sql,
+        userTitle: t.userTitle,
+        sourceId: t.sourceId,
+        pinned: t.pinned,
+        history: Array.isArray(t.history)
+          ? t.history
+              .filter((entry: any) => entry && typeof entry.sql === "string")
+              .map(normalizeSavedHistoryEntry)
+          : undefined,
+      }));
   } catch {
     return [];
   }

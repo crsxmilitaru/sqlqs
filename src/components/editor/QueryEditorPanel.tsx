@@ -7,7 +7,11 @@ import {
   onCleanup,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import type { ExecutedQuery, QueryTab } from "../../lib/types";
+import type {
+  ExecutedQuery,
+  QueryTab,
+  QueryTabUpdateOptions,
+} from "../../lib/types";
 import AIChatPanel, {
   type ApplyMode,
   type PendingChatMessage,
@@ -18,11 +22,13 @@ import {
   IconCopy,
   IconFloppy,
   IconFormat,
+  IconHistory,
   IconPlay,
   IconSave,
   IconSearch,
   IconWrapText,
 } from "../ui/Icons";
+import EditorHistoryDialog from "./EditorHistoryDialog";
 import ResultsGrid, { type ResultsTableViewState } from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
@@ -35,6 +41,32 @@ const DRAG_THRESHOLD = 5;
 
 function isTabDirty(tab: QueryTab): boolean {
   return tab.sql !== tab.savedSql;
+}
+
+function hasRestorableHistory(tab: QueryTab): boolean {
+  return (tab.history ?? []).some((entry) => entry.sql !== tab.sql);
+}
+
+function restorableHistoryCount(tab: QueryTab): number {
+  return (tab.history ?? []).filter((entry) => entry.sql !== tab.sql).length;
+}
+
+function actionHistoryOptions(historyLabel: string): QueryTabUpdateOptions {
+  return {
+    historyMode: "preserve-current",
+    historyType: "action",
+    historyLabel,
+  };
+}
+
+function captureActionHistoryOptions(
+  historyLabel: string,
+): QueryTabUpdateOptions {
+  return {
+    historyMode: "capture-current",
+    historyType: "action",
+    historyLabel,
+  };
 }
 
 function shouldIgnoreTabShortcutTarget(target: EventTarget | null): boolean {
@@ -53,7 +85,11 @@ interface Props {
   onTabClose: (id: string) => void;
   onTabCloseOthers: (id: string) => void;
   onTabCloseAll: () => void;
-  onTabUpdate: (id: string, updates: Partial<QueryTab>) => void;
+  onTabUpdate: (
+    id: string,
+    updates: Partial<QueryTab>,
+    options?: QueryTabUpdateOptions,
+  ) => void;
   onTabReorder: (fromIndex: number, toIndex: number) => void;
   onTabDuplicate: (id: string) => string;
   onTabTogglePin: (id: string) => void;
@@ -399,6 +435,7 @@ export default function QueryEditorPanel(props: Props) {
 
   const [queryCopied, setQueryCopied] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
+  const [historyOpen, setHistoryOpen] = createSignal(false);
   const [wrapLines, setWrapLines] = createSignal(false);
   const [pendingChatMessage, setPendingChatMessage] =
     createSignal<PendingChatMessage | null>(null);
@@ -474,7 +511,11 @@ export default function QueryEditorPanel(props: Props) {
     if (!tab) return;
     try {
       const formatted = formatSqlWithPrefs(tab.sql);
-      props.onTabUpdate(tab.id, { sql: formatted });
+      props.onTabUpdate(
+        tab.id,
+        { sql: formatted },
+        actionHistoryOptions("Format SQL"),
+      );
     } catch (err) {
       console.error("Failed to format SQL:", err);
     }
@@ -500,7 +541,11 @@ export default function QueryEditorPanel(props: Props) {
     if (!tab) return;
     switch (mode) {
       case "replace":
-        props.onTabUpdate(tab.id, { sql: generatedSql });
+        props.onTabUpdate(
+          tab.id,
+          { sql: generatedSql },
+          actionHistoryOptions("AI Replace"),
+        );
         break;
       case "new-tab":
         props.onTabAdd(generatedSql);
@@ -511,7 +556,11 @@ export default function QueryEditorPanel(props: Props) {
         const nextSql = currentSql
           ? `${currentSql}\n\n${generatedSql}`
           : generatedSql;
-        props.onTabUpdate(tab.id, { sql: nextSql });
+        props.onTabUpdate(
+          tab.id,
+          { sql: nextSql },
+          actionHistoryOptions("AI Append"),
+        );
         break;
       }
     }
@@ -576,6 +625,10 @@ export default function QueryEditorPanel(props: Props) {
     if (!selectedText) return;
     try {
       await invoke("write_clipboard", { text: selectedText });
+      const tab = activeTab();
+      if (tab) {
+        props.onTabUpdate(tab.id, {}, captureActionHistoryOptions("Cut"));
+      }
       editorRef?.replaceSelection("");
     } catch (err) {
       console.error("Failed to cut selection:", err);
@@ -588,11 +641,17 @@ export default function QueryEditorPanel(props: Props) {
     try {
       const text = await invoke<string>("read_clipboard");
       if (!text) return;
-      if (format) {
-        editorRef?.replaceSelection(formatSqlWithPrefs(text));
-      } else {
-        editorRef?.replaceSelection(text);
+      if (!editorRef) return;
+      const nextText = format ? formatSqlWithPrefs(text) : text;
+      const tab = activeTab();
+      if (tab) {
+        props.onTabUpdate(
+          tab.id,
+          {},
+          captureActionHistoryOptions(format ? "Paste Formatted" : "Paste"),
+        );
       }
+      editorRef.replaceSelection(nextText);
     } catch (err) {
       console.error("Failed to paste into editor:", err);
     } finally {
@@ -616,6 +675,8 @@ export default function QueryEditorPanel(props: Props) {
     const selectedText = editorRef?.getSelectedText() ?? "";
     const hasSelectedText = Boolean(selectedText.trim());
     const tab = activeTab();
+    const canRestoreHistory =
+      !!tab && hasDatabaseSelected() && hasRestorableHistory(tab);
     return [
       {
         id: "execute",
@@ -684,6 +745,13 @@ export default function QueryEditorPanel(props: Props) {
         icon: <IconFormat />,
         onClick: handleFormatSql,
         disabled: !hasDatabaseSelected() || !tab?.sql.trim(),
+      },
+      {
+        id: "text-history",
+        label: "Text History",
+        icon: <IconHistory />,
+        onClick: () => setHistoryOpen(true),
+        disabled: !canRestoreHistory,
       },
     ];
   };
@@ -1017,7 +1085,7 @@ export default function QueryEditorPanel(props: Props) {
                         type="button"
                         aria-label={queryCopied() ? "SQL copied" : "Copy SQL"}
                         onClick={handleCopyQuery}
-                        disabled={!tab.sql.trim()}
+                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
                         class="btn btn-icon"
                       >
                         <IconCopy
@@ -1052,7 +1120,7 @@ export default function QueryEditorPanel(props: Props) {
                           wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
                         }
                         onClick={() => setWrapLines(!wrapLines())}
-                        disabled={!tab.sql.trim()}
+                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
                         class={`btn btn-icon ${wrapLines() ? "btn-toggled" : ""}`}
                       >
                         <IconWrapText class="w-3 h-3" />
@@ -1068,7 +1136,7 @@ export default function QueryEditorPanel(props: Props) {
                               type="button"
                               aria-label="Save SQL"
                               onClick={() => props.onSave!(tab.id)}
-                              disabled={!tab.sql.trim()}
+                              disabled={!hasDatabaseSelected() || !tab.sql.trim()}
                               class="btn btn-icon"
                             >
                               <IconSave class="w-3 h-3" />
@@ -1085,7 +1153,7 @@ export default function QueryEditorPanel(props: Props) {
                               type="button"
                               aria-label="Save SQL to file"
                               onClick={() => props.onSaveToFile!(tab.id)}
-                              disabled={!tab.sql.trim()}
+                              disabled={!hasDatabaseSelected() || !tab.sql.trim()}
                               class="btn btn-icon"
                             >
                               <IconFloppy class="w-3 h-3" />
@@ -1095,14 +1163,12 @@ export default function QueryEditorPanel(props: Props) {
                       </>
                     )}
 
-                    <div class="toolbar-sep" />
-
                     <Tooltip content="Find" placement="bottom">
                       <button
                         type="button"
                         aria-label="Find"
                         onClick={() => editorRef?.openSearch()}
-                        disabled={!tab.sql.trim()}
+                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
                         class={`btn btn-icon ${searchOpen() ? "btn-toggled" : ""}`}
                       >
                         <IconSearch class="w-3 h-3" />
@@ -1110,14 +1176,43 @@ export default function QueryEditorPanel(props: Props) {
                     </Tooltip>
                   </div>
 
-                  <div class="w-[280px] shrink flex items-center justify-end" />
+                  <div class="w-[280px] shrink flex items-center justify-end">
+                    <Tooltip
+                      content={
+                        !hasDatabaseSelected()
+                          ? "Choose a database to restore text history"
+                          : (tab.history?.length ?? 0) > 0
+                            ? hasRestorableHistory(tab)
+                            ? "Text History"
+                            : "No previous text to restore"
+                            : "No text history yet"
+                      }
+                      placement="bottom"
+                    >
+                      <button
+                        type="button"
+                        aria-label="Text History"
+                        onClick={() => setHistoryOpen(true)}
+                        disabled={
+                          !hasDatabaseSelected() || !hasRestorableHistory(tab)
+                        }
+                        class="btn btn-secondary btn-compact"
+                      >
+                        <IconHistory class="w-3 h-3" />
+                        <span>History</span>
+                        <span class="btn-table-badge">
+                          {restorableHistoryCount(tab)}
+                        </span>
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
 
                 <div class="relative flex-1 min-w-0 min-h-0">
                   <SqlEditor
                     value={tab.sql}
-                    onChange={(val: string) =>
-                      props.onTabUpdate(tab.id, { sql: val })
+                    onChange={(val: string, options?: QueryTabUpdateOptions) =>
+                      props.onTabUpdate(tab.id, { sql: val }, options)
                     }
                     onExecute={handleExecute}
                     readOnly={!hasDatabaseSelected()}
@@ -1367,6 +1462,23 @@ export default function QueryEditorPanel(props: Props) {
           onCancel={() => setConfirmClose(null)}
         />
       )}
+
+      <Show when={historyOpen() && activeTab()}>
+        {(tab) => (
+          <EditorHistoryDialog
+            tab={tab()}
+            onClose={() => setHistoryOpen(false)}
+            onRestore={(sql) => {
+              if (!hasDatabaseSelected()) return;
+              props.onTabUpdate(
+                tab().id,
+                { sql },
+                actionHistoryOptions("Restore"),
+              );
+            }}
+          />
+        )}
+      </Show>
     </div>
   );
 }

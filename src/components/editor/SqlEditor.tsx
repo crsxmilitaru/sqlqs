@@ -36,7 +36,12 @@ import {
   searchKeymap,
   searchPanelOpen,
 } from "@codemirror/search";
-import { EditorState, Compartment, type Extension } from "@codemirror/state";
+import {
+  EditorState,
+  Compartment,
+  Transaction,
+  type Extension,
+} from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { SyntaxNode } from "@lezer/common";
 import {
@@ -61,7 +66,10 @@ import { loadEditorPreferences } from "../../lib/settings";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { sqlLinter } from "../../lib/sql-linter";
 import type { ThemeSelection } from "../../lib/theme";
-import type { DatabaseSchemaCatalogEntry } from "../../lib/types";
+import type {
+  DatabaseSchemaCatalogEntry,
+  QueryTabUpdateOptions,
+} from "../../lib/types";
 
 const searchScrollbarPlugin = ViewPlugin.fromClass(
   class {
@@ -134,7 +142,7 @@ const searchScrollbarPlugin = ViewPlugin.fromClass(
 
 interface Props {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, options?: QueryTabUpdateOptions) => void;
   onExecute: (selectedSql?: string) => void;
   readOnly?: boolean;
   theme: ThemeSelection;
@@ -171,6 +179,55 @@ function createFoldMarker(open: boolean): HTMLElement {
   marker.appendChild(svg);
 
   return marker;
+}
+
+function historyOptionsForEditorUpdate(
+  update: ViewUpdate,
+): QueryTabUpdateOptions | undefined {
+  const hasUserEvent = (event: string) =>
+    update.transactions.some((transaction) => transaction.isUserEvent(event));
+
+  if (hasUserEvent("input.paste")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Paste",
+    };
+  }
+
+  if (hasUserEvent("delete.cut")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Cut",
+    };
+  }
+
+  if (hasUserEvent("input.drop") || hasUserEvent("move.drop")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Drop",
+    };
+  }
+
+  if (hasUserEvent("undo")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Undo",
+    };
+  }
+
+  if (hasUserEvent("redo")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Redo",
+    };
+  }
+
+  return undefined;
 }
 
 interface SchemaTableEntry {
@@ -1910,7 +1967,10 @@ export default function SqlEditor(props: Props) {
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        props.onChange(update.state.doc.toString());
+        props.onChange(
+          update.state.doc.toString(),
+          historyOptionsForEditorUpdate(update),
+        );
       }
 
       if (viewRef && searchPanelOpen(update.state) && containerRef) {
@@ -2005,7 +2065,10 @@ export default function SqlEditor(props: Props) {
         try {
           const formatted = formatSqlWithPrefs(text);
           event.preventDefault();
-          view.dispatch(view.state.replaceSelection(formatted));
+          view.dispatch({
+            ...view.state.replaceSelection(formatted),
+            annotations: Transaction.userEvent.of("input.paste"),
+          });
           return true;
         } catch {
           return false;

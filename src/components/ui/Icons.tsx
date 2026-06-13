@@ -102,3 +102,7 @@ export function IconSearch(props: { class?: string }) {
 export function IconWrapText(props: { class?: string }) {
   return <Icon name="paragraph" class={props.class} />;
 }
+
+export function IconHistory(props: { class?: string }) {
+  return <Icon name="clock-rotate-left" class={props.class} />;
+}

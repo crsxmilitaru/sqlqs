@@ -149,6 +149,7 @@ export interface QueryTab {
   title: string;
   sql: string;
   savedSql: string;
+  history?: QueryTabHistoryEntry[];
   result?: QueryResult;
   isExecuting: boolean;
   error?: string;
@@ -156,6 +157,22 @@ export interface QueryTab {
   userTitle?: boolean;
   pinned?: boolean;
   temporary?: boolean;
+}
+
+export type QueryTabHistoryEntryType = "typing" | "action";
+
+export interface QueryTabHistoryEntry {
+  id: string;
+  sql: string;
+  createdAt: number;
+  type: QueryTabHistoryEntryType;
+  label?: string;
+}
+
+export interface QueryTabUpdateOptions {
+  historyMode?: "idle" | "preserve-current" | "capture-current" | "none";
+  historyType?: QueryTabHistoryEntryType;
+  historyLabel?: string;
 }
 
 export interface ExecutedQuery {
