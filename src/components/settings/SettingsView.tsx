@@ -939,16 +939,16 @@ export default function SettingsView(props: Props) {
     {
       id: "exec-confirm-destructive",
       tab: "execution",
-      title: "Confirm destructive queries",
+      title: "Confirm risky queries",
       keywords:
-        "execution confirm destructive update delete truncate where guard safety",
+        "execution confirm risky destructive drop alter update delete truncate where guard safety",
       render: () => (
         <ToggleSetting
-          title="Confirm destructive queries"
+          title="Confirm risky queries"
           description={
             <>
-              Ask before running UPDATE / DELETE without a WHERE clause, or
-              TRUNCATE
+              Ask before running DROP / ALTER, TRUNCATE, MERGE, or UPDATE /
+              DELETE without a WHERE clause
             </>
           }
           checked={execConfirmDestructive()}

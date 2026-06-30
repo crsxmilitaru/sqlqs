@@ -36,6 +36,7 @@ import SettingsView from "../settings/SettingsView";
 import {
   loadAutoCheckUpdates,
   loadExecutionPreferences,
+  saveExecConfirmDestructive,
 } from "../../lib/settings";
 import {
   findUnguardedDestructiveStatements,
@@ -45,6 +46,75 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "../dialogs/UpdateDialog";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
+
+type RiskySchemaChangeKind = "ALTER" | "DROP";
+
+interface RiskySchemaChange {
+  kind: RiskySchemaChangeKind;
+  objectType: string;
+}
+
+const SCHEMA_REFRESH_OBJECT_TYPES =
+  "TABLE|VIEW|PROCEDURE|PROC|FUNCTION|TRIGGER|TYPE|SCHEMA|INDEX|SEQUENCE|SYNONYM";
+const RISKY_DDL_OBJECT_TYPES = [
+  "APPLICATION ROLE",
+  "ASSEMBLY",
+  "ASYMMETRIC KEY",
+  "CERTIFICATE",
+  "CONTRACT",
+  "DATABASE SCOPED CONFIGURATION",
+  "DATABASE SCOPED CREDENTIAL",
+  "DATABASE",
+  "DEFAULT",
+  "ENDPOINT",
+  "EVENT NOTIFICATION",
+  "EXTERNAL DATA SOURCE",
+  "EXTERNAL FILE FORMAT",
+  "EXTERNAL LIBRARY",
+  "EXTERNAL TABLE",
+  "FULLTEXT CATALOG",
+  "FULLTEXT INDEX",
+  "FULLTEXT STOPLIST",
+  "FUNCTION",
+  "INDEX",
+  "LOGIN",
+  "MASK",
+  "MASTER KEY",
+  "MESSAGE TYPE",
+  "PARTITION FUNCTION",
+  "PARTITION SCHEME",
+  "PROCEDURE",
+  "PROC",
+  "QUEUE",
+  "REMOTE SERVICE BINDING",
+  "ROLE",
+  "ROUTE",
+  "RULE",
+  "SCHEMA",
+  "SEARCH PROPERTY LIST",
+  "SECURITY POLICY",
+  "SEQUENCE",
+  "SERVICE",
+  "SYMMETRIC KEY",
+  "SYNONYM",
+  "TABLE",
+  "TRIGGER",
+  "TYPE",
+  "USER",
+  "VIEW",
+  "XML SCHEMA COLLECTION",
+]
+  .map((type) => type.replace(/\s+/g, "\\s+"))
+  .join("|");
+const SCHEMA_REFRESH_REGEX = new RegExp(
+  `\\b(?:CREATE\\s+(?:OR\\s+ALTER\\s+)?(?:UNIQUE\\s+)?(?:(?:NON)?CLUSTERED\\s+)?|ALTER\\s+|DROP\\s+|TRUNCATE\\s+)(?:${SCHEMA_REFRESH_OBJECT_TYPES})\\b`,
+  "i",
+);
+const DATABASE_DDL_REGEX = /\b(?:CREATE|ALTER|DROP)\s+DATABASE\b/i;
+const RISKY_DDL_REGEX = new RegExp(
+  `\\b(DROP|ALTER)\\s+(?:IF\\s+EXISTS\\s+)?(${RISKY_DDL_OBJECT_TYPES})\\b`,
+  "gi",
+);
 
 const EMPTY_OBJECT_INDEX_STATUS: ServerObjectIndexStatus = {
   initialized: false,
@@ -85,12 +155,32 @@ function getTextEditableTarget(
 }
 
 function isLikelySchemaChangingSql(sql: string): boolean {
-  const withoutComments = sql
+  return SCHEMA_REFRESH_REGEX.test(stripSqlStringsAndComments(sql));
+}
+
+function changesDatabaseCatalog(sql: string): boolean {
+  return DATABASE_DDL_REGEX.test(stripSqlStringsAndComments(sql));
+}
+
+function stripSqlStringsAndComments(sql: string): string {
+  return sql
     .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--.*$/gm, " ");
-  return /\b(?:CREATE\s+(?:OR\s+ALTER\s+)?(?:UNIQUE\s+)?(?:(?:NON)?CLUSTERED\s+)?|ALTER\s+|DROP\s+|TRUNCATE\s+)(TABLE|VIEW|PROCEDURE|PROC|FUNCTION|TRIGGER|TYPE|SCHEMA|INDEX|SEQUENCE|SYNONYM)\b/i.test(
-    withoutComments,
-  );
+    .replace(/--.*$/gm, " ")
+    .replace(/\[(?:\]\]|[^\]])*\]/g, " ")
+    .replace(/N?'(?:''|[^'])*'/gi, " ");
+}
+
+function findRiskySchemaChanges(sql: string): RiskySchemaChange[] {
+  const withoutStringsAndComments = stripSqlStringsAndComments(sql);
+  const changes: RiskySchemaChange[] = [];
+
+  for (const match of withoutStringsAndComments.matchAll(RISKY_DDL_REGEX)) {
+    const kind = match[1].toUpperCase() as RiskySchemaChangeKind;
+    const objectType = match[2].replace(/\s+/g, " ").toUpperCase();
+    changes.push({ kind, objectType });
+  }
+
+  return changes;
 }
 
 export default function App() {
@@ -140,10 +230,11 @@ export default function App() {
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] =
     createSignal(false);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
-  const [pendingDestructive, setPendingDestructive] = createSignal<{
+  const [pendingRisky, setPendingRisky] = createSignal<{
     tabId: string;
     sql: string;
-    findings: UnguardedStatement[];
+    unguarded: UnguardedStatement[];
+    schemaChanges: RiskySchemaChange[];
   } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
   const [explorerWidth, setExplorerWidth] = createSignal(325);
@@ -399,9 +490,15 @@ export default function App() {
 
     const execPrefs = loadExecutionPreferences();
     if (execPrefs.confirmDestructive) {
-      const findings = findUnguardedDestructiveStatements(sqlToExecute);
-      if (findings.length > 0) {
-        setPendingDestructive({ tabId, sql: sqlToExecute, findings });
+      const unguarded = findUnguardedDestructiveStatements(sqlToExecute);
+      const schemaChanges = findRiskySchemaChanges(sqlToExecute);
+      if (unguarded.length > 0 || schemaChanges.length > 0) {
+        setPendingRisky({
+          tabId,
+          sql: sqlToExecute,
+          unguarded,
+          schemaChanges,
+        });
         return;
       }
     }
@@ -432,9 +529,15 @@ export default function App() {
       }
       updateTab(tabId, updates);
       addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
-      if (isLikelySchemaChangingSql(sqlToExecute)) {
-        invalidateSchemaCatalog(currentDatabase());
+      const changedDatabaseCatalog = changesDatabaseCatalog(sqlToExecute);
+      const changedSchema = isLikelySchemaChangingSql(sqlToExecute);
+      if (changedDatabaseCatalog) {
+        invalidateSchemaCatalog();
+        void refreshDatabases();
+      }
+      if (changedSchema) {
         const db = currentDatabase();
+        invalidateSchemaCatalog(db);
         if (db) {
           void explorerRef?.refreshDatabaseObjects(db);
         }
@@ -454,6 +557,44 @@ export default function App() {
     );
     const parts = Object.entries(counts).map(([kind, n]) => `${n} ${kind}`);
     return parts.join(", ");
+  }
+
+  function describeRiskySchemaChanges(changes: RiskySchemaChange[]): string {
+    const counts = changes.reduce(
+      (acc, change) => {
+        const key = `${change.kind} ${change.objectType}`;
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+    return Object.entries(counts)
+      .map(([kind, n]) => `${n} ${kind}`)
+      .join(", ");
+  }
+
+  function riskyQueryMessage(pending: {
+    unguarded: UnguardedStatement[];
+    schemaChanges: RiskySchemaChange[];
+  }): string {
+    const messages: string[] = [];
+    if (pending.schemaChanges.length > 0) {
+      messages.push(
+        `This query contains ${describeRiskySchemaChanges(
+          pending.schemaChanges,
+        )} statement(s). Schema changes can break dependent objects or remove data structures.`,
+      );
+    }
+    if (pending.unguarded.length > 0) {
+      const prefix =
+        messages.length > 0 ? "It also contains" : "This query contains";
+      messages.push(
+        `${prefix} ${describeDestructive(
+          pending.unguarded,
+        )} statement(s) without a WHERE clause, which may affect every row.`,
+      );
+    }
+    return `${messages.join(" ")} Proceed?`;
   }
 
   function handleOpenQueryTab({
@@ -608,7 +749,8 @@ export default function App() {
     !!propertiesTarget() ||
     !!renameTarget() ||
     !!dropTarget() ||
-    !!dependenciesTarget();
+    !!dependenciesTarget() ||
+    !!pendingRisky();
   const canOpenObjectJump = () => connected();
 
   function handleToggleObjectJump() {
@@ -966,6 +1108,7 @@ export default function App() {
                 onSave={handleTabSave}
                 onSaveToFile={handleTabSaveToFile}
                 executedQueries={executedQueries()}
+                dialogOpen={isAnyDialogOpen()}
               />
             </main>
           </>
@@ -1076,21 +1219,25 @@ export default function App() {
         )}
       </Show>
 
-      <Show when={pendingDestructive()}>
+      <Show when={pendingRisky()}>
         {(pending) => (
           <ConfirmDialog
-            title="Run destructive query?"
-            message={`This query contains ${describeDestructive(
-              pending().findings,
-            )} statement(s) without a WHERE clause. This may affect every row. Proceed?`}
+            title="Run risky query?"
+            message={riskyQueryMessage(pending())}
             confirmLabel="Run anyway"
+            suppressFutureLabel="Don't warn me about risky queries again"
             variant="danger"
-            onConfirm={() => {
+            onConfirm={(result) => {
               const p = pending();
-              setPendingDestructive(null);
+              if (result?.suppressFuture) {
+                saveExecConfirmDestructive(false);
+              }
+              setPendingRisky(null);
               void runExecute(p.tabId, p.sql);
             }}
-            onCancel={() => setPendingDestructive(null)}
+            onCancel={() => {
+              setPendingRisky(null);
+            }}
           />
         )}
       </Show>

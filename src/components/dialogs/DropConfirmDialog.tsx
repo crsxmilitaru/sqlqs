@@ -114,9 +114,9 @@ export default function DropConfirmDialog(props: Props) {
           <div class="flex items-start gap-2 p-3 rounded-lg bg-error/5 border border-error/15 text-sm text-error/90">
             <Icon name="triangle-exclamation" class="mt-0.5" />
             <span>
-              This will permanently drop the {typeLabel().toLowerCase()}.
-              Dependent objects will fail until updated, and this action cannot
-              be undone.
+              Risky action: this will permanently drop the{" "}
+              {typeLabel().toLowerCase()}. Dependent objects will fail until
+              updated, and this action cannot be undone.
             </span>
           </div>
         </div>

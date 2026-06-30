@@ -81,6 +81,7 @@ export function buildObjectExplorerMenuItems(props: BuildObjectExplorerMenuItems
     id: "drop",
     label: dropLabel(props.objectType),
     icon: <i class="fa-solid fa-trash" />,
+    danger: true,
     onClick: () => props.onShowDrop?.(),
   };
 

@@ -110,6 +110,7 @@ interface Props {
   onSave?: (id: string) => void;
   onSaveToFile?: (id: string) => void;
   executedQueries?: ExecutedQuery[];
+  dialogOpen?: boolean;
 }
 
 export default function QueryEditorPanel(props: Props) {
@@ -133,6 +134,7 @@ export default function QueryEditorPanel(props: Props) {
   let cleanupTabBarWheelListener: (() => void) | undefined;
   let cleanupDragListeners: (() => void) | undefined;
   let cleanupEditorResizeListeners: (() => void) | undefined;
+  let pendingEditorFocusFrame: number | undefined;
 
   const [dragTabId, setDragTabId] = createSignal<string | null>(null);
   const [dropIndex, setDropIndex] = createSignal<number | null>(null);
@@ -177,6 +179,9 @@ export default function QueryEditorPanel(props: Props) {
   });
 
   onCleanup(() => {
+    if (pendingEditorFocusFrame !== undefined) {
+      cancelAnimationFrame(pendingEditorFocusFrame);
+    }
     cleanupTabBarWheelListener?.();
     cleanupDragListeners?.();
     cleanupEditorResizeListeners?.();
@@ -458,6 +463,35 @@ export default function QueryEditorPanel(props: Props) {
     Array.isArray(props.tabs)
       ? props.tabs.find((t) => t.id === props.activeTabId)
       : undefined,
+  );
+
+  function focusEditorSoon() {
+    if (pendingEditorFocusFrame !== undefined) {
+      cancelAnimationFrame(pendingEditorFocusFrame);
+    }
+
+    pendingEditorFocusFrame = requestAnimationFrame(() => {
+      pendingEditorFocusFrame = undefined;
+      const shouldSkipFocus =
+        props.dialogOpen ||
+        !hasDatabaseSelected() ||
+        !activeTab() ||
+        renamingTabId();
+      if (shouldSkipFocus) return;
+      editorRef?.focus();
+    });
+  }
+
+  createEffect(
+    on(
+      () =>
+        [props.activeTabId, props.currentDatabase, props.dialogOpen] as const,
+      ([activeTabId, currentDatabase, dialogOpen]) => {
+        if (!activeTabId || !currentDatabase || dialogOpen) return;
+        focusEditorSoon();
+      },
+      { defer: true },
+    ),
   );
 
   const isFirstTabActive = createMemo(() => {
