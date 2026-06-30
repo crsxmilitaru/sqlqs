@@ -31,6 +31,7 @@ export default function Dropdown(props: Props) {
   const [isOpen, setIsOpen] = createSignal(false);
   const [filter, setFilter] = createSignal("");
   const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
+  const [isKeyboardNavigating, setIsKeyboardNavigating] = createSignal(false);
   const [popupStyle, setPopupStyle] = createSignal<JSX.CSSProperties>({});
   let dropdownRef: HTMLDivElement | undefined;
   let buttonRef: HTMLButtonElement | undefined;
@@ -74,6 +75,7 @@ export default function Dropdown(props: Props) {
     setIsOpen(false);
     setFilter("");
     setHighlightedIndex(-1);
+    setIsKeyboardNavigating(false);
   }
 
   function updatePosition() {
@@ -94,6 +96,27 @@ export default function Dropdown(props: Props) {
         width: `${rect.width}px`,
       });
     }
+  }
+
+  function scrollOptionsToTop() {
+    if (!optionsListRef) return;
+    optionsListRef.scrollTop = 0;
+    const afterRender =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (callback: (timestamp: number) => void) =>
+          window.setTimeout(() => callback(Date.now()), 0);
+    afterRender(() => {
+      if (optionsListRef) {
+        optionsListRef.scrollTop = 0;
+      }
+    });
+  }
+
+  function resetFilteredNavigation() {
+    setIsKeyboardNavigating(true);
+    setHighlightedIndex(filteredOptions().length > 0 ? 0 : -1);
+    scrollOptionsToTop();
   }
 
   createEffect(() => {
@@ -145,10 +168,7 @@ export default function Dropdown(props: Props) {
 
   createEffect(() => {
     filter();
-    setHighlightedIndex(filteredOptions().length > 0 ? 0 : -1);
-    if (optionsListRef) {
-      optionsListRef.scrollTop = 0;
-    }
+    resetFilteredNavigation();
   });
 
   function handleSelect(optionValue: string) {
@@ -165,6 +185,7 @@ export default function Dropdown(props: Props) {
         e.key === " "
       ) {
         e.preventDefault();
+        e.stopPropagation();
         updatePosition();
         setIsOpen(true);
       }
@@ -174,24 +195,34 @@ export default function Dropdown(props: Props) {
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          prev < filteredOptions().length - 1 ? prev + 1 : 0,
-        );
+        e.stopPropagation();
+        setIsKeyboardNavigating(true);
+        setHighlightedIndex((prev) => {
+          const optionCount = filteredOptions().length;
+          if (optionCount === 0) return -1;
+          return prev >= 0 && prev < optionCount - 1 ? prev + 1 : 0;
+        });
         break;
       case "ArrowUp":
         e.preventDefault();
-        setHighlightedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredOptions().length - 1,
-        );
+        e.stopPropagation();
+        setIsKeyboardNavigating(true);
+        setHighlightedIndex((prev) => {
+          const optionCount = filteredOptions().length;
+          if (optionCount === 0) return -1;
+          return prev > 0 ? prev - 1 : optionCount - 1;
+        });
         break;
       case "Enter":
         e.preventDefault();
+        e.stopPropagation();
         if (highlightedIndex() >= 0 && filteredOptions()[highlightedIndex()]) {
           handleSelect(filteredOptions()[highlightedIndex()].value);
         }
         break;
       case "Escape":
         e.preventDefault();
+        e.stopPropagation();
         close();
         break;
       case "Tab":
@@ -253,6 +284,7 @@ export default function Dropdown(props: Props) {
             ref={listRef}
             style={popupStyle()}
             class="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
+            data-keyboard-nav={isKeyboardNavigating() ? "true" : undefined}
             id={listboxId}
             role="listbox"
           >
@@ -267,7 +299,10 @@ export default function Dropdown(props: Props) {
                     autocomplete="off"
                     aria-label={`Search ${accessibleLabel().toLowerCase()}`}
                     value={filter()}
-                    onInput={(e) => setFilter(e.currentTarget.value)}
+                    onInput={(e) => {
+                      setFilter(e.currentTarget.value);
+                      resetFilteredNavigation();
+                    }}
                     placeholder="Search databases…"
                     class="w-full bg-transparent text-m text-text caret-accent placeholder:text-text-muted/60 outline-none"
                     onClick={(e) => e.stopPropagation()}
@@ -295,7 +330,10 @@ export default function Dropdown(props: Props) {
                       role="option"
                       aria-selected={option.value === props.value}
                       onClick={() => handleSelect(option.value)}
-                      onMouseEnter={() => setHighlightedIndex(index())}
+                      onPointerMove={() => {
+                        setIsKeyboardNavigating(false);
+                        setHighlightedIndex(index());
+                      }}
                       class={`
                         dropdown-option w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
                         ${index() === highlightedIndex() ? "dropdown-option--active" : ""}

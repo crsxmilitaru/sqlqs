@@ -3,6 +3,7 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   Show,
   onCleanup,
 } from "solid-js";
@@ -420,10 +421,7 @@ export default function QueryEditorPanel(props: Props) {
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
   const [showStats, setShowStats] = createSignal(false);
 
-  createEffect(() => {
-    props.activeTabId;
-    setShowStats(false);
-  });
+  createEffect(on(() => props.activeTabId, () => setShowStats(false)));
   const [aiChatWidth, setAiChatWidth] = createSignal(
     (() => {
       const saved = localStorage.getItem("sqlqs_ai_chat_width");

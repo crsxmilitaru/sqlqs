@@ -115,7 +115,7 @@
     color: var(--color-text-muted);
   }
 
-  .dropdown-option:hover,
+  .dropdown-panel:not([data-keyboard-nav="true"]) .dropdown-option:hover,
   .dropdown-option--active {
     background: var(--color-surface-active);
     color: var(--color-text);
