@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Linq;
 using Microsoft.Data.SqlClient;
 using Sqlqs.Contracts.Query;
 
@@ -26,57 +28,92 @@ public sealed class QueryExecutor
         await using var lease = await _connections.AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var connection = lease.Connection;
         var watch = Stopwatch.StartNew();
-        var messages = new List<string>();
+        var outputs = new List<OutputItem>();
+        var statisticsEnabled = false;
 
         void OnInfoMessage(object _, SqlInfoMessageEventArgs args)
         {
             foreach (SqlError error in args.Errors)
             {
-                messages.Add(FormatServerError(error));
+                var msg = error.Class > 10 ? FormatServerError(error) : error.Message;
+                outputs.Add(new OutputItem { Type = 1, Message = msg });
             }
         }
 
         connection.InfoMessage += OnInfoMessage;
         try
         {
-            var resultSets = new List<ResultSetData>();
-            long rowsAffected = 0;
-            long? rowLimitApplied = null;
-
-            using var cmd = new SqlCommand(sql, connection);
-            cmd.CommandTimeout = 0;
-
-            using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-            while (true)
+            try
             {
-                if (reader.FieldCount > 0)
-                {
-                    var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
-                    if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
-                    resultSets.Add(data);
-                }
-
-                if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    break;
-                }
+                using var cmdStatsOn = new SqlCommand("SET STATISTICS TIME ON; SET STATISTICS IO ON;", connection);
+                await cmdStatsOn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                statisticsEnabled = true;
+            }
+            catch
+            {
+                // Ignore
             }
 
-            if (reader.RecordsAffected > 0)
+            try
             {
-                rowsAffected = reader.RecordsAffected;
-            }
+                var resultSets = new List<ResultSetData>();
+                long rowsAffected = 0;
+                long? rowLimitApplied = null;
 
-            watch.Stop();
-            return new ExecuteSqlResponse
+                using var cmd = new SqlCommand(sql, connection);
+                cmd.CommandTimeout = 0;
+
+                using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    while (true)
+                    {
+                        if (reader.FieldCount > 0)
+                        {
+                            var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
+                            if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
+                            resultSets.Add(data);
+                            outputs.Add(new OutputItem { Type = 0, ResultSetIndex = resultSets.Count - 1 });
+                        }
+
+                        if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+                        {
+                            break;
+                        }
+                    }
+
+                    if (reader.RecordsAffected > 0)
+                    {
+                        rowsAffected = reader.RecordsAffected;
+                    }
+                }
+
+                if (statisticsEnabled)
+                {
+                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
+                    statisticsEnabled = false;
+                }
+
+                watch.Stop();
+                var stats = ParseAndFilterStatistics(outputs, out var filteredOutputs);
+                var filteredMessages = filteredOutputs.Where(o => o.Type == 1).Select(o => o.Message!).ToList();
+                return new ExecuteSqlResponse
+                {
+                    ResultSets = resultSets,
+                    RowsAffected = rowsAffected,
+                    Messages = filteredMessages,
+                    Statistics = stats,
+                    ElapsedMs = watch.ElapsedMilliseconds,
+                    RowLimitApplied = rowLimitApplied,
+                    Outputs = filteredOutputs,
+                };
+            }
+            finally
             {
-                ResultSets = resultSets,
-                RowsAffected = rowsAffected,
-                Messages = messages,
-                ElapsedMs = watch.ElapsedMilliseconds,
-                RowLimitApplied = rowLimitApplied,
-            };
+                if (statisticsEnabled)
+                {
+                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
+                }
+            }
         }
         finally
         {
@@ -100,65 +137,99 @@ public sealed class QueryExecutor
         await using var lease = await _connections.AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var connection = lease.Connection;
         var watch = Stopwatch.StartNew();
-        var messages = new List<string>();
+        var outputs = new List<OutputItem>();
+        var statisticsEnabled = false;
 
         void OnInfoMessage(object _, SqlInfoMessageEventArgs args)
         {
             foreach (SqlError error in args.Errors)
             {
-                messages.Add(FormatServerError(error));
+                var msg = error.Class > 10 ? FormatServerError(error) : error.Message;
+                outputs.Add(new OutputItem { Type = 1, Message = msg });
             }
         }
 
         connection.InfoMessage += OnInfoMessage;
         try
         {
-            var allResultSets = new List<ResultSetData>();
-            long totalRowsAffected = 0;
-            long? rowLimitApplied = null;
-
-            for (int i = 0; i < batches.Count; i++)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var batch = batches[i];
-                if (string.IsNullOrWhiteSpace(batch)) continue;
-
-                using var cmd = new SqlCommand(batch, connection);
-                cmd.CommandTimeout = 0;
-
-                using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-                while (true)
-                {
-                    if (reader.FieldCount > 0)
-                    {
-                        var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
-                        if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
-                        allResultSets.Add(data);
-                    }
-
-                    if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
-                    {
-                        break;
-                    }
-                }
-
-                if (reader.RecordsAffected > 0)
-                {
-                    totalRowsAffected += reader.RecordsAffected;
-                }
+                using var cmdStatsOn = new SqlCommand("SET STATISTICS TIME ON; SET STATISTICS IO ON;", connection);
+                await cmdStatsOn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                statisticsEnabled = true;
+            }
+            catch
+            {
+                // Ignore
             }
 
-            watch.Stop();
-            return new ExecuteSqlResponse
+            try
             {
-                ResultSets = allResultSets,
-                RowsAffected = totalRowsAffected,
-                Messages = messages,
-                ElapsedMs = watch.ElapsedMilliseconds,
-                RowLimitApplied = rowLimitApplied,
-            };
+                var allResultSets = new List<ResultSetData>();
+                long totalRowsAffected = 0;
+                long? rowLimitApplied = null;
+
+                for (int i = 0; i < batches.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var batch = batches[i];
+                    if (string.IsNullOrWhiteSpace(batch)) continue;
+
+                    using var cmd = new SqlCommand(batch, connection);
+                    cmd.CommandTimeout = 0;
+
+                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                    while (true)
+                    {
+                        if (reader.FieldCount > 0)
+                        {
+                            var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
+                            if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
+                            allResultSets.Add(data);
+                            outputs.Add(new OutputItem { Type = 0, ResultSetIndex = allResultSets.Count - 1 });
+                        }
+
+                        if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+                        {
+                            break;
+                        }
+                    }
+
+                    if (reader.RecordsAffected > 0)
+                    {
+                        totalRowsAffected += reader.RecordsAffected;
+                    }
+                }
+
+                if (statisticsEnabled)
+                {
+                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
+                    statisticsEnabled = false;
+                }
+
+                watch.Stop();
+                var stats = ParseAndFilterStatistics(outputs, out var filteredOutputs);
+                var filteredMessages = filteredOutputs.Where(o => o.Type == 1).Select(o => o.Message!).ToList();
+                return new ExecuteSqlResponse
+                {
+                    ResultSets = allResultSets,
+                    RowsAffected = totalRowsAffected,
+                    Messages = filteredMessages,
+                    Statistics = stats,
+                    ElapsedMs = watch.ElapsedMilliseconds,
+                    RowLimitApplied = rowLimitApplied,
+                    Outputs = filteredOutputs,
+                };
+            }
+            finally
+            {
+                if (statisticsEnabled)
+                {
+                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
+                }
+            }
         }
         finally
         {
@@ -298,5 +369,179 @@ public sealed class QueryExecutor
     private static string FormatServerError(SqlError error)
     {
         return $"Msg {error.Number}, Level {error.Class}, State {error.State}, Line {error.LineNumber}\n{error.Message}";
+    }
+
+    private static async Task DisableStatisticsAsync(SqlConnection connection)
+    {
+        try
+        {
+            using var cmdStatsOff = new SqlCommand("SET STATISTICS TIME OFF; SET STATISTICS IO OFF;", connection);
+            cmdStatsOff.CommandTimeout = 5;
+            await cmdStatsOff.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Ignore cleanup failures; the connection lease/next command handles broken sessions.
+        }
+    }
+
+    private static readonly Regex CompileRegex = new(
+        @"SQL\s+Server\s+parse\s+and\s+compile\s+time:\s+CPU\s+time\s*=\s*(\d+)\s*ms,\s+elapsed\s+time\s*=\s*(\d+)\s*ms",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ExecutionRegex = new(
+        @"SQL\s+Server\s+Execution\s+Times:\s+CPU\s+time\s*=\s*(\d+)\s*ms,\s+elapsed\s+time\s*=\s*(\d+)\s*ms",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static QueryStatistics? ParseAndFilterStatistics(List<OutputItem> rawOutputs, out List<OutputItem> filteredOutputs)
+    {
+        var stats = new QueryStatistics();
+        filteredOutputs = new List<OutputItem>();
+        bool hasAnyStats = false;
+
+        foreach (var item in rawOutputs)
+        {
+            if (item.Type != 1 || string.IsNullOrWhiteSpace(item.Message))
+            {
+                filteredOutputs.Add(item);
+                continue;
+            }
+
+            var msg = item.Message;
+            bool isStatsMsg = false;
+
+            var compMatch = CompileRegex.Match(msg);
+            if (compMatch.Success)
+            {
+                isStatsMsg = true;
+                hasAnyStats = true;
+                if (long.TryParse(compMatch.Groups[1].Value, out var cpu)) stats.ParseAndCompileCpuTimeMs += cpu;
+                if (long.TryParse(compMatch.Groups[2].Value, out var el)) stats.ParseAndCompileElapsedTimeMs += el;
+            }
+
+            var execMatch = ExecutionRegex.Match(msg);
+            if (execMatch.Success)
+            {
+                isStatsMsg = true;
+                hasAnyStats = true;
+                if (long.TryParse(execMatch.Groups[1].Value, out var cpu)) stats.ExecutionCpuTimeMs += cpu;
+                if (long.TryParse(execMatch.Groups[2].Value, out var el)) stats.ExecutionElapsedTimeMs += el;
+            }
+
+            if (msg.StartsWith("Table '", StringComparison.OrdinalIgnoreCase))
+            {
+                int firstQuote = 6;
+                int secondQuote = msg.IndexOf('\'', firstQuote + 1);
+                if (secondQuote > firstQuote)
+                {
+                    var tableName = msg.Substring(firstQuote + 1, secondQuote - firstQuote - 1);
+                    int dotIndex = msg.IndexOf('.', secondQuote);
+                    if (dotIndex > 0)
+                    {
+                        var propertiesPart = msg.Substring(dotIndex + 1).Trim();
+                        var parts = propertiesPart.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+                        long scan = 0, logical = 0, physical = 0, readAhead = 0, lobLogical = 0, lobPhysical = 0, lobReadAhead = 0;
+                        bool hasParsedAnyProperty = false;
+
+                        foreach (var part in parts)
+                        {
+                            var trimmedPart = part.Trim();
+                            int lastSpace = trimmedPart.LastIndexOf(' ');
+                            if (lastSpace > 0)
+                            {
+                                var propName = trimmedPart.Substring(0, lastSpace).Trim();
+                                var propValStr = trimmedPart.Substring(lastSpace + 1).Trim().TrimEnd('.');
+
+                                if (long.TryParse(propValStr, out var propVal))
+                                {
+                                    if (string.Equals(propName, "Scan count", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        scan = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "logical reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        logical = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "physical reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        physical = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "read-ahead reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        readAhead = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "lob logical reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        lobLogical = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "lob physical reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        lobPhysical = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                    else if (string.Equals(propName, "lob read-ahead reads", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        lobReadAhead = propVal;
+                                        hasParsedAnyProperty = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (hasParsedAnyProperty)
+                        {
+                            isStatsMsg = true;
+                            hasAnyStats = true;
+
+                            var existing = stats.TableIo.FirstOrDefault(t => string.Equals(t.TableName, tableName, StringComparison.OrdinalIgnoreCase));
+                            if (existing != null)
+                            {
+                                existing.ScanCount += scan;
+                                existing.LogicalReads += logical;
+                                existing.PhysicalReads += physical;
+                                existing.ReadAheadReads += readAhead;
+                                existing.LobLogicalReads += lobLogical;
+                                existing.LobPhysicalReads += lobPhysical;
+                                existing.LobReadAheadReads += lobReadAhead;
+                            }
+                            else
+                            {
+                                stats.TableIo.Add(new TableIoStatistics
+                                {
+                                    TableName = tableName,
+                                    ScanCount = scan,
+                                    LogicalReads = logical,
+                                    PhysicalReads = physical,
+                                    ReadAheadReads = readAhead,
+                                    LobLogicalReads = lobLogical,
+                                    LobPhysicalReads = lobPhysical,
+                                    LobReadAheadReads = lobReadAhead
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (msg.Trim().Equals("SQL Server parse and compile time:", StringComparison.OrdinalIgnoreCase) ||
+                msg.Trim().Equals("SQL Server Execution Times:", StringComparison.OrdinalIgnoreCase))
+            {
+                isStatsMsg = true;
+                hasAnyStats = true;
+            }
+
+            if (!isStatsMsg)
+            {
+                filteredOutputs.Add(item);
+            }
+        }
+
+        return hasAnyStats ? stats : null;
     }
 }

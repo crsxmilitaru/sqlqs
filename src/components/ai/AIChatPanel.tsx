@@ -680,6 +680,10 @@ export default function AIChatPanel(props: Props) {
     onCleanup(() =>
       window.removeEventListener(GEMINI_KEY_CHANGED_EVENT, onKeyChanged),
     );
+
+    requestAnimationFrame(() => {
+      inputRef?.focus();
+    });
   });
 
   const handleModelChange = (value: string) => {
@@ -1013,6 +1017,9 @@ export default function AIChatPanel(props: Props) {
         setIsLoading(false);
         setStreamingThoughtId(null);
         abortRef = null;
+        requestAnimationFrame(() => {
+          inputRef?.focus();
+        });
       }
     }
   };
@@ -1045,6 +1052,9 @@ export default function AIChatPanel(props: Props) {
     saveMessages(newMessages);
     if (options.clearInput) {
       clearComposer();
+      requestAnimationFrame(() => {
+        inputRef?.focus();
+      });
     }
 
     await requestAssistantResponse(newMessages, context);
@@ -1146,6 +1156,9 @@ export default function AIChatPanel(props: Props) {
     setError(null);
     setFailedRequest(null);
     history.setActiveId(null);
+    requestAnimationFrame(() => {
+      inputRef?.focus();
+    });
   };
 
   const handleLoadConversation = async (id: string) => {
@@ -1158,6 +1171,9 @@ export default function AIChatPanel(props: Props) {
     clearComposer();
     setError(null);
     setFailedRequest(null);
+    requestAnimationFrame(() => {
+      inputRef?.focus();
+    });
   };
 
   const requestDeleteConversation = (id: string, title: string) => {

@@ -8,5 +8,6 @@ pub use types::{
     BackupDatabaseRequest, BackupDefaults, BackupFileInfo, BackupOperationResult,
     BackupScheduleInfo, BackupScheduleRequest, ColumnInfo, ConnectionConfig, DatabaseObject,
     DatabaseSchemaCatalogEntry, QueryResult, RestoreDatabaseRequest, ResultSet,
-    ServerObjectIndexStatus, ServerObjectSearchResponse,
+    ServerObjectIndexStatus, ServerObjectSearchResponse, QueryStatistics, TableIoStatistics,
+    OutputItem,
 };

@@ -29,6 +29,14 @@ pub struct ResultSetData {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputItem {
+    pub r#type: i32,
+    pub result_set_index: Option<usize>,
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteSqlResponse {
@@ -42,4 +50,31 @@ pub struct ExecuteSqlResponse {
     pub elapsed_ms: u64,
     #[serde(default)]
     pub row_limit_applied: Option<u64>,
+    #[serde(default)]
+    pub statistics: Option<QueryStatistics>,
+    #[serde(default)]
+    pub outputs: Vec<OutputItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableIoStatistics {
+    pub table_name: String,
+    pub scan_count: i64,
+    pub logical_reads: i64,
+    pub physical_reads: i64,
+    pub read_ahead_reads: i64,
+    pub lob_logical_reads: i64,
+    pub lob_physical_reads: i64,
+    pub lob_read_ahead_reads: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryStatistics {
+    pub parse_and_compile_cpu_time_ms: u64,
+    pub parse_and_compile_elapsed_time_ms: u64,
+    pub execution_cpu_time_ms: u64,
+    pub execution_elapsed_time_ms: u64,
+    pub table_io: Vec<TableIoStatistics>,
 }

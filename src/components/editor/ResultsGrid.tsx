@@ -1180,70 +1180,153 @@ export default function ResultsGrid(props: Props) {
             };
 
             return (
-              <div class="flex flex-col h-full overflow-auto p-3 gap-3">
+              <div class="flex flex-col h-full min-h-0 overflow-auto p-4 gap-4 select-text">
                 <Show
-                  when={hasResults()}
+                  when={result().outputs && result().outputs.length > 0}
                   fallback={
-                    <div class="p-4 text-text-muted text-m font-sans">
-                      <p class="text-success font-semibold flex items-center gap-2 mb-2">
-                        <i class="fa-solid fa-check-circle" />
-                        Query executed successfully.
-                      </p>
-                      <div class="space-y-1.5 opacity-80">
-                        <Show when={result().rows_affected > 0}>
-                          <p>{result().rows_affected} row(s) affected.</p>
-                        </Show>
-                        <p class="text-s">
-                          Execution time: {result().elapsed_ms}ms
-                        </p>
-                        <For each={result().messages}>
-                          {(msg) => (
-                            <p class="text-s bg-surface-hover p-2 rounded-md border border-border/10">
-                              {msg}
+                    <Show
+                      when={hasResults()}
+                      fallback={
+                        <div class="flex flex-col gap-2 font-mono whitespace-pre-wrap leading-relaxed text-text-muted">
+                          <Show when={result().rows_affected === 0 && result().messages.length === 0}>
+                            <p class="text-success font-semibold flex items-center gap-2 mb-2 font-sans">
+                              <i class="fa-solid fa-check-circle" />
+                              Query executed successfully.
                             </p>
+                          </Show>
+                          
+                          <Show when={result().rows_affected > 0}>
+                            <p class="text-text-muted font-sans">({result().rows_affected} row(s) affected)</p>
+                          </Show>
+
+                          <For each={result().messages}>
+                            {(msg) => (
+                              <div class="text-s bg-surface-hover/30 p-2.5 rounded-md border border-border/10">
+                                {msg}
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      }
+                    >
+                      <div class="flex flex-col gap-4">
+                        <For each={result().result_sets}>
+                          {(rs, i) => (
+                            <div class="flex flex-col gap-2">
+                              <Show when={rs.truncated}>
+                                <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md animate-pulse">
+                                  <i class="fa-solid fa-circle-exclamation" />
+                                  {result().result_sets.length > 1
+                                    ? `Result set ${i() + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
+                                    : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
+                                  (Execution row limit in Settings → Execution).
+                                </div>
+                              </Show>
+                              <VirtualGrid
+                                resultSet={rs}
+                                viewState={props.tableViewStates[i()]}
+                                onViewStateChange={(state) =>
+                                  props.onTableViewStateChange(i(), state)
+                                }
+                                selectedRowIndex={
+                                  rowContextMenu()?.resultSetIndex === i()
+                                    ? rowContextMenu()!.rowIndex
+                                    : null
+                                }
+                                onContextMenu={(e, ri) =>
+                                  handleContextMenu(e, ri, i())
+                                }
+                                onRowDoubleClick={(ri) => {
+                                  if (!loadExecutionPreferences().doubleClickEditRow)
+                                    return;
+                                  if (!canDoRowActions()) return;
+                                  openActionDialogForRow("edit", ri, i());
+                                }}
+                              />
+                            </div>
                           )}
                         </For>
-                      </div>
-                    </div>
-                  }
-                >
-                  <For each={result().result_sets}>
-                    {(rs, i) => (
-                      <>
-                        <Show when={rs.truncated}>
-                          <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md">
-                            <i class="fa-solid fa-circle-exclamation" />
-                            {result().result_sets.length > 1
-                              ? `Result set ${i() + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
-                              : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
-                            (Execution row limit in Settings → Execution).
+
+                        <Show when={result().messages.length > 0 || result().rows_affected > 0}>
+                          <div class="border-t border-border/20 pt-4 flex flex-col gap-2 font-mono whitespace-pre-wrap leading-relaxed text-text-muted">
+                            <Show when={result().rows_affected > 0}>
+                              <p class="text-text-muted font-sans">({result().rows_affected} row(s) affected)</p>
+                            </Show>
+                            <For each={result().messages}>
+                              {(msg) => (
+                                <div class="text-s bg-surface-hover/30 p-2.5 rounded-md border border-border/10">
+                                  {msg}
+                                </div>
+                              )}
+                            </For>
                           </div>
                         </Show>
-                        <VirtualGrid
-                          resultSet={rs}
-                          viewState={props.tableViewStates[i()]}
-                          onViewStateChange={(state) =>
-                            props.onTableViewStateChange(i(), state)
+                      </div>
+                    </Show>
+                  }
+                >
+                  <div class="flex flex-col gap-4">
+                    <For each={result().outputs}>
+                      {(output) => (
+                        <Show
+                          when={output.type === 0}
+                          fallback={
+                            <Show when={output.message}>
+                              <div class="text-s font-mono whitespace-pre-wrap leading-relaxed text-text-muted bg-surface-hover/30 p-2.5 rounded-md border border-border/10">
+                                {output.message}
+                              </div>
+                            </Show>
                           }
-                          selectedRowIndex={
-                            rowContextMenu()?.resultSetIndex === i()
-                              ? rowContextMenu()!.rowIndex
-                              : null
-                          }
-                          onContextMenu={(e, ri) =>
-                            handleContextMenu(e, ri, i())
-                          }
-                          onRowDoubleClick={(ri) => {
-                            if (!loadExecutionPreferences().doubleClickEditRow)
-                              return;
-                            if (!canDoRowActions()) return;
-                            openActionDialogForRow("edit", ri, i());
-                          }}
-                        />
-                      </>
-                    )}
-                  </For>
+                        >
+                          {(() => {
+                            const rsi = output.resultSetIndex ?? 0;
+                            const rs = result().result_sets[rsi];
+                            return rs ? (
+                              <div class="flex flex-col gap-2">
+                                <Show when={rs.truncated}>
+                                  <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md animate-pulse">
+                                    <i class="fa-solid fa-circle-exclamation" />
+                                    {result().result_sets.length > 1
+                                      ? `Result set ${rsi + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
+                                      : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
+                                    (Execution row limit in Settings → Execution).
+                                  </div>
+                                </Show>
+                                <VirtualGrid
+                                  resultSet={rs}
+                                  viewState={props.tableViewStates[rsi]}
+                                  onViewStateChange={(state) =>
+                                    props.onTableViewStateChange(rsi, state)
+                                  }
+                                  selectedRowIndex={
+                                    rowContextMenu()?.resultSetIndex === rsi
+                                      ? rowContextMenu()!.rowIndex
+                                      : null
+                                  }
+                                  onContextMenu={(e, ri) =>
+                                    handleContextMenu(e, ri, rsi)
+                                  }
+                                  onRowDoubleClick={(ri) => {
+                                    if (!loadExecutionPreferences().doubleClickEditRow)
+                                      return;
+                                    if (!canDoRowActions()) return;
+                                    openActionDialogForRow("edit", ri, rsi);
+                                  }}
+                                />
+                              </div>
+                            ) : null;
+                          })()}
+                        </Show>
+                      )}
+                    </For>
+                    <Show when={result().rows_affected > 0}>
+                      <div class="border-t border-border/20 pt-2 text-text-muted font-sans text-s">
+                        ({result().rows_affected} row(s) affected)
+                      </div>
+                    </Show>
+                  </div>
                 </Show>
+
                 <Show when={rowContextMenu()}>
                   {(menu) => (
                     <ContextMenu

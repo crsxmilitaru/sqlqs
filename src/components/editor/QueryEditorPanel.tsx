@@ -36,6 +36,7 @@ import { formatSqlWithPrefs } from "../../lib/sql-format";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { loadPreferences } from "../../lib/settings";
 import type { ThemeSelection } from "../../lib/theme";
+import StatisticsDialog from "../dialogs/StatisticsDialog";
 
 const DRAG_THRESHOLD = 5;
 
@@ -417,6 +418,12 @@ export default function QueryEditorPanel(props: Props) {
 
   const [editorHeight, setEditorHeight] = createSignal(300);
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
+  const [showStats, setShowStats] = createSignal(false);
+
+  createEffect(() => {
+    props.activeTabId;
+    setShowStats(false);
+  });
   const [aiChatWidth, setAiChatWidth] = createSignal(
     (() => {
       const saved = localStorage.getItem("sqlqs_ai_chat_width");
@@ -1273,6 +1280,17 @@ export default function QueryEditorPanel(props: Props) {
                   )}
                 </div>
                 <div class="flex items-center gap-2">
+                  <Show when={tab.result?.statistics}>
+                    <button
+                      type="button"
+                      onClick={() => setShowStats(true)}
+                      disabled={tab.isExecuting}
+                      class="btn btn-secondary"
+                    >
+                      <i class="fa-solid fa-chart-simple" />
+                      <span>Statistics</span>
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     onClick={() => setResultsCollapsed(!resultsCollapsed())}
@@ -1476,6 +1494,15 @@ export default function QueryEditorPanel(props: Props) {
                 actionHistoryOptions("Restore"),
               );
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={showStats() && activeTab()?.result?.statistics}>
+        {(stats) => (
+          <StatisticsDialog
+            statistics={stats()}
+            onClose={() => setShowStats(false)}
           />
         )}
       </Show>

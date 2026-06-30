@@ -1069,6 +1069,27 @@ async fn execute_query_via_sidecar(
                 messages: response.messages,
                 elapsed_ms: start.elapsed().as_millis() as u64,
                 row_limit_applied: response.row_limit_applied,
+                statistics: response.statistics.map(|s| db::QueryStatistics {
+                    parse_and_compile_cpu_time_ms: s.parse_and_compile_cpu_time_ms,
+                    parse_and_compile_elapsed_time_ms: s.parse_and_compile_elapsed_time_ms,
+                    execution_cpu_time_ms: s.execution_cpu_time_ms,
+                    execution_elapsed_time_ms: s.execution_elapsed_time_ms,
+                    table_io: s.table_io.into_iter().map(|io| db::TableIoStatistics {
+                        table_name: io.table_name,
+                        scan_count: io.scan_count,
+                        logical_reads: io.logical_reads,
+                        physical_reads: io.physical_reads,
+                        read_ahead_reads: io.read_ahead_reads,
+                        lob_logical_reads: io.lob_logical_reads,
+                        lob_physical_reads: io.lob_physical_reads,
+                        lob_read_ahead_reads: io.lob_read_ahead_reads,
+                    }).collect(),
+                }),
+                outputs: response.outputs.into_iter().map(|o| db::OutputItem {
+                    r#type: o.r#type,
+                    result_set_index: o.result_set_index,
+                    message: o.message,
+                }).collect(),
             })
         }
         secs = &mut timeout_future => {

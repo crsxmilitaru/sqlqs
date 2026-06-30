@@ -10,12 +10,39 @@ export interface ConnectionConfig {
   connection_string?: string;
 }
 
+export interface TableIoStatistics {
+  tableName: string;
+  scanCount: number;
+  logicalReads: number;
+  physicalReads: number;
+  readAheadReads: number;
+  lobLogicalReads: number;
+  lobPhysicalReads: number;
+  lobReadAheadReads: number;
+}
+
+export interface QueryStatistics {
+  parseAndCompileCpuTimeMs: number;
+  parseAndCompileElapsedTimeMs: number;
+  executionCpuTimeMs: number;
+  executionElapsedTimeMs: number;
+  tableIo: TableIoStatistics[];
+}
+
+export interface OutputItem {
+  type: number;
+  resultSetIndex?: number | null;
+  message?: string | null;
+}
+
 export interface QueryResult {
   result_sets: ResultSet[];
   rows_affected: number;
   messages: string[];
   elapsed_ms: number;
   row_limit_applied?: number | null;
+  statistics?: QueryStatistics | null;
+  outputs: OutputItem[];
 }
 
 export interface ResultSet {
