@@ -115,7 +115,8 @@ function VirtualGrid(props: {
   viewState?: ResultsTableViewState;
   onViewStateChange: (state: ResultsTableViewState) => void;
   onContextMenu: (e: MouseEvent, ri: number) => void;
-  onRowDoubleClick?: (ri: number) => void;
+  onEditRow?: (ri: number) => void;
+  canEditRows?: boolean;
   selectedRowIndex: number | null;
 }) {
   let containerRef: HTMLDivElement | undefined;
@@ -887,7 +888,6 @@ function VirtualGrid(props: {
                     }
                     style={{ height: `${rowHeight}px` }}
                     onContextMenu={(e) => props.onContextMenu(e, originalIndex)}
-                    onDblClick={() => props.onRowDoubleClick?.(originalIndex)}
                   >
                     <td class="text-center px-0 text-text-muted/60 border-r border-r-border/10">
                       {visualIndex() + 1}
@@ -905,15 +905,34 @@ function VirtualGrid(props: {
                         return (
                           <td
                             title={formattedValue}
-                            class="border-r border-r-border/5"
+                            class={`results-value-cell border-r border-r-border/5 ${
+                              props.canEditRows ? "is-editable" : ""
+                            }`}
                           >
-                            {cell != null ? (
-                              formattedValue
-                            ) : (
-                              <span class="text-text-muted/40 italic">
-                                NULL
-                              </span>
-                            )}
+                            <span class="results-value-text">
+                              {cell != null ? (
+                                formattedValue
+                              ) : (
+                                <span class="text-text-muted/40 italic">
+                                  NULL
+                                </span>
+                              )}
+                            </span>
+                            <Show when={props.canEditRows}>
+                              <button
+                                type="button"
+                                class="results-cell-edit-btn"
+                                aria-label={`Edit ${col.name}`}
+                                title={`Edit ${col.name}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  props.onEditRow?.(originalIndex);
+                                }}
+                              >
+                                <i class="fa-solid fa-pen" />
+                              </button>
+                            </Show>
                           </td>
                         );
                       }}
@@ -1194,7 +1213,7 @@ export default function ResultsGrid(props: Props) {
                               Query executed successfully.
                             </p>
                           </Show>
-                          
+
                           <Show when={result().rows_affected > 0}>
                             <p class="text-text-muted font-sans">({result().rows_affected} row(s) affected)</p>
                           </Show>
@@ -1236,12 +1255,10 @@ export default function ResultsGrid(props: Props) {
                                 onContextMenu={(e, ri) =>
                                   handleContextMenu(e, ri, i())
                                 }
-                                onRowDoubleClick={(ri) => {
-                                  if (!loadExecutionPreferences().doubleClickEditRow)
-                                    return;
-                                  if (!canDoRowActions()) return;
-                                  openActionDialogForRow("edit", ri, i());
-                                }}
+                                canEditRows={canDoRowActions()}
+                                onEditRow={(ri) =>
+                                  openActionDialogForRow("edit", ri, i())
+                                }
                               />
                             </div>
                           )}
@@ -1306,12 +1323,10 @@ export default function ResultsGrid(props: Props) {
                                   onContextMenu={(e, ri) =>
                                     handleContextMenu(e, ri, rsi)
                                   }
-                                  onRowDoubleClick={(ri) => {
-                                    if (!loadExecutionPreferences().doubleClickEditRow)
-                                      return;
-                                    if (!canDoRowActions()) return;
-                                    openActionDialogForRow("edit", ri, rsi);
-                                  }}
+                                  canEditRows={canDoRowActions()}
+                                  onEditRow={(ri) =>
+                                    openActionDialogForRow("edit", ri, rsi)
+                                  }
                                 />
                               </div>
                             ) : null;

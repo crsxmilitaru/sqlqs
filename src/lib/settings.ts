@@ -12,7 +12,6 @@ const STORAGE_KEY_UPDATE_CHANNEL = "sqlqs_update_channel";
 const STORAGE_KEY_EXEC_MAX_ROWS = "sqlqs_exec_max_rows";
 const STORAGE_KEY_EXEC_TIMEOUT_SECONDS = "sqlqs_exec_timeout_seconds";
 const STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE = "sqlqs_exec_confirm_destructive";
-const STORAGE_KEY_EXEC_DOUBLE_CLICK_EDIT = "sqlqs_exec_double_click_edit_row";
 const STORAGE_KEY_APP_DATE_FORMAT = "sqlqs_app_date_format";
 const STORAGE_KEY_RESULTS_DATE_FORMAT = "sqlqs_results_date_format";
 const STORAGE_KEY_FORMAT_INDENT_SIZE = "sqlqs_format_indent_size";
@@ -76,7 +75,6 @@ export interface ExecutionPreferences {
   maxRows: number;
   timeoutSeconds: number;
   confirmDestructive: boolean;
-  doubleClickEditRow: boolean;
   appDateFormat: DateFormat;
   resultsDateFormat: DateFormat;
 }
@@ -267,10 +265,6 @@ function readExecutionPreferencesFromStorage(): ExecutionPreferences {
       STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE,
       true,
     ),
-    doubleClickEditRow: readBoolWithDefault(
-      STORAGE_KEY_EXEC_DOUBLE_CLICK_EDIT,
-      true,
-    ),
     appDateFormat: readAppDateFormatFromStorage(),
     resultsDateFormat: readResultsDateFormatFromStorage(),
   };
@@ -356,14 +350,6 @@ export function saveExecConfirmDestructive(value: boolean) {
   setPreferences((prev) => ({
     ...prev,
     execution: { ...prev.execution, confirmDestructive: value },
-  }));
-}
-
-export function saveExecDoubleClickEditRow(value: boolean) {
-  localStorage.setItem(STORAGE_KEY_EXEC_DOUBLE_CLICK_EDIT, String(value));
-  setPreferences((prev) => ({
-    ...prev,
-    execution: { ...prev.execution, doubleClickEditRow: value },
   }));
 }
 

@@ -32,7 +32,6 @@ import {
   saveEditorMinimap,
   saveExecConfirmDestructive,
   saveAppDateFormat,
-  saveExecDoubleClickEditRow,
   saveExecMaxRows,
   saveExecTimeoutSeconds,
   saveResultsDateFormat,
@@ -181,9 +180,6 @@ export default function SettingsView(props: Props) {
   );
   const [execConfirmDestructive, setExecConfirmDestructiveSignal] =
     createSignal(prefs.execution.confirmDestructive);
-  const [execDoubleClickEditRow, setExecDoubleClickEditRow] = createSignal(
-    prefs.execution.doubleClickEditRow,
-  );
   const [appDateFormat, setAppDateFormatSignal] = createSignal<DateFormat>(
     prefs.execution.appDateFormat || DEFAULT_DATE_FORMAT,
   );
@@ -960,29 +956,6 @@ export default function SettingsView(props: Props) {
             const next = !execConfirmDestructive();
             setExecConfirmDestructiveSignal(next);
             saveExecConfirmDestructive(next);
-          }}
-        />
-      ),
-    },
-    {
-      id: "exec-double-click-edit-row",
-      tab: "execution",
-      title: "Double-click row to edit",
-      keywords:
-        "execution double click row edit results grid open dialog mouse",
-      render: () => (
-        <ToggleSetting
-          title="Double-click row to edit"
-          description={
-            <>
-              Open the row editor when double-clicking a row in the results grid
-            </>
-          }
-          checked={execDoubleClickEditRow()}
-          onToggle={() => {
-            const next = !execDoubleClickEditRow();
-            setExecDoubleClickEditRow(next);
-            saveExecDoubleClickEditRow(next);
           }}
         />
       ),

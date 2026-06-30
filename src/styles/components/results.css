@@ -63,6 +63,71 @@
     user-select: text;
   }
 
+  .results-value-cell {
+    position: relative;
+  }
+
+  .results-value-cell.is-editable {
+    padding-right: 34px;
+  }
+
+  .results-value-text {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .results-cell-edit-btn {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-panel);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) scale(0.94);
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      color var(--duration-fast) ease,
+      opacity var(--duration-fast) ease,
+      transform var(--duration-fast) ease;
+  }
+
+  .results-cell-edit-btn i {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .results-value-cell.is-editable:hover .results-cell-edit-btn,
+  .results-value-cell.is-editable:focus-within .results-cell-edit-btn {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) scale(1);
+  }
+
+  .results-cell-edit-btn:hover,
+  .results-cell-edit-btn:focus-visible {
+    border-color: var(--color-border-muted);
+    background: var(--color-surface-active);
+    color: var(--color-text);
+  }
+
+  .results-cell-edit-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+    outline-offset: 1px;
+  }
+
   .results-table td:first-child {
     z-index: 2;
     background-color: var(--color-surface-table);
