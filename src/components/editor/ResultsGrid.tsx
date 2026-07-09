@@ -8,6 +8,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import type { JSX } from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
 import { loadExecutionPreferences } from "../../lib/settings";
 import { formatSqlDateValue } from "../../lib/sql-date";
@@ -15,6 +16,7 @@ import type { QueryResult, ResultSet } from "../../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import EmptyState from "../ui/EmptyState";
+import Tooltip from "../ui/Tooltip";
 import RowActionsDialog, {
   type RowActionMode,
 } from "../dialogs/RowActionsDialog";
@@ -44,6 +46,13 @@ export interface ResultsTableViewState {
   filters: Record<number, string>;
   showFilters: boolean;
 }
+
+type ProcessedResultRow = {
+  row: ResultSet["rows"][number];
+  originalIndex: number;
+};
+
+const AUTO_EXPAND_RESULT_SET_THRESHOLD = 3;
 
 interface RowActionDialogState {
   mode: RowActionMode;
@@ -118,11 +127,15 @@ function VirtualGrid(props: {
   onEditRow?: (ri: number) => void;
   canEditRows?: boolean;
   selectedRowIndex: number | null;
+  renderHeaderActions?: (controls: JSX.Element) => JSX.Element;
 }) {
   let containerRef: HTMLDivElement | undefined;
+  let headerRef: HTMLDivElement | undefined;
   let columnSelectorButtonRef: HTMLButtonElement | undefined;
+  const rawRowCache = new Map<number, ProcessedResultRow>();
   const [scrollTop, setScrollTop] = createSignal(0);
   const [containerHeight, setContainerHeight] = createSignal(0);
+  const [headerHeight, setHeaderHeight] = createSignal(0);
   const dateFormat = createMemo(
     () => loadExecutionPreferences().resultsDateFormat,
   );
@@ -206,43 +219,63 @@ function VirtualGrid(props: {
 
   createEffect(() => {
     const _rs = props.resultSet;
+    rawRowCache.clear();
     setScrollTop(0);
     if (containerRef) {
       containerRef.scrollTop = 0;
     }
   });
 
-  const processedRows = createMemo(() => {
-    let result = props.resultSet.rows.map((row, i) => ({
-      row,
-      originalIndex: i,
-    }));
+  const activeFilters = createMemo(() =>
+    Object.entries(filters())
+      .map(([colIdxStr, value]) => ({
+        colIndex: parseInt(colIdxStr, 10),
+        filterText: value.trim().toLowerCase(),
+      }))
+      .filter(
+        ({ colIndex, filterText }) =>
+          colIndex >= 0 &&
+          colIndex < props.resultSet.columns.length &&
+          filterText !== "",
+      ),
+  );
 
-    const activeFilters = Object.entries(filters()).filter(
-      ([colIdxStr, val]) => {
-        const colIdx = parseInt(colIdxStr, 10);
-        return (
-          colIdx >= 0 &&
-          colIdx < props.resultSet.columns.length &&
-          val.trim() !== ""
-        );
-      },
+  const hasValidSort = () => {
+    const sc = sortConfig();
+    return !!(
+      sc &&
+      sc.colIndex >= 0 &&
+      sc.colIndex < props.resultSet.columns.length
     );
-    if (activeFilters.length > 0) {
-      result = result.filter(({ row }) => {
-        return activeFilters.every(([colIdxStr, filterText]) => {
-          const colIdx = parseInt(colIdxStr, 10);
-          const cellVal = row[colIdx];
+  };
+
+  const processedRows = createMemo<ProcessedResultRow[] | null>(() => {
+    const filtersToApply = activeFilters();
+    const shouldSort = hasValidSort();
+    if (filtersToApply.length === 0 && !shouldSort) {
+      return null;
+    }
+
+    let result: ProcessedResultRow[];
+    if (filtersToApply.length > 0) {
+      result = [];
+      props.resultSet.rows.forEach((row, originalIndex) => {
+        const matches = filtersToApply.every(({ colIndex, filterText }) => {
+          const cellVal = row[colIndex];
           if (cellVal == null) return false;
-          return String(cellVal)
-            .toLowerCase()
-            .includes(filterText.toLowerCase());
+          return String(cellVal).toLowerCase().includes(filterText);
         });
+        if (matches) result.push({ row, originalIndex });
       });
+    } else {
+      result = props.resultSet.rows.map((row, originalIndex) => ({
+        row,
+        originalIndex,
+      }));
     }
 
     const sc = sortConfig();
-    if (sc && sc.colIndex >= 0 && sc.colIndex < props.resultSet.columns.length) {
+    if (shouldSort && sc) {
       const { colIndex, direction } = sc;
       result.sort((a, b) => {
         const valA = a.row[colIndex];
@@ -267,6 +300,36 @@ function VirtualGrid(props: {
     return result;
   });
 
+  const processedRowCount = () =>
+    processedRows()?.length ?? props.resultSet.rows.length;
+
+  const getRawProcessedRow = (index: number): ProcessedResultRow => {
+    const row = props.resultSet.rows[index];
+    const cached = rawRowCache.get(index);
+    if (cached && cached.row === row) return cached;
+    const next = { row, originalIndex: index };
+    rawRowCache.set(index, next);
+    return next;
+  };
+
+  const getProcessedRowsForRange = (
+    start: number,
+    end: number,
+  ): ProcessedResultRow[] => {
+    const processed = processedRows();
+    if (processed) return processed.slice(start, end);
+
+    const rows: ProcessedResultRow[] = [];
+    for (let i = start; i < end; i++) {
+      rows.push(getRawProcessedRow(i));
+    }
+    return rows;
+  };
+
+  const getAllProcessedRows = () =>
+    processedRows() ??
+    props.resultSet.rows.map((row, originalIndex) => ({ row, originalIndex }));
+
   const exportToCsv = async () => {
     const { save } = await import("@tauri-apps/plugin-dialog");
     const filePath = await save({
@@ -280,7 +343,7 @@ function VirtualGrid(props: {
         name: c.name,
         type_name: c.type_name,
       })),
-      rows: processedRows().map(({ row }) => row),
+      rows: getAllProcessedRows().map(({ row }) => row),
     });
   };
 
@@ -297,7 +360,7 @@ function VirtualGrid(props: {
         name: c.name,
         type_name: c.type_name,
       })),
-      rows: processedRows().map(({ row }) => row),
+      rows: getAllProcessedRows().map(({ row }) => row),
     });
   };
 
@@ -314,7 +377,7 @@ function VirtualGrid(props: {
         name: c.name,
         type_name: c.type_name,
       })),
-      rows: processedRows().map(({ row }) => row),
+      rows: getAllProcessedRows().map(({ row }) => row),
     });
   };
 
@@ -330,7 +393,7 @@ function VirtualGrid(props: {
     const cols = props.resultSet.columns;
     const header = `| ${cols.map((c) => escapeMarkdownCell(c.name)).join(" | ")} |`;
     const sep = `| ${cols.map(() => "---").join(" | ")} |`;
-    const body = processedRows()
+    const body = getAllProcessedRows()
       .map(({ row }) => `| ${row.map(escapeMarkdownCell).join(" | ")} |`)
       .join("\n");
     const text = [header, sep, body].filter(Boolean).join("\n");
@@ -349,7 +412,7 @@ function VirtualGrid(props: {
   };
 
   const rowHeight = 28;
-  const buffer = 10;
+  const buffer = 6;
   const charWidth = 9;
   const cellPadding = 24;
   const minColWidth = 40;
@@ -375,8 +438,15 @@ function VirtualGrid(props: {
     autoWidths().map((w, i) => colOverrides()[i] ?? w),
   );
   const rowNumberColWidth = createMemo(() => {
-    const maxRowNumber = Math.max(processedRows().length, 1);
+    const maxRowNumber = Math.max(processedRowCount(), 1);
     return Math.max(36, String(maxRowNumber).length * charWidth + 18);
+  });
+  const tableWidth = createMemo(() => {
+    const dataColsWidth = visibleColIndices().reduce(
+      (sum, i) => sum + colWidths()[i],
+      0,
+    );
+    return rowNumberColWidth() + dataColsWidth + minColWidth;
   });
 
   let dragRef: { colIndex: number; startX: number; startWidth: number } | null =
@@ -434,6 +504,16 @@ function VirtualGrid(props: {
     onCleanup(() => observer.disconnect());
   });
 
+  onMount(() => {
+    if (!headerRef) return;
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) setHeaderHeight(entries[0].contentRect.height);
+    });
+    observer.observe(headerRef);
+    setHeaderHeight(headerRef.clientHeight);
+    onCleanup(() => observer.disconnect());
+  });
+
   const handleSort = (colIndex: number) => {
     setSortConfig((prev) => {
       if (prev?.colIndex === colIndex) {
@@ -456,23 +536,50 @@ function VirtualGrid(props: {
     });
   };
 
-  const toggleAllColumns = (showAll: boolean) => {
-    if (showAll) {
-      setHiddenColumnIndices(new Set(props.resultSet.columns.map((_, i) => i)));
-    } else {
-      setHiddenColumnIndices(new Set<number>());
-    }
+  const setColumnVisibility = (indices: number[], hidden: boolean) => {
+    setHiddenColumnIndices((prev) => {
+      const next = new Set(prev);
+      if (hidden) {
+        indices.forEach((i) => next.add(i));
+      } else {
+        indices.forEach((i) => next.delete(i));
+      }
+      return next;
+    });
   };
 
+  const bodyScrollTop = () => Math.max(0, scrollTop() - headerHeight());
+  const viewportBodyHeight = () =>
+    Math.max(0, containerHeight() - headerHeight());
   const startIndex = () =>
-    Math.max(0, Math.floor(scrollTop() / rowHeight) - buffer);
+    Math.max(0, Math.floor(bodyScrollTop() / rowHeight) - buffer);
   const endIndex = () =>
     Math.min(
-      processedRows().length,
-      Math.ceil((scrollTop() + containerHeight()) / rowHeight) + buffer,
+      processedRowCount(),
+      Math.ceil((bodyScrollTop() + viewportBodyHeight()) / rowHeight) + buffer,
     );
 
-  const visibleRows = () => processedRows().slice(startIndex(), endIndex());
+  const visibleRows = () => getProcessedRowsForRange(startIndex(), endIndex());
+  const bodyHeight = () => processedRowCount() * rowHeight;
+  const bodyOffset = () => startIndex() * rowHeight;
+
+  let pendingScrollTop = 0;
+  let scrollFrame: number | null = null;
+  const handleScroll = (e: Event) => {
+    pendingScrollTop = (e.currentTarget as HTMLDivElement).scrollTop;
+    if (scrollFrame !== null) return;
+
+    scrollFrame = requestAnimationFrame(() => {
+      setScrollTop(pendingScrollTop);
+      scrollFrame = null;
+    });
+  };
+
+  onCleanup(() => {
+    if (scrollFrame !== null) {
+      cancelAnimationFrame(scrollFrame);
+    }
+  });
 
   const replaceFilterSelection = (
     menu: NonNullable<ReturnType<typeof filterContextMenu>>,
@@ -651,37 +758,38 @@ function VirtualGrid(props: {
     ];
   };
 
-  return (
-    <div class="flex flex-col h-full min-h-[180px] gap-2">
-      <Show when={props.resultSet.columns.length > 0}>
-        <div class="flex items-center justify-end px-1 gap-2">
+  const controls: JSX.Element = (
+    <Show when={props.resultSet.columns.length > 0}>
+        <div class="result-set-actions flex items-center justify-end gap-2">
           <div class="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={copyAsMarkdown}
-              class={`btn btn-table ${copied() ? "is-success" : ""}`}
-              title="Copy table as Markdown"
-            >
-              <i
-                class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-2xs`}
-              />
-              <span>{copied() ? "Copied" : "Copy"}</span>
-            </button>
-            <button
-              type="button"
-              aria-label="Export results"
-              onClick={handleExportClick}
-              class={`btn btn-table ${exportMenuPos() ? "is-active" : ""}`}
-              title="Export results"
-            >
-              <i class="fa-solid fa-download text-2xs" />
-              <span class="hidden xs:block">Export</span>
-              <i
-                class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
-                  exportMenuPos() ? "rotate-180" : ""
-                }`}
-              />
-            </button>
+            <Tooltip content="Copy table as Markdown">
+              <button
+                type="button"
+                onClick={copyAsMarkdown}
+                class={`btn btn-table ${copied() ? "is-success" : ""}`}
+              >
+                <i
+                  class={`fa-solid ${copied() ? "fa-check" : "fa-copy"} text-2xs`}
+                />
+                <span>{copied() ? "Copied" : "Copy"}</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="Export results">
+              <button
+                type="button"
+                aria-label="Export results"
+                onClick={handleExportClick}
+                class={`btn btn-table ${exportMenuPos() ? "is-active" : ""}`}
+              >
+                <i class="fa-solid fa-download text-2xs" />
+                <span class="hidden xs:block">Export</span>
+                <i
+                  class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
+                    exportMenuPos() ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </Tooltip>
             <Show when={exportMenuPos()}>
               {(pos) => (
                 <ContextMenu
@@ -715,32 +823,33 @@ function VirtualGrid(props: {
             <div class="toolbar-sep" />
 
             <div class="relative">
-              <button
-                ref={columnSelectorButtonRef}
-                type="button"
-                onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen())}
-                class={`btn btn-table ${isColumnSelectorOpen() ? "is-active" : ""}`}
-                title="Column visibility"
-              >
-                <i class="fa-solid fa-table-columns text-2xs" />
-                <span>Columns</span>
-                <Show when={hiddenColumnIndices().size > 0}>
-                  <span class="btn-table-badge">
-                    {hiddenColumnIndices().size}
-                  </span>
-                </Show>
-                <i
-                  class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
-                    isColumnSelectorOpen() ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
+              <Tooltip content="Choose visible columns">
+                <button
+                  ref={columnSelectorButtonRef}
+                  type="button"
+                  onClick={() => setIsColumnSelectorOpen(!isColumnSelectorOpen())}
+                  class={`btn btn-table ${isColumnSelectorOpen() ? "is-active" : ""}`}
+                >
+                  <i class="fa-solid fa-table-columns text-2xs" />
+                  <span>Columns</span>
+                  <Show when={hiddenColumnIndices().size > 0}>
+                    <span class="btn-table-badge">
+                      {hiddenColumnIndices().size}
+                    </span>
+                  </Show>
+                  <i
+                    class={`fa-solid fa-chevron-down text-icon-xs opacity-40 transition-transform ${
+                      isColumnSelectorOpen() ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+              </Tooltip>
               <Show when={isColumnSelectorOpen()}>
                 <ColumnSelector
                   columns={props.resultSet.columns}
                   hiddenColumnIndices={hiddenColumnIndices()}
                   onToggle={toggleColumnVisibility}
-                  onToggleAll={toggleAllColumns}
+                  onSetHidden={setColumnVisibility}
                   anchorRef={columnSelectorButtonRef!}
                   onClose={() => setIsColumnSelectorOpen(false)}
                 />
@@ -748,11 +857,18 @@ function VirtualGrid(props: {
             </div>
           </div>
         </div>
-      </Show>
+    </Show>
+  );
+
+  return (
+    <div class="flex flex-col h-full min-h-0 gap-2">
+      {props.renderHeaderActions
+        ? props.renderHeaderActions(controls)
+        : controls}
       <div
         ref={containerRef}
-        class="results-table-container overflow-auto rounded-lg border border-border/20 flex-1"
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        class="results-table-container overflow-auto rounded-lg border border-border/20 flex-1 min-h-0"
+        onScroll={handleScroll}
       >
         <table
           class="results-table"
@@ -768,7 +884,7 @@ function VirtualGrid(props: {
             </For>
             <col />
           </colgroup>
-          <thead>
+          <thead ref={headerRef}>
             <tr>
               <th class="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
                 <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
@@ -944,7 +1060,7 @@ function VirtualGrid(props: {
             </For>
             <tr
               style={{
-                height: `${Math.max(0, (processedRows().length - endIndex()) * rowHeight)}px`,
+                height: `${Math.max(0, (processedRowCount() - endIndex()) * rowHeight)}px`,
               }}
             >
               <td
@@ -985,7 +1101,27 @@ export default function ResultsGrid(props: Props) {
   const [tableName, setTableName] = createSignal<string | null>(null);
   const [actionDialog, setActionDialog] =
     createSignal<RowActionDialogState | null>(null);
+  const [expandedResultSetIndices, setExpandedResultSetIndices] = createSignal<
+    Set<number>
+  >(new Set());
   const executeShortcutLabel = `${getModifierKeyLabel()}+Enter`;
+
+  let previousResult: QueryResult | undefined;
+  createEffect(() => {
+    const result = props.result;
+    if (result !== previousResult) {
+      previousResult = result;
+      const count = result?.result_sets.length ?? 0;
+      setExpandedResultSetIndices(
+        new Set(
+          Array.from(
+            { length: Math.min(count, AUTO_EXPAND_RESULT_SET_THRESHOLD) },
+            (_value, index) => index,
+          ),
+        ),
+      );
+    }
+  });
 
   createEffect(() => {
     const sql = props.sourceSql;
@@ -997,6 +1133,19 @@ export default function ResultsGrid(props: Props) {
       .then(setTableName)
       .catch(() => setTableName(null));
   });
+
+  const toggleResultSet = (index: number) => {
+    setRowContextMenu(null);
+    setExpandedResultSetIndices((previous) => {
+      const next = new Set(previous);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
 
   const handleContextMenu = (e: MouseEvent, ri: number, rsi: number) => {
     e.preventDefault();
@@ -1089,6 +1238,145 @@ export default function ResultsGrid(props: Props) {
             };
 
             const canDoRowActions = () => !!tableName() && !!props.sourceSql;
+
+            const renderTruncatedNotice = (rs: ResultSet, rsi: number) => (
+              <Show when={rs.truncated}>
+                <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md animate-pulse">
+                  <i class="fa-solid fa-circle-exclamation" />
+                  {result().result_sets.length > 1
+                    ? `Result set ${rsi + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
+                    : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
+                  (Execution row limit in Settings → Execution).
+                </div>
+              </Show>
+            );
+
+            const hasMultipleResultSets = () => result().result_sets.length > 1;
+            const resultsContentClass = () =>
+              `flex flex-col gap-4 ${
+                hasMultipleResultSets() ? "" : "flex-1 min-h-0"
+              }`;
+            const isResultSetExpanded = (index: number) =>
+              !hasMultipleResultSets() || expandedResultSetIndices().has(index);
+
+            const renderResultSetToggle = (rs: ResultSet, rsi: number) => (
+              <button
+                type="button"
+                class="results-set-toggle"
+                aria-expanded={isResultSetExpanded(rsi)}
+                onClick={() => toggleResultSet(rsi)}
+              >
+                <span class="results-set-title">
+                  <i
+                    class={`fa-solid fa-chevron-right transition-transform ${
+                      isResultSetExpanded(rsi) ? "rotate-90" : ""
+                    }`}
+                  />
+                  <span>Result set {rsi + 1}</span>
+                </span>
+                <span class="results-set-meta">
+                  <span>
+                    {rs.rows.length} row{rs.rows.length === 1 ? "" : "s"}
+                  </span>
+                  <span>
+                    {rs.columns.length} column
+                    {rs.columns.length === 1 ? "" : "s"}
+                  </span>
+                  <Show when={rs.truncated}>
+                    <span class="results-set-warning">truncated</span>
+                  </Show>
+                </span>
+              </button>
+            );
+
+            const renderResultSet = (rs: ResultSet, rsi: number) => (
+              <section
+                class={`results-set ${
+                  hasMultipleResultSets() ? "is-multiple" : "is-single"
+                }`}
+              >
+                <Show
+                  when={
+                    hasMultipleResultSets() && !isResultSetExpanded(rsi)
+                  }
+                >
+                  {renderResultSetToggle(rs, rsi)}
+                </Show>
+                <Show when={isResultSetExpanded(rsi)}>
+                  <div
+                    class={`results-set-grid ${
+                      hasMultipleResultSets() ? "is-multiple" : "is-single"
+                    }`}
+                  >
+                    {renderTruncatedNotice(rs, rsi)}
+                    <div class="flex-1 min-h-0">
+                      <VirtualGrid
+                        resultSet={rs}
+                        viewState={props.tableViewStates[rsi]}
+                        onViewStateChange={(state) =>
+                          props.onTableViewStateChange(rsi, state)
+                        }
+                        selectedRowIndex={
+                          rowContextMenu()?.resultSetIndex === rsi
+                            ? rowContextMenu()!.rowIndex
+                            : null
+                        }
+                        onContextMenu={(e, ri) => handleContextMenu(e, ri, rsi)}
+                        canEditRows={canDoRowActions()}
+                        onEditRow={(ri) =>
+                          openActionDialogForRow("edit", ri, rsi)
+                        }
+                        renderHeaderActions={
+                          hasMultipleResultSets()
+                            ? (controls) => (
+                                <div class="results-set-expanded-header">
+                                  {renderResultSetToggle(rs, rsi)}
+                                  {controls}
+                                </div>
+                              )
+                            : undefined
+                        }
+                      />
+                    </div>
+                  </div>
+                </Show>
+              </section>
+            );
+
+            const renderResultSets = () => (
+              <div
+                class={`flex flex-col gap-4 ${
+                  hasMultipleResultSets() ? "" : "flex-1 min-h-0"
+                }`}
+              >
+                <For each={result().result_sets}>
+                  {(rs, i) => renderResultSet(rs, i())}
+                </For>
+              </div>
+            );
+
+            const renderOrderedOutputs = () => (
+              <For each={result().outputs}>
+                {(output) => (
+                  <Show
+                    when={output.type === 0}
+                    fallback={
+                      <Show when={output.message}>
+                        <div class="text-s font-mono whitespace-pre-wrap leading-relaxed text-text-muted bg-surface-hover/30 p-2.5 rounded-md border border-border/10">
+                          {output.message}
+                        </div>
+                      </Show>
+                    }
+                  >
+                    {(() => {
+                      const rsi = output.resultSetIndex ?? 0;
+                      const rs = result().result_sets[rsi];
+                      return rs ? renderResultSet(rs, rsi) : null;
+                    })()}
+                  </Show>
+                )}
+              </For>
+            );
 
             const contextMenuItems = (): ContextMenuItem[] => {
               const selectionText = window.getSelection()?.toString().trim();
@@ -1207,12 +1495,10 @@ export default function ResultsGrid(props: Props) {
                       when={hasResults()}
                       fallback={
                         <div class="flex flex-col gap-2 font-mono whitespace-pre-wrap leading-relaxed text-text-muted">
-                          <Show when={result().rows_affected === 0 && result().messages.length === 0}>
-                            <p class="text-success font-semibold flex items-center gap-2 mb-2 font-sans">
-                              <i class="fa-solid fa-check-circle" />
-                              Query executed successfully.
-                            </p>
-                          </Show>
+                          <p class="text-success font-semibold flex items-center gap-2 mb-2 font-sans">
+                            <i class="fa-solid fa-check-circle" />
+                            Query executed successfully.
+                          </p>
 
                           <Show when={result().rows_affected > 0}>
                             <p class="text-text-muted font-sans">({result().rows_affected} row(s) affected)</p>
@@ -1228,41 +1514,8 @@ export default function ResultsGrid(props: Props) {
                         </div>
                       }
                     >
-                      <div class="flex flex-col gap-4">
-                        <For each={result().result_sets}>
-                          {(rs, i) => (
-                            <div class="flex flex-col gap-2">
-                              <Show when={rs.truncated}>
-                                <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md animate-pulse">
-                                  <i class="fa-solid fa-circle-exclamation" />
-                                  {result().result_sets.length > 1
-                                    ? `Result set ${i() + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
-                                    : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
-                                  (Execution row limit in Settings → Execution).
-                                </div>
-                              </Show>
-                              <VirtualGrid
-                                resultSet={rs}
-                                viewState={props.tableViewStates[i()]}
-                                onViewStateChange={(state) =>
-                                  props.onTableViewStateChange(i(), state)
-                                }
-                                selectedRowIndex={
-                                  rowContextMenu()?.resultSetIndex === i()
-                                    ? rowContextMenu()!.rowIndex
-                                    : null
-                                }
-                                onContextMenu={(e, ri) =>
-                                  handleContextMenu(e, ri, i())
-                                }
-                                canEditRows={canDoRowActions()}
-                                onEditRow={(ri) =>
-                                  openActionDialogForRow("edit", ri, i())
-                                }
-                              />
-                            </div>
-                          )}
-                        </For>
+                      <div class={resultsContentClass()}>
+                        {renderResultSets()}
 
                         <Show when={result().messages.length > 0 || result().rows_affected > 0}>
                           <div class="border-t border-border/20 pt-4 flex flex-col gap-2 font-mono whitespace-pre-wrap leading-relaxed text-text-muted">
@@ -1282,58 +1535,14 @@ export default function ResultsGrid(props: Props) {
                     </Show>
                   }
                 >
-                  <div class="flex flex-col gap-4">
-                    <For each={result().outputs}>
-                      {(output) => (
-                        <Show
-                          when={output.type === 0}
-                          fallback={
-                            <Show when={output.message}>
-                              <div class="text-s font-mono whitespace-pre-wrap leading-relaxed text-text-muted bg-surface-hover/30 p-2.5 rounded-md border border-border/10">
-                                {output.message}
-                              </div>
-                            </Show>
-                          }
-                        >
-                          {(() => {
-                            const rsi = output.resultSetIndex ?? 0;
-                            const rs = result().result_sets[rsi];
-                            return rs ? (
-                              <div class="flex flex-col gap-2">
-                                <Show when={rs.truncated}>
-                                  <div class="flex items-center gap-2 px-3 py-2 text-s text-warning bg-warning/10 border border-warning/30 rounded-md animate-pulse">
-                                    <i class="fa-solid fa-circle-exclamation" />
-                                    {result().result_sets.length > 1
-                                      ? `Result set ${rsi + 1} truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`
-                                      : `Results truncated to ${rs.rows.length} row${rs.rows.length === 1 ? "" : "s"}`}{" "}
-                                    (Execution row limit in Settings → Execution).
-                                  </div>
-                                </Show>
-                                <VirtualGrid
-                                  resultSet={rs}
-                                  viewState={props.tableViewStates[rsi]}
-                                  onViewStateChange={(state) =>
-                                    props.onTableViewStateChange(rsi, state)
-                                  }
-                                  selectedRowIndex={
-                                    rowContextMenu()?.resultSetIndex === rsi
-                                      ? rowContextMenu()!.rowIndex
-                                      : null
-                                  }
-                                  onContextMenu={(e, ri) =>
-                                    handleContextMenu(e, ri, rsi)
-                                  }
-                                  canEditRows={canDoRowActions()}
-                                  onEditRow={(ri) =>
-                                    openActionDialogForRow("edit", ri, rsi)
-                                  }
-                                />
-                              </div>
-                            ) : null;
-                          })()}
-                        </Show>
-                      )}
-                    </For>
+                  <div class={resultsContentClass()}>
+                    <Show when={!hasResults()}>
+                      <p class="text-success font-semibold flex items-center gap-2 mb-2 font-sans">
+                        <i class="fa-solid fa-check-circle" />
+                        Query executed successfully.
+                      </p>
+                    </Show>
+                    {renderOrderedOutputs()}
                     <Show when={result().rows_affected > 0}>
                       <div class="border-t border-border/20 pt-2 text-text-muted font-sans text-s">
                         ({result().rows_affected} row(s) affected)
@@ -1341,6 +1550,8 @@ export default function ResultsGrid(props: Props) {
                     </Show>
                   </div>
                 </Show>
+
+                <div class="shrink-0" aria-hidden="true" />
 
                 <Show when={rowContextMenu()}>
                   {(menu) => (

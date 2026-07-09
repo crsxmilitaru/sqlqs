@@ -21,6 +21,20 @@ const MAX_TAB_HISTORY_TOTAL_CHARS = 600_000;
 const MAX_PERSISTED_TAB_HISTORY_TOTAL_CHARS = 1_000_000;
 const TAB_HISTORY_IDLE_DELAY_MS = 3_000;
 
+class QueryResultSnapshot {
+  readonly __sqlqsQueryResultSnapshot = true;
+}
+
+function asQueryResultSnapshot(result: QueryTab["result"]) {
+  if (
+    result &&
+    Object.getPrototypeOf(result) === Object.prototype
+  ) {
+    Object.setPrototypeOf(result, QueryResultSnapshot.prototype);
+  }
+  return result;
+}
+
 function normalizeSql(sql = "") {
   return sql.replace(/\r\n/g, "\n");
 }
@@ -349,6 +363,10 @@ export function useTabs() {
     updates: Partial<QueryTab>,
     options?: QueryTabUpdateOptions,
   ) => {
+    const safeUpdates =
+      "result" in updates
+        ? { ...updates, result: asQueryResultSnapshot(updates.result) }
+        : updates;
     const sqlUpdate = typeof updates.sql === "string";
     const historyMode = options?.historyMode ?? (sqlUpdate ? "idle" : "none");
     const historyType =
@@ -400,7 +418,7 @@ export function useTabs() {
           }
         }
 
-        Object.assign(tab, updates);
+        Object.assign(tab, safeUpdates);
 
         if (nextSql !== undefined) {
           didChangeSql = originalSql !== nextSql;

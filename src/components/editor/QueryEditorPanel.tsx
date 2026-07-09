@@ -1302,14 +1302,6 @@ export default function QueryEditorPanel(props: Props) {
               <div class="flex items-center justify-between p-2.5 flex-shrink-0">
                 <div class="flex items-center gap-2">
                   <span class="app-section-title">Results</span>
-                  {(tab.error ||
-                    (tab.result?.result_sets.length ?? 0) > 0) && (
-                    <span class="text-s text-text-muted opacity-60 ml-0.5 leading-none">
-                      {tab.error
-                        ? "(Error)"
-                        : `(${tab.result?.result_sets[0]?.rows.length ?? 0} row${(tab.result?.result_sets[0]?.rows.length ?? 0) !== 1 ? "s" : ""})`}
-                    </span>
-                  )}
                 </div>
                 <div class="flex items-center gap-2">
                   <Show when={tab.result?.statistics}>

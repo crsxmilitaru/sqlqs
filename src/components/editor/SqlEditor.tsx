@@ -1417,7 +1417,8 @@ const fillMinimapPlugin = ViewPlugin.fromClass(
         update.geometryChanged ||
         update.viewportChanged ||
         update.selectionSet ||
-        !getSearchQuery(update.startState).eq(getSearchQuery(update.state))
+        !getSearchQuery(update.startState).eq(getSearchQuery(update.state)) ||
+        searchPanelOpen(update.startState) !== searchPanelOpen(update.state)
       ) {
         this.schedule(update.view);
       }
@@ -1558,6 +1559,10 @@ const fillMinimapPlugin = ViewPlugin.fromClass(
       context: CanvasRenderingContext2D,
       metrics: FillMinimapMetrics,
     ) {
+      // The stored query survives closing the search panel (closeSearchPanel
+      // only hides the panel, it does not clear the query), so we must also
+      // bail out when the panel is closed to avoid drawing stale matches.
+      if (!searchPanelOpen(this.view.state)) return;
       const query = getSearchQuery(this.view.state);
       if (!query || !query.valid || !query.search) return;
 
