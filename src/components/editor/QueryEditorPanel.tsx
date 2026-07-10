@@ -642,8 +642,12 @@ export default function QueryEditorPanel(props: Props) {
     props.onAiChatOpenChange(true);
     setPendingChatMessage({
       id: Date.now(),
-      content: selectedText,
-      references: ["selected"],
+      pinnedContext: {
+        id: `selected-sql-${Date.now()}`,
+        label: "Selected SQL",
+        icon: "i-cursor",
+        content: selectedText,
+      },
     });
   }
 
@@ -704,9 +708,27 @@ export default function QueryEditorPanel(props: Props) {
     props.onAiChatOpenChange(true);
     setPendingChatMessage({
       id: Date.now(),
-      content: error,
-      references: ["result"],
-      resultMessage: error,
+      pinnedContext: {
+        id: `error-${Date.now()}`,
+        label: "Error Message",
+        icon: "circle-exclamation",
+        content: error,
+      },
+    });
+  }
+
+  function handleSendResultToChat(markdown: string) {
+    if (!markdown.trim()) return;
+
+    props.onAiChatOpenChange(true);
+    setPendingChatMessage({
+      id: Date.now(),
+      pinnedContext: {
+        id: `result-table-${Date.now()}`,
+        label: "Result table",
+        icon: "table",
+        content: markdown,
+      },
     });
   }
 
@@ -1347,6 +1369,7 @@ export default function QueryEditorPanel(props: Props) {
                     onGenerateSql={handleGeneratedRowSql}
                     onReExecute={() => handleExecute()}
                     onSendErrorToChat={handleSendResultErrorToChat}
+                    onSendResultToChat={handleSendResultToChat}
                   />
                 </div>
               )}

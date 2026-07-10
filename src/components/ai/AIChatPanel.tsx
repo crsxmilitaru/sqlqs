@@ -25,6 +25,7 @@ import {
   type ChatGroundingMetadata,
   type ChatImageAttachment,
   type ChatMessage,
+  type ChatMessageContextItem,
   type ChatReference,
   type ChatTextAttachment,
   type GeminiModelOption,
@@ -194,11 +195,17 @@ function saveMessages(msgs: ChatMessage[]) {
 
 export type ApplyMode = "append" | "replace" | "new-tab";
 
+export interface PinnedContextItem {
+  id: string;
+  label: string;
+  icon: string;
+  content: string;
+}
+
 export interface PendingChatMessage {
   id: number;
-  content: string;
-  references?: ChatReference[];
-  resultMessage?: string;
+  content?: string;
+  pinnedContext?: PinnedContextItem;
 }
 
 interface FailedChatRequest {
@@ -374,82 +381,125 @@ function MessageReferenceTags(props: { references: ChatReference[] }) {
   );
 }
 
-function ChatAttachmentGrid(props: {
-  attachments: ChatAttachment[];
+interface ChatContextOrAttachmentCardProps {
+  type: "context" | "sent-context" | "attachment";
+  item: PinnedContextItem | ChatMessageContextItem | ChatAttachment;
   removable?: boolean;
-  onRemove?: (id: string) => void;
-}) {
+  onRemove?: () => void;
+}
+
+function ChatContextOrAttachmentCard(props: ChatContextOrAttachmentCardProps) {
+  const isImage = () => {
+    if (props.type === "attachment") {
+      const att = props.item as ChatAttachment;
+      return att.kind === "image";
+    }
+    return false;
+  };
+
+  const dataUrl = () => {
+    if (props.type === "attachment") {
+      const att = props.item as ChatAttachment;
+      if (att.kind === "image") {
+        return (att as ChatImageAttachment).dataUrl;
+      }
+    }
+    return undefined;
+  };
+
+  const label = () => {
+    if (props.type === "attachment") {
+      return (props.item as ChatAttachment).name;
+    } else {
+      return (props.item as PinnedContextItem | ChatMessageContextItem).label;
+    }
+  };
+
+  const subtitle = () => {
+    if (props.type === "attachment") {
+      const att = props.item as ChatAttachment;
+      if (att.kind === "image") {
+        return att.mimeType || "Image";
+      } else {
+        const text = (att as ChatTextAttachment).text;
+        if (text) {
+          return text.replace(/\r?\n/g, " ").trim();
+        }
+        return "Content not retained after reload";
+      }
+    } else {
+      const content = (props.item as PinnedContextItem | ChatMessageContextItem).content;
+      return content.replace(/\r?\n/g, " ").trim();
+    }
+  };
+
+  const icon = () => {
+    if (props.type === "attachment") {
+      const att = props.item as ChatAttachment;
+      return att.kind === "image" ? "image" : "file-lines";
+    } else if (props.type === "context") {
+      return (props.item as PinnedContextItem).icon;
+    } else {
+      const labelKey = (props.item as ChatMessageContextItem).label.toLowerCase();
+      if (labelKey.includes("error")) return "circle-exclamation";
+      if (labelKey.includes("result")) return "table";
+      if (labelKey.includes("selected")) return "i-cursor";
+      return "paperclip";
+    }
+  };
+
   return (
-    <div class="mb-2 flex flex-wrap gap-2">
-      <For each={props.attachments}>
-        {(attachment) => (
-          <div
-            class={`relative overflow-hidden rounded-lg border border-border/70 bg-surface-panel/60 ${
-              attachment.kind === "image"
-                ? "h-20 w-20"
-                : "flex min-h-20 w-[180px] items-start gap-2 p-3"
-            }`}
-          >
-            <Show
-              when={attachment.kind === "image"}
-              fallback={
-                <>
-                  <div class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-hover text-text-muted">
-                    <Icon name="file-lines" class="text-s" />
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-s font-medium text-text">
-                      {attachment.name}
-                    </div>
-                    <Show
-                      when={(attachment as ChatTextAttachment).text}
-                      fallback={
-                        <div class="mt-1 text-3xs italic text-text-muted">
-                          Content not retained after reload
-                        </div>
-                      }
-                    >
-                      <div class="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-3xs text-text-muted">
-                        {(attachment as ChatTextAttachment).text}
-                      </div>
-                    </Show>
-                  </div>
-                </>
-              }
-            >
-              <Show
-                when={(attachment as ChatImageAttachment).dataUrl}
-                fallback={
-                  <div
-                    class="flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-hover text-text-muted"
-                    title={`${attachment.name} — content not retained after reload`}
-                  >
-                    <Icon name="image" class="text-l" />
-                    <span class="px-1 text-[9px] truncate max-w-full">
-                      {attachment.name}
-                    </span>
-                  </div>
-                }
-              >
-                <img
-                  src={(attachment as ChatImageAttachment).dataUrl}
-                  alt={attachment.name}
-                  class="h-full w-full object-cover"
-                />
-              </Show>
-            </Show>
-            <Show when={props.removable}>
-              <button
-                onClick={() => props.onRemove?.(attachment.id)}
-                class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border border-border/60 bg-surface-popover/90 text-text transition-colors hover:bg-surface-active"
-                title="Remove attachment"
-              >
-                <Icon name="xmark" class="text-[10px]" />
-              </button>
-            </Show>
+    <div class="group relative flex h-11 w-[200px] flex-shrink-0 select-none items-center gap-2 rounded-lg border border-border/70 bg-surface-panel/60 p-2 text-s transition-all hover:border-border-hover/80 hover:bg-surface-panel-hover/80">
+      <Show
+        when={isImage()}
+        fallback={
+          <div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-surface-hover/80 text-text-muted">
+            <Icon name={icon()} class="text-s" />
           </div>
-        )}
-      </For>
+        }
+      >
+        <Show
+          when={dataUrl()}
+          fallback={
+            <div
+              class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-surface-hover text-text-muted"
+              title={`${label()} — content not retained after reload`}
+            >
+              <Icon name="image" class="text-s" />
+            </div>
+          }
+        >
+          <img
+            src={dataUrl()}
+            alt={label()}
+            class="h-7 w-7 flex-shrink-0 rounded object-cover"
+          />
+        </Show>
+      </Show>
+
+      <div class="min-w-0 flex-1 flex flex-col justify-center pr-1.5">
+        <div class="truncate text-xs font-semibold text-text leading-tight">
+          {label()}
+        </div>
+        <div class="truncate text-3xs text-text-muted/70 leading-normal">
+          {subtitle()}
+        </div>
+      </div>
+
+      <Show when={props.removable}>
+        <Tooltip content="Remove" placement="top">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onRemove?.();
+            }}
+            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
+          >
+            <Icon name="xmark" class="text-icon-xs" />
+          </button>
+        </Tooltip>
+      </Show>
     </div>
   );
 }
@@ -517,6 +567,9 @@ export default function AIChatPanel(props: Props) {
   const [draftAttachments, setDraftAttachments] = createSignal<
     ChatAttachment[]
   >([]);
+  const [pinnedContext, setPinnedContext] = createSignal<PinnedContextItem[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [failedRequest, setFailedRequest] =
@@ -752,6 +805,7 @@ export default function AIChatPanel(props: Props) {
   const clearComposer = () => {
     setInput("");
     setDraftAttachments([]);
+    setPinnedContext([]);
     if (fileInputRef) {
       fileInputRef.value = "";
     }
@@ -1029,10 +1083,16 @@ export default function AIChatPanel(props: Props) {
     references?: ChatReference[];
     resultMessage?: string;
     attachments?: ChatAttachment[];
+    contextItems?: ChatMessageContextItem[];
     clearInput?: boolean;
   }) => {
     const hasAttachments = (options.attachments?.length ?? 0) > 0;
-    if ((!options.content.trim() && !hasAttachments) || isLoading()) return;
+    const hasContextItems = (options.contextItems?.length ?? 0) > 0;
+    if (
+      (!options.content.trim() && !hasAttachments && !hasContextItems) ||
+      isLoading()
+    )
+      return;
 
     const userMessage: ChatMessage = {
       id: newMsgId(),
@@ -1040,6 +1100,7 @@ export default function AIChatPanel(props: Props) {
       content: options.content,
       references: options.references,
       attachments: options.attachments,
+      contextItems: options.contextItems,
     };
     const newMessages = [...messages(), userMessage];
     const context: ToolExecutionContext = {
@@ -1081,24 +1142,44 @@ export default function AIChatPanel(props: Props) {
   };
 
   const handleSendMessage = async () => {
+    const contextItems = pinnedContext();
+    const contextItemPayload = contextItems.map((item) => ({
+      label: item.label,
+      content: item.content,
+    }));
     await sendMessage({
       content: input(),
       attachments: draftAttachments(),
+      contextItems: contextItemPayload.length > 0 ? contextItemPayload : undefined,
       clearInput: true,
     });
+    setPinnedContext([]);
   };
 
   createEffect(() => {
     const pendingMessage = props.pendingMessage;
-    if (!pendingMessage || isLoading()) return;
+    if (!pendingMessage) return;
     if (lastHandledPendingId() === pendingMessage.id) return;
 
     setLastHandledPendingId(pendingMessage.id);
     props.onPendingMessageHandled?.(pendingMessage.id);
-    void sendMessage({
-      content: pendingMessage.content,
-      references: pendingMessage.references,
-      resultMessage: pendingMessage.resultMessage,
+
+    if (pendingMessage.pinnedContext) {
+      const payload = pendingMessage.pinnedContext;
+      setPinnedContext((items) =>
+        items.some((item) => item.id === payload.id)
+          ? items
+          : [...items, payload],
+      );
+    }
+    const incomingText = pendingMessage.content?.trim();
+    if (incomingText) {
+      setInput((current) =>
+        current.trim() ? `${current}\n\n${incomingText}` : incomingText,
+      );
+    }
+    requestAnimationFrame(() => {
+      inputRef?.focus();
     });
   });
 
@@ -1152,7 +1233,6 @@ export default function AIChatPanel(props: Props) {
     }
     setMessages([]);
     saveMessages([]);
-    clearComposer();
     setError(null);
     setFailedRequest(null);
     history.setActiveId(null);
@@ -1275,8 +1355,25 @@ export default function AIChatPanel(props: Props) {
                         <Show when={msg.references?.length}>
                           <MessageReferenceTags references={msg.references!} />
                         </Show>
-                        <Show when={msg.attachments?.length}>
-                          <ChatAttachmentGrid attachments={msg.attachments!} />
+                        <Show when={msg.contextItems?.length || msg.attachments?.length}>
+                          <div class="mb-2 flex flex-wrap gap-2">
+                            <For each={msg.contextItems}>
+                              {(item) => (
+                                <ChatContextOrAttachmentCard
+                                  type="sent-context"
+                                  item={item}
+                                />
+                              )}
+                            </For>
+                            <For each={msg.attachments}>
+                              {(attachment) => (
+                                <ChatContextOrAttachmentCard
+                                  type="attachment"
+                                  item={attachment}
+                                />
+                              )}
+                            </For>
+                          </div>
                         </Show>
                         <div class="text-s whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
                           {msg.content}
@@ -1706,12 +1803,33 @@ export default function AIChatPanel(props: Props) {
           </Show>
           <div class="flex items-start gap-2">
             <div class="flex-1 min-w-0 flex flex-col gap-1.5">
-              <Show when={draftAttachments().length > 0}>
-                <ChatAttachmentGrid
-                  attachments={draftAttachments()}
-                  removable
-                  onRemove={removeDraftAttachment}
-                />
+              <Show when={pinnedContext().length > 0 || draftAttachments().length > 0}>
+                <div class="mb-2 flex flex-wrap gap-2 max-h-[160px] overflow-y-auto pr-1">
+                  <For each={pinnedContext()}>
+                    {(item) => (
+                      <ChatContextOrAttachmentCard
+                        type="context"
+                        item={item}
+                        removable
+                        onRemove={() =>
+                          setPinnedContext((items) =>
+                            items.filter((i) => i.id !== item.id),
+                          )
+                        }
+                      />
+                    )}
+                  </For>
+                  <For each={draftAttachments()}>
+                    {(attachment) => (
+                      <ChatContextOrAttachmentCard
+                        type="attachment"
+                        item={attachment}
+                        removable
+                        onRemove={() => removeDraftAttachment(attachment.id)}
+                      />
+                    )}
+                  </For>
+                </div>
               </Show>
               <textarea
                 ref={inputRef}
@@ -1789,25 +1907,31 @@ export default function AIChatPanel(props: Props) {
             <Show
               when={isLoading()}
               fallback={
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!input().trim() && draftAttachments().length === 0}
-                  title="Send"
-                  aria-label="Send message"
-                  class="chat-send-btn"
-                >
-                  <Icon name="paper-plane" class="text-s" />
-                </button>
+                <Tooltip content="Send" placement="left">
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={
+                      !input().trim() &&
+                      draftAttachments().length === 0 &&
+                      pinnedContext().length === 0
+                    }
+                    aria-label="Send message"
+                    class="chat-send-btn"
+                  >
+                    <Icon name="paper-plane" class="text-s" />
+                  </button>
+                </Tooltip>
               }
             >
-              <button
-                onClick={() => abortActiveRequest("restore-baseline")}
-                title="Stop generating"
-                aria-label="Stop generating"
-                class="chat-send-btn chat-stop-btn"
-              >
-                <Icon name="stop" class="text-s" />
-              </button>
+              <Tooltip content="Stop generating" placement="left">
+                <button
+                  onClick={() => abortActiveRequest("restore-baseline")}
+                  aria-label="Stop generating"
+                  class="chat-send-btn chat-stop-btn"
+                >
+                  <Icon name="stop" class="text-s" />
+                </button>
+              </Tooltip>
             </Show>
           </div>
         </div>

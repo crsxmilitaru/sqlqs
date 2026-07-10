@@ -34,6 +34,7 @@ interface Props {
   onGenerateSql?: (sql: string) => void;
   onReExecute?: () => void;
   onSendErrorToChat?: (error: string) => void;
+  onSendResultToChat?: (markdown: string) => void;
 }
 
 export type ResultsSortConfig = {
@@ -53,6 +54,7 @@ type ProcessedResultRow = {
 };
 
 const AUTO_EXPAND_RESULT_SET_THRESHOLD = 3;
+const MAX_CHAT_RESULT_ROWS = 50;
 
 interface RowActionDialogState {
   mode: RowActionMode;
@@ -128,6 +130,7 @@ function VirtualGrid(props: {
   canEditRows?: boolean;
   selectedRowIndex: number | null;
   renderHeaderActions?: (controls: JSX.Element) => JSX.Element;
+  onSendToChat?: (markdown: string) => void;
 }) {
   let containerRef: HTMLDivElement | undefined;
   let headerRef: HTMLDivElement | undefined;
@@ -389,14 +392,24 @@ function VirtualGrid(props: {
       .replace(/\r?\n/g, " ");
   };
 
-  const copyAsMarkdown = async () => {
+  const buildResultMarkdown = (maxRows?: number): string => {
     const cols = props.resultSet.columns;
     const header = `| ${cols.map((c) => escapeMarkdownCell(c.name)).join(" | ")} |`;
     const sep = `| ${cols.map(() => "---").join(" | ")} |`;
-    const body = getAllProcessedRows()
+    const allRows = getAllProcessedRows();
+    const rows = maxRows ? allRows.slice(0, maxRows) : allRows;
+    const body = rows
       .map(({ row }) => `| ${row.map(escapeMarkdownCell).join(" | ")} |`)
       .join("\n");
-    const text = [header, sep, body].filter(Boolean).join("\n");
+    const lines = [header, sep, body];
+    if (maxRows && allRows.length > maxRows) {
+      lines.push(`\n*(${allRows.length - maxRows} more rows truncated)*`);
+    }
+    return lines.filter(Boolean).join("\n");
+  };
+
+  const copyAsMarkdown = async () => {
+    const text = buildResultMarkdown();
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -774,6 +787,22 @@ function VirtualGrid(props: {
                 <span>{copied() ? "Copied" : "Copy"}</span>
               </button>
             </Tooltip>
+            <Show when={props.onSendToChat}>
+              <Tooltip content="Send table to Chat">
+                <button
+                  type="button"
+                  onClick={() =>
+                    props.onSendToChat?.(
+                      buildResultMarkdown(MAX_CHAT_RESULT_ROWS),
+                    )
+                  }
+                  class="btn btn-table"
+                >
+                  <i class="fa-solid fa-comment-dots text-2xs" />
+                  <span>Send to Chat</span>
+                </button>
+              </Tooltip>
+            </Show>
             <Tooltip content="Export results">
               <button
                 type="button"
@@ -1322,6 +1351,7 @@ export default function ResultsGrid(props: Props) {
                             : null
                         }
                         onContextMenu={(e, ri) => handleContextMenu(e, ri, rsi)}
+                        onSendToChat={props.onSendResultToChat}
                         canEditRows={canDoRowActions()}
                         onEditRow={(ri) =>
                           openActionDialogForRow("edit", ri, rsi)

@@ -204,6 +204,11 @@ export interface ChatErrorMeta {
   raw?: string;
 }
 
+export interface ChatMessageContextItem {
+  label: string;
+  content: string;
+}
+
 export interface ChatMessage {
   id?: string;
   role: "user" | "assistant";
@@ -213,6 +218,7 @@ export interface ChatMessage {
   toolsUsed?: string[];
   references?: ChatReference[];
   attachments?: ChatAttachment[];
+  contextItems?: ChatMessageContextItem[];
   groundingMetadata?: ChatGroundingMetadata;
   errorMeta?: ChatErrorMeta;
 }
@@ -248,16 +254,34 @@ export interface ChatStreamCallbacks {
 }
 
 function serializeMessage(message: ChatMessage): string {
-  if (message.role !== "user" || !message.references?.length) {
+  if (message.role !== "user") {
     return message.content;
   }
 
-  const references = message.references
-    .map((reference) => `(${reference})`)
-    .join(" ");
-  return message.content
-    ? `Context references: ${references}\n${message.content}`
-    : `Context references: ${references}`;
+  const contextBlock = (message.contextItems ?? [])
+    .map(
+      (item) =>
+        `${item.label}:\n\`\`\`\n${item.content}\n\`\`\``,
+    )
+    .join("\n\n");
+
+  if (message.references?.length) {
+    const references = message.references
+      .map((reference) => `(${reference})`)
+      .join(" ");
+    const refLine = message.content
+      ? `Context references: ${references}\n${message.content}`
+      : `Context references: ${references}`;
+    return contextBlock
+      ? `${contextBlock}\n\n${refLine}`
+      : refLine;
+  }
+
+  return contextBlock
+    ? message.content.trim()
+      ? `${contextBlock}\n\n${message.content}`
+      : contextBlock
+    : message.content;
 }
 
 function buildMessageParts(message: ChatMessage): any[] {
