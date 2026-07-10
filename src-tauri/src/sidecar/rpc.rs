@@ -37,6 +37,24 @@ pub enum RpcError {
     Serde(#[from] serde_json::Error),
 }
 
+impl RpcError {
+    pub fn query_message(&self) -> String {
+        let message = match self {
+            Self::Server { message, .. } => message.as_str(),
+            _ => return self.to_string(),
+        };
+
+        let lower_message = message.to_ascii_lowercase();
+        let statistics_start = lower_message
+            .find("sql server parse and compile time:")
+            .or_else(|| lower_message.find("sql server execution times:"));
+
+        statistics_start
+            .map(|index| message[..index].trim_end().to_string())
+            .unwrap_or_else(|| message.trim().to_string())
+    }
+}
+
 struct PendingEntry {
     method: String,
     sender: oneshot::Sender<Result<Value, RpcError>>,

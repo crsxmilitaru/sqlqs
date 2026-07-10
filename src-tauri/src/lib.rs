@@ -1051,7 +1051,7 @@ async fn execute_query_via_sidecar(
                 if cancel.is_cancelled() {
                     "Query cancelled by user".to_string()
                 } else {
-                    format!("Query failed: {}", err)
+                    err.query_message()
                 }
             })?;
             Ok(QueryResult {
