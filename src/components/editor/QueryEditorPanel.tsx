@@ -33,6 +33,7 @@ import EditorHistoryDialog from "./EditorHistoryDialog";
 import ResultsGrid, { type ResultsTableViewState } from "./ResultsGrid";
 import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
+import { Loader } from "../ui/Loader";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { loadPreferences } from "../../lib/settings";
@@ -1451,11 +1452,7 @@ export default function QueryEditorPanel(props: Props) {
               </Show>
             </>
           ) : (props.isInitializing ?? false) ? (
-            <>
-              <i class="fa-solid fa-spinner animate-spin text-3xl opacity-30" />
-              <p class="text-m">Connecting to your server…</p>
-              <p class="text-s opacity-60">Restoring your last session</p>
-            </>
+            <Loader variant="vertical" text="Connecting…" />
           ) : (
             <>
               <i class="fa-solid fa-plug-circle-xmark text-3xl opacity-20" />

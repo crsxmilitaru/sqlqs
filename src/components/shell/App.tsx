@@ -37,6 +37,7 @@ import {
   loadAutoCheckUpdates,
   loadExecutionPreferences,
   saveExecConfirmDestructive,
+  loadPreferences,
 } from "../../lib/settings";
 import {
   findUnguardedDestructiveStatements,
@@ -246,7 +247,8 @@ export default function App() {
   const [objectJumpIndexStatus, setObjectJumpIndexStatus] =
     createSignal<ServerObjectIndexStatus>(EMPTY_OBJECT_INDEX_STATUS);
   const [aiChatOpen, setAiChatOpen] = createSignal(
-    localStorage.getItem("sqlqs_ai_chat_open") === "true",
+    loadPreferences().openLastChatStartup &&
+      localStorage.getItem("sqlqs_ai_chat_open") === "true",
   );
   const [propertiesTarget, setPropertiesTarget] = createSignal<{
     database: string;

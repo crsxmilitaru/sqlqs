@@ -18,9 +18,9 @@ import type {
 } from "../../lib/types";
 import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
-import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
-import { Icon } from "../ui/Icons";
+import DialogCloseButton from "../ui/DialogCloseButton";
+import { Icon, Spinner } from "../ui/Icons";
 
 interface Props {
   databases: string[];
@@ -664,7 +664,7 @@ export default function BackupRestoreDialog(props: Props) {
                       when={busyAction() === "inspect"}
                       fallback={<Icon name="magnifying-glass" />}
                     >
-                      <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                      <Spinner size={14} />
                     </Show>
                     Inspect
                   </button>
@@ -829,7 +829,7 @@ export default function BackupRestoreDialog(props: Props) {
                             }
                             fallback={<Icon name="trash-can" />}
                           >
-                            <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                            <Spinner size={14} />
                           </Show>
                         </button>
                       </div>
@@ -870,7 +870,7 @@ export default function BackupRestoreDialog(props: Props) {
                   when={busyAction() === "schedule"}
                   fallback={<Icon name="calendar-plus" />}
                 >
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                  <Spinner size={14} />
                 </Show>
                 Schedule
               </button>
@@ -886,7 +886,7 @@ export default function BackupRestoreDialog(props: Props) {
                   when={busyAction() === "backup"}
                   fallback={<Icon name="play" />}
                 >
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
+                  <Spinner size={14} />
                 </Show>
                 Run Backup
               </button>
@@ -904,7 +904,7 @@ export default function BackupRestoreDialog(props: Props) {
                   when={busyAction() === "restore"}
                   fallback={<Icon name="clock-rotate-left" />}
                 >
-                  <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
+                  <Spinner size={14} />
                 </Show>
                 Restore
               </button>

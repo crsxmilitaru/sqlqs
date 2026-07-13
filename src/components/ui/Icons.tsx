@@ -106,3 +106,35 @@ export function IconWrapText(props: { class?: string }) {
 export function IconHistory(props: { class?: string }) {
   return <Icon name="clock-rotate-left" class={props.class} />;
 }
+
+export function Spinner(props: { class?: string; size?: number }) {
+  const size = () => props.size ?? 48;
+  return (
+    <svg
+      width={size()}
+      height={size()}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      class={`animate-spin ${props.class || ""}`}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="2.5"
+        opacity="0.2"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-dasharray="18 45"
+        stroke-linecap="round"
+      />
+    </svg>
+  );
+}

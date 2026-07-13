@@ -7,6 +7,7 @@ import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
 import { Icon } from "../ui/Icons";
+import { Loader } from "../ui/Loader";
 
 export type PropertiesObjectType = ExplorerObjectType | "DATABASE";
 
@@ -201,10 +202,7 @@ export default function PropertiesDialog(props: Props) {
 
         <div class="flex-1 overflow-y-auto px-6 py-4 min-h-0">
           <Show when={loading()}>
-            <div class="flex items-center gap-3 text-sm text-text-muted py-8 justify-center">
-              <div class="w-4 h-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-              Loading properties…
-            </div>
+            <Loader variant="horizontal" size={16} text="Loading properties…" />
           </Show>
 
           <Show when={error()}>

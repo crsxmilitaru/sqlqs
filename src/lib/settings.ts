@@ -24,6 +24,7 @@ const STORAGE_KEY_EDITOR_MINIMAP = "sqlqs_editor_minimap";
 const STORAGE_KEY_EDITOR_AUTOCOMPLETE = "sqlqs_editor_autocomplete";
 const STORAGE_KEY_EDITOR_FORMAT_ON_PASTE = "sqlqs_editor_format_on_paste";
 const STORAGE_KEY_REVEAL_DB_IN_EXPLORER = "sqlqs_reveal_current_db_in_explorer";
+const STORAGE_KEY_OPEN_LAST_CHAT_STARTUP = "sqlqs_open_last_chat_startup";
 
 export const DEFAULT_MAX_HISTORY = 50;
 export const MIN_MAX_HISTORY = 10;
@@ -139,6 +140,7 @@ export interface AppPreferences {
   autoCheckUpdates: boolean;
   updateChannel: UpdateChannel;
   revealCurrentDatabaseInExplorer: boolean;
+  openLastChatStartup: boolean;
   editor: EditorPreferences;
   execution: ExecutionPreferences;
   format: SqlFormatPreferences;
@@ -170,6 +172,11 @@ function readMaxHistoryItemsFromStorage(): number {
 function readAiNotificationsFromStorage(): boolean {
   const raw = localStorage.getItem(STORAGE_KEY_AI_NOTIFICATIONS);
   return raw === null ? true : raw === "true";
+}
+
+function readOpenLastChatStartupFromStorage(): boolean {
+  const raw = localStorage.getItem(STORAGE_KEY_OPEN_LAST_CHAT_STARTUP);
+  return raw === null ? false : raw === "true";
 }
 
 function readBoolWithDefault(key: string, defaultValue: boolean): boolean {
@@ -286,6 +293,7 @@ function readFormatPreferencesFromStorage(): SqlFormatPreferences {
 }
 
 function readPreferencesFromStorage(): AppPreferences {
+  const openLastChatStartup = readOpenLastChatStartupFromStorage();
   return {
     persistTabs: readPersistTabsFromStorage(),
     confirmCloseUnsaved: readConfirmCloseUnsavedFromStorage(),
@@ -298,6 +306,7 @@ function readPreferencesFromStorage(): AppPreferences {
       STORAGE_KEY_REVEAL_DB_IN_EXPLORER,
       true,
     ),
+    openLastChatStartup,
     editor: readEditorPreferencesFromStorage(),
     execution: readExecutionPreferencesFromStorage(),
     format: readFormatPreferencesFromStorage(),
@@ -402,6 +411,11 @@ export function loadAiNotifications(): boolean {
 export function saveAiNotifications(value: boolean) {
   localStorage.setItem(STORAGE_KEY_AI_NOTIFICATIONS, String(value));
   setPreferences((prev) => ({ ...prev, aiNotifications: value }));
+}
+
+export function saveOpenLastChatStartup(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_OPEN_LAST_CHAT_STARTUP, String(value));
+  setPreferences((prev) => ({ ...prev, openLastChatStartup: value }));
 }
 
 export function loadAutoCheckUpdates(): boolean {

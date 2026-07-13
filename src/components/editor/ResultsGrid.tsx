@@ -16,6 +16,7 @@ import type { QueryResult, ResultSet } from "../../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import EmptyState from "../ui/EmptyState";
+import { Loader } from "../ui/Loader";
 import Tooltip from "../ui/Tooltip";
 import RowActionsDialog, {
   type RowActionMode,
@@ -1192,12 +1193,7 @@ export default function ResultsGrid(props: Props) {
       when={!props.isExecuting}
       fallback={
         <div class="h-full bg-surface">
-          <EmptyState
-            icon={
-              <div class="mb-5 h-8 w-8 rounded-full border-[3px] border-accent/20 border-t-accent animate-spin" />
-            }
-            title={<span class="animate-pulse">Executing query…</span>}
-          />
+          <Loader variant="vertical" text="Executing query…" />
         </div>
       }
     >

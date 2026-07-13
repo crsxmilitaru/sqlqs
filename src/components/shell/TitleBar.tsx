@@ -4,6 +4,7 @@ import { AiService } from "../../lib/ai";
 import { isMacOS } from "../../lib/platform";
 import type { ServerObjectIndexStatus } from "../../lib/types";
 import Tooltip from "../ui/Tooltip";
+import { Loader } from "../ui/Loader";
 
 function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
   return (
@@ -229,10 +230,7 @@ export default function TitleBar(props: Props) {
                   </button>
                 </Tooltip>
               ) : (props.isInitializing ?? false) ? (
-                <div class="flex items-center gap-2 px-2.5 h-8 rounded-md text-text-muted text-s font-medium">
-                  <i class="fa-solid fa-spinner animate-spin" />
-                  <span>Connecting…</span>
-                </div>
+                <Loader variant="inline" text="Connecting…" class="px-2.5 h-8" />
               ) : (
                 <button
                   onClick={props.onConnect}

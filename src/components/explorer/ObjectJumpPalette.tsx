@@ -22,8 +22,10 @@ import {
   IconTrigger,
   IconType,
   IconView,
+  Spinner,
 } from "../ui/Icons";
 import DialogShell from "../ui/DialogShell";
+import { Loader } from "../ui/Loader";
 import type { ExplorerObjectType } from "./ObjectMenu";
 import { buildObjectExplorerMenuItems } from "./ObjectMenu";
 
@@ -621,10 +623,7 @@ export default function ObjectJumpPalette(props: Props) {
                 <Show
                   when={!(!canShowResults() && showLoader())}
                   fallback={
-                    <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
-                      <Icon name="spinner" class="animate-spin text-xl" />
-                      <p class="text-m">{loadingMessage()}</p>
-                    </div>
+                    <Loader variant="vertical" size={20} text={loadingMessage()} class="py-12" />
                   }
                 >
                   <Show
@@ -823,10 +822,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                                     child.icon
                                                                   }
                                                                 >
-                                                                  <Icon
-                                                                    name="spinner"
-                                                                    class="animate-spin text-[11px]"
-                                                                  />
+                                                                  <Spinner size={11} />
                                                                 </Show>
                                                               </span>
                                                               <span class="flex-1">
@@ -866,10 +862,7 @@ export default function ObjectJumpPalette(props: Props) {
                                                       when={isRunning()}
                                                       fallback={item.icon}
                                                     >
-                                                      <Icon
-                                                        name="spinner"
-                                                        class="animate-spin text-[11px]"
-                                                      />
+                                                      <Spinner size={11} />
                                                     </Show>
                                                   </span>
                                                   <span class="flex-1">
@@ -902,7 +895,7 @@ export default function ObjectJumpPalette(props: Props) {
                 </span>
                 <span class="flex items-center gap-1.5">
                   <Show when={effectiveIndexing()}>
-                    <Icon name="spinner" class="animate-spin text-xs" />
+                    <Spinner size={12} />
                   </Show>
                   <span>{footerStatus()}</span>
                 </span>

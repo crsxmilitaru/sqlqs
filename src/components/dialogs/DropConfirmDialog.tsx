@@ -4,7 +4,7 @@ import { loadExecutionPreferences } from "../../lib/settings";
 import type { ExplorerObjectType } from "../explorer/ObjectMenu";
 import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
-import { Icon } from "../ui/Icons";
+import { Icon, Spinner } from "../ui/Icons";
 
 interface Props {
   database: string;
@@ -147,7 +147,7 @@ export default function DropConfirmDialog(props: Props) {
               <Icon name="check" class="text-[11px]" />
             </Show>
             <Show when={executing()}>
-              <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
+              <Spinner size={14} />
             </Show>
             {success()
               ? "Dropped"

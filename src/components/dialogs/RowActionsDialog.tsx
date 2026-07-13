@@ -11,7 +11,7 @@ import { loadExecutionPreferences } from "../../lib/settings";
 import type { ResultSet } from "../../lib/types";
 import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
-import { Icon } from "../ui/Icons";
+import { Icon, Spinner } from "../ui/Icons";
 import Tooltip from "../ui/Tooltip";
 
 export type RowActionMode = "edit" | "duplicate" | "delete";
@@ -819,7 +819,7 @@ export default function RowActionsDialog(props: Props) {
               <Icon name="check" class="text-[11px]" />
             </Show>
             <Show when={executing()}>
-              <div class="w-3.5 h-3.5 rounded-full border-2 border-accent-text/30 border-t-accent-text animate-spin" />
+              <Spinner size={14} />
             </Show>
             {confirmLabel()}
           </button>

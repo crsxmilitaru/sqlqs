@@ -6,6 +6,7 @@ import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
 import { Icon } from "../ui/Icons";
 import Tooltip from "../ui/Tooltip";
+import { Loader } from "../ui/Loader";
 
 interface Props {
   database: string;
@@ -140,10 +141,7 @@ export default function DependenciesDialog(props: Props) {
   ) => (
     <div class="flex-1 overflow-y-auto min-h-0">
       <Show when={loading}>
-        <div class="flex items-center gap-3 text-sm text-text-muted py-8 justify-center">
-          <div class="w-4 h-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
-          Loading…
-        </div>
+        <Loader variant="horizontal" size={16} text="Loading…" />
       </Show>
       <Show when={!loading && error}>
         <div class="m-4 text-sm text-error/90 bg-error/5 border border-error/15 rounded-lg px-3 py-2 select-text">

@@ -42,6 +42,7 @@ import {
   savePersistTabs,
   saveRevealCurrentDatabaseInExplorer,
   saveUpdateChannel,
+  saveOpenLastChatStartup,
   type DateFormat,
   type SqlKeywordCase,
   type UpdateChannel,
@@ -150,6 +151,9 @@ export default function SettingsView(props: Props) {
   const [maxHistory, setMaxHistory] = createSignal(prefs.maxHistoryItems);
   const [aiNotifications, setAiNotifications] = createSignal(
     prefs.aiNotifications,
+  );
+  const [openLastChatStartup, setOpenLastChatStartup] = createSignal(
+    prefs.openLastChatStartup,
   );
   const [autoCheckUpdates, setAutoCheckUpdates] = createSignal(
     prefs.autoCheckUpdates,
@@ -1295,6 +1299,24 @@ export default function SettingsView(props: Props) {
             const next = !aiNotifications();
             setAiNotifications(next);
             saveAiNotifications(next);
+          }}
+        />
+      ),
+    },
+    {
+      id: "open-last-chat-startup",
+      tab: "ai",
+      title: "Open last chat on startup",
+      keywords: "ai chat open last startup load launch panel side panel",
+      render: () => (
+        <ToggleSetting
+          title="Open last chat on startup"
+          description="Open the AI chat panel on app startup if it was open during the previous session"
+          checked={openLastChatStartup()}
+          onToggle={() => {
+            const next = !openLastChatStartup();
+            setOpenLastChatStartup(next);
+            saveOpenLastChatStartup(next);
           }}
         />
       ),
