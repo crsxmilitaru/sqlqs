@@ -144,6 +144,7 @@ interface Props {
   value: string;
   onChange: (value: string, options?: QueryTabUpdateOptions) => void;
   onExecute: (selectedSql?: string) => void;
+  onFormat?: () => void;
   readOnly?: boolean;
   theme: ThemeSelection;
   currentDatabase?: string;
@@ -159,6 +160,7 @@ export interface SqlEditorHandle {
   openSearch: () => void;
   getSelectedText: () => string;
   replaceSelection: (text: string) => void;
+  formatSelection: () => boolean;
   selectAll: () => void;
   scrollToBottom: () => void;
 }
@@ -227,7 +229,40 @@ function historyOptionsForEditorUpdate(
     };
   }
 
+  if (hasUserEvent("input.format")) {
+    return {
+      historyMode: "capture-current",
+      historyType: "action",
+      historyLabel: "Format",
+    };
+  }
+
   return undefined;
+}
+
+function formatSelectionInEditor(view: EditorView): boolean {
+  const selection = view.state.selection.main;
+  if (selection.from === selection.to) return false;
+
+  const selectedSql = view.state.doc.sliceString(selection.from, selection.to);
+  let formatted: string;
+  try {
+    formatted = formatSqlWithPrefs(selectedSql);
+  } catch (err) {
+    const _ignored = err;
+    return true;
+  }
+
+  view.dispatch({
+    changes: { from: selection.from, to: selection.to, insert: formatted },
+    selection: {
+      anchor: selection.from,
+      head: selection.from + formatted.length,
+    },
+    scrollIntoView: true,
+    annotations: Transaction.userEvent.of("input.format"),
+  });
+  return true;
 }
 
 interface SchemaTableEntry {
@@ -1843,6 +1878,11 @@ export default function SqlEditor(props: Props) {
       viewRef.focus();
       viewRef.dispatch(viewRef.state.replaceSelection(text));
     },
+    formatSelection() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      return formatSelectionInEditor(viewRef);
+    },
     selectAll() {
       if (!viewRef) return;
       viewRef.focus();
@@ -1964,6 +2004,19 @@ export default function SqlEditor(props: Props) {
     const executeKeymap = keymap.of([
       { key: "F5", run: runExecute },
       { key: "Mod-Enter", run: runExecute },
+    ]);
+    const formatKeymap = keymap.of([
+      {
+        key: "Alt-Shift-f",
+        run: (view) => {
+          if (formatSelectionInEditor(view)) return true;
+          if (props.onFormat) {
+            props.onFormat();
+            return true;
+          }
+          return false;
+        },
+      },
     ]);
     const lineMovementKeymap = keymap.of([
       { key: "Alt-ArrowUp", run: moveLineUp },
@@ -2110,6 +2163,7 @@ export default function SqlEditor(props: Props) {
           buildFontTheme(initialPrefs.fontFamily, initialPrefs.fontSize),
         ),
         executeKeymap,
+        formatKeymap,
         lineMovementKeymap,
         keymap.of([
           { key: "Tab", run: acceptCompletion },

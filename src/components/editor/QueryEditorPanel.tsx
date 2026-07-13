@@ -46,11 +46,15 @@ function isTabDirty(tab: QueryTab): boolean {
 }
 
 function hasRestorableHistory(tab: QueryTab): boolean {
-  return (tab.history ?? []).some((entry) => entry.sql !== tab.sql);
+  return (tab.history ?? []).some(
+    (entry) => entry.sql && entry.sql !== tab.sql,
+  );
 }
 
 function restorableHistoryCount(tab: QueryTab): number {
-  return (tab.history ?? []).filter((entry) => entry.sql !== tab.sql).length;
+  return (tab.history ?? []).filter(
+    (entry) => entry.sql && entry.sql !== tab.sql,
+  ).length;
 }
 
 function actionHistoryOptions(historyLabel: string): QueryTabUpdateOptions {
@@ -560,6 +564,13 @@ export default function QueryEditorPanel(props: Props) {
     }
   }
 
+  function handleFormatSelection() {
+    const tab = activeTab();
+    if (!tab) return;
+    if (editorRef?.formatSelection()) return;
+    handleFormatSql();
+  }
+
   async function handleCopyQuery() {
     const tab = activeTab();
     if (!tab?.sql) return;
@@ -736,8 +747,6 @@ export default function QueryEditorPanel(props: Props) {
     const selectedText = editorRef?.getSelectedText() ?? "";
     const hasSelectedText = Boolean(selectedText.trim());
     const tab = activeTab();
-    const canRestoreHistory =
-      !!tab && hasDatabaseSelected() && hasRestorableHistory(tab);
     return [
       {
         id: "execute",
@@ -791,6 +800,14 @@ export default function QueryEditorPanel(props: Props) {
         onClick: () => editorRef?.selectAll(),
         disabled: !tab?.sql,
       },
+      {
+        id: "format",
+        label: hasSelectedText ? "Format Selection" : "Format",
+        icon: <IconFormat />,
+        shortcut: "Alt+Shift+F",
+        onClick: handleFormatSelection,
+        disabled: !hasDatabaseSelected() || !tab?.sql.trim(),
+      },
       { id: "sep-copy", separator: true },
       {
         id: "send-selection-to-chat",
@@ -798,21 +815,6 @@ export default function QueryEditorPanel(props: Props) {
         icon: <i class="fa-solid fa-comment-dots" />,
         onClick: handleSendSelectionToChat,
         disabled: !hasSelectedText,
-      },
-      { id: "sep-2", separator: true },
-      {
-        id: "format",
-        label: "Format",
-        icon: <IconFormat />,
-        onClick: handleFormatSql,
-        disabled: !hasDatabaseSelected() || !tab?.sql.trim(),
-      },
-      {
-        id: "text-history",
-        label: "Text History",
-        icon: <IconHistory />,
-        onClick: () => setHistoryOpen(true),
-        disabled: !canRestoreHistory,
       },
     ];
   };
@@ -1276,6 +1278,7 @@ export default function QueryEditorPanel(props: Props) {
                       props.onTabUpdate(tab.id, { sql: val }, options)
                     }
                     onExecute={handleExecute}
+                    onFormat={handleFormatSql}
                     readOnly={!hasDatabaseSelected()}
                     theme={props.theme}
                     currentDatabase={props.currentDatabase}

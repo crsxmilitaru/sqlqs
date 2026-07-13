@@ -225,7 +225,9 @@ export default function EditorHistoryDialog(props: Props) {
   const [selectedId, setSelectedId] = createSignal("");
 
   const history = createMemo(() =>
-    (props.tab.history ?? []).filter((entry) => entry.sql !== props.tab.sql),
+    (props.tab.history ?? []).filter(
+      (entry) => entry.sql && entry.sql !== props.tab.sql,
+    ),
   );
   const selectedEntry = createMemo<QueryTabHistoryEntry | undefined>(() => {
     const entries = history();

@@ -133,7 +133,7 @@ function VirtualGrid(props: {
   onSendToChat?: (markdown: string) => void;
 }) {
   let containerRef: HTMLDivElement | undefined;
-  let headerRef: HTMLDivElement | undefined;
+  let headerRef: HTMLTableSectionElement | undefined;
   let columnSelectorButtonRef: HTMLButtonElement | undefined;
   const rawRowCache = new Map<number, ProcessedResultRow>();
   const [scrollTop, setScrollTop] = createSignal(0);

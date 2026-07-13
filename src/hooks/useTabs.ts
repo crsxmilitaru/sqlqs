@@ -118,9 +118,9 @@ function captureBaselineHistory(tab: QueryTab, snapshotSql: string) {
   const baselineSql = normalizeSql(tab.savedSql);
   if (
     !tab.history?.length &&
+    baselineSql &&
     baselineSql !== snapshotSql &&
     shouldCaptureHistory(tab, baselineSql, {
-      allowEmpty: true,
       allowSavedSql: true,
     })
   ) {
