@@ -14,6 +14,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     entries: ["index.html"],
+    exclude: ["tauri-plugin-snap-layout"],
   },
   build: {
     chunkSizeWarningLimit: 1500,

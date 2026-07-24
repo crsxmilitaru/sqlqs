@@ -17,6 +17,7 @@
     "updater:default",
     "dialog:default",
     "fs:allow-write-text-file",
-    "notification:default"
+    "notification:default",
+    "snap-layout:default"
   ]
 }

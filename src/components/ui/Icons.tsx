@@ -138,3 +138,60 @@ export function Spinner(props: { class?: string; size?: number }) {
     </svg>
   );
 }
+
+export function IconWinMinimize(props: { class?: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" class={props.class}>
+      <line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1" />
+    </svg>
+  );
+}
+
+export function IconWinMaximize(props: { class?: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" class={props.class}>
+      <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1" fill="none" />
+    </svg>
+  );
+}
+
+export function IconWinRestore(props: { class?: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" class={props.class}>
+      <path d="M2.5 0.5h5a1.5 1.5 0 0 1 1.5 1.5v5" stroke="currentColor" stroke-width="1" fill="none" />
+      <rect x="0.5" y="2.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1" fill="none" />
+    </svg>
+  );
+}
+
+export function IconWinClose(props: { class?: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" class={props.class}>
+      <path d="M0.5 0.5L9.5 9.5M9.5 0.5L0.5 9.5" stroke="currentColor" stroke-width="1" />
+    </svg>
+  );
+}
+
+export function IconMacClose(props: { class?: string }) {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden="true" class={props.class}>
+      <path d="M.5 0L0 .5 2.5 3 0 5.5l.5.5L3 3.5 5.5 6l.5-.5L3.5 3 6 .5 5.5 0 3 2.5.5 0z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function IconMacMinimize(props: { class?: string }) {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden="true" class={props.class}>
+      <path d="M0 2.5h6v1H0z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function IconMacMaximize(props: { class?: string }) {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden="true" class={props.class}>
+      <path d="M2.5 0h1v6h-1zM0 2.5h6v1H0z" fill="currentColor" />
+    </svg>
+  );
+}

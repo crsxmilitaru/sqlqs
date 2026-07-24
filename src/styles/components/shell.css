@@ -246,7 +246,7 @@
   }
 
   .windows-caption-btn {
-    width: 56px;
+    width: 48px;
     height: 100%;
     border: 0;
     background: transparent;
@@ -259,13 +259,14 @@
       color var(--duration-fast) ease;
   }
 
-  .windows-caption-btn:hover {
+  .windows-caption-btn:hover,
+  .windows-caption-btn.is-hovered {
     background: var(--color-surface-hover);
     color: var(--color-text);
   }
 
   .windows-caption-btn-close:hover {
-    background: var(--color-error);
+    background: var(--color-window-caption-close);
     color: var(--color-accent-text);
   }
 
@@ -387,9 +388,11 @@
       filter var(--duration-normal) ease;
   }
 
-  .mac-window-control i {
+  .mac-window-control i,
+  .mac-window-control svg {
     font-size: 6px;
-    line-height: 1;
+    width: 6px;
+    height: 6px;
     color: var(--color-window-control-glyph);
     opacity: 0;
     transform: scale(0.8);
@@ -400,7 +403,9 @@
   }
 
   .mac-window-controls:hover .mac-window-control i,
-  .mac-window-control:focus-visible i {
+  .mac-window-controls:hover .mac-window-control svg,
+  .mac-window-control:focus-visible i,
+  .mac-window-control:focus-visible svg {
     opacity: 1;
     transform: scale(1);
   }

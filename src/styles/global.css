@@ -57,6 +57,7 @@
   --color-object-trigger: var(--color-error);
   --color-object-type: var(--color-accent);
   --color-window-control-glyph: rgba(61, 36, 24, 0.85);
+  --color-window-caption-close: #e81123;
   --color-window-close: #ff5f57;
   --color-window-minimize: #febc2e;
   --color-window-zoom: #28c840;

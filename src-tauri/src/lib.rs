@@ -2387,6 +2387,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_snap_layout::init().button_id("snap-btn").build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
@@ -2472,14 +2473,14 @@ pub fn run() {
             save_custom_theme,
             delete_custom_theme,
             set_mica_theme,
+            minimize_window,
+            maximize_window,
+            close_window,
             store_api_key,
             load_api_key,
             store_brave_search_key,
             load_brave_search_key,
             brave_search,
-            minimize_window,
-            maximize_window,
-            close_window,
             get_system_locale,
             extract_table_name,
             build_row_sql,

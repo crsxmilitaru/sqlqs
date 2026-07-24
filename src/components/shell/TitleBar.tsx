@@ -1,4 +1,5 @@
-import { createSignal, createEffect } from "solid-js";
+import { IconWinMinimize, IconWinMaximize, IconWinRestore, IconWinClose, IconMacClose, IconMacMinimize, IconMacMaximize, } from "../ui/Icons";
+import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
 import { isMacOS } from "../../lib/platform";
@@ -46,10 +47,51 @@ interface Props {
 export default function TitleBar(props: Props) {
   const isMac = isMacOS();
   const [hasAiKey, setHasAiKey] = createSignal(false);
+  const [isMaximized, setIsMaximized] = createSignal(false);
+  const win = getCurrentWindow();
 
   createEffect(() => {
     const _ = props.hideAppContent;
     AiService.getStatus().then((s) => setHasAiKey(s.hasKey));
+  });
+
+  onMount(() => {
+    const unlistens: Array<() => void> = [];
+    let cancelled = false;
+
+    win
+      .isMaximized()
+      .then((maximized) => {
+        if (!cancelled) setIsMaximized(maximized);
+      })
+      .catch(() => undefined);
+
+    const refreshMaximized = async () => {
+      try {
+        const maximized = await win.isMaximized();
+        if (!cancelled) setIsMaximized(maximized);
+      } catch { /* empty */ }
+    };
+
+    const subscribe = (
+      listenFn: (cb: () => Promise<void> | void) => Promise<() => void>,
+    ) =>
+      listenFn(refreshMaximized)
+        .then((fn) => {
+          if (cancelled) {
+            fn();
+          } else {
+            unlistens.push(fn);
+          }
+        })
+        .catch(() => undefined);
+
+    void subscribe((cb) => win.onResized(cb));
+
+    onCleanup(() => {
+      cancelled = true;
+      for (const unlisten of unlistens) unlisten();
+    });
   });
 
   const objectJumpIndexing = () =>
@@ -67,20 +109,27 @@ export default function TitleBar(props: Props) {
       : "Jump to Object";
 
   async function handleMinimize() {
-    await getCurrentWindow().minimize();
+    try {
+      await win.minimize();
+    } catch { /* empty */ }
   }
 
   async function handleMaximize() {
-    const win = getCurrentWindow();
-    if (await win.isMaximized()) {
-      await win.unmaximize();
-    } else {
-      await win.maximize();
-    }
+    try {
+      const currentlyMaximized = await win.isMaximized();
+      if (currentlyMaximized) {
+        await win.unmaximize();
+      } else {
+        await win.maximize();
+      }
+      setIsMaximized(await win.isMaximized());
+    } catch { /* empty */ }
   }
 
   async function handleClose() {
-    await getCurrentWindow().close();
+    try {
+      await win.close();
+    } catch { /* empty */ }
   }
 
   function handleTitleBarMouseDown(
@@ -125,7 +174,7 @@ export default function TitleBar(props: Props) {
                   aria-label="Close window"
                   class="mac-window-control mac-window-control-close"
                 >
-                  <i aria-hidden class="fa-solid fa-xmark" />
+                  <IconMacClose />
                 </button>
               </Tooltip>
               <Tooltip content="Minimize" placement="bottom">
@@ -135,7 +184,7 @@ export default function TitleBar(props: Props) {
                   aria-label="Minimize window"
                   class="mac-window-control mac-window-control-minimize"
                 >
-                  <i aria-hidden class="fa-solid fa-minus" />
+                  <IconMacMinimize />
                 </button>
               </Tooltip>
               <Tooltip content="Zoom" placement="bottom">
@@ -145,7 +194,7 @@ export default function TitleBar(props: Props) {
                   aria-label="Toggle zoom"
                   class="mac-window-control mac-window-control-zoom"
                 >
-                  <i aria-hidden class="fa-solid fa-plus" />
+                  <IconMacMaximize />
                 </button>
               </Tooltip>
             </div>
@@ -174,7 +223,7 @@ export default function TitleBar(props: Props) {
                     disabled={(props.dialogOpen ?? false) || !props.connected}
                     class={`control-icon-btn titlebar-icon-btn ${
                       (props.sidebarVisible ?? true) ? "" : "is-active"
-                    }`}
+                      }`}
                   >
                     <i class="fa-solid fa-table-columns text-m" />
                   </button>
@@ -312,7 +361,7 @@ export default function TitleBar(props: Props) {
                   disabled={!hasAiKey() || !props.connected || !props.hasTabs}
                   class={`control-icon-btn titlebar-icon-btn ${
                     props.aiChatOpen ? "is-active" : ""
-                  }`}
+                    }`}
                 >
                   <i class="fa-solid fa-message text-m" />
                 </button>
@@ -323,21 +372,36 @@ export default function TitleBar(props: Props) {
           {!isMac && (
             <div class="flex h-full relative z-[9999]">
               <Tooltip content="Minimize" placement="bottom">
-                <button onClick={handleMinimize} class="windows-caption-btn">
-                  <i class="fa-solid fa-window-minimize text-s" />
+                <button
+                  type="button"
+                  aria-label="Minimize window"
+                  onClick={handleMinimize}
+                  class="windows-caption-btn"
+                >
+                  <IconWinMinimize />
                 </button>
               </Tooltip>
-              <Tooltip content="Maximize" placement="bottom">
-                <button onClick={handleMaximize} class="windows-caption-btn">
-                  <i class="fa-regular fa-square text-s" />
+              <Tooltip content={isMaximized() ? "Restore" : "Maximize"} placement="bottom">
+                <button
+                  type="button"
+                  aria-label={isMaximized() ? "Restore window" : "Maximize window"}
+                  id="snap-btn"
+                  onClick={handleMaximize}
+                  class="windows-caption-btn"
+                >
+                  <Show when={isMaximized()} fallback={<IconWinMaximize />}>
+                    <IconWinRestore />
+                  </Show>
                 </button>
               </Tooltip>
               <Tooltip content="Close" placement="bottom">
                 <button
+                  type="button"
+                  aria-label="Close window"
                   onClick={handleClose}
                   class="windows-caption-btn windows-caption-btn-close"
                 >
-                  <i class="fa-solid fa-xmark text-m" />
+                  <IconWinClose />
                 </button>
               </Tooltip>
             </div>
