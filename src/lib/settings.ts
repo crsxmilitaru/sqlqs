@@ -25,6 +25,9 @@ const STORAGE_KEY_EDITOR_AUTOCOMPLETE = "sqlqs_editor_autocomplete";
 const STORAGE_KEY_EDITOR_FORMAT_ON_PASTE = "sqlqs_editor_format_on_paste";
 const STORAGE_KEY_REVEAL_DB_IN_EXPLORER = "sqlqs_reveal_current_db_in_explorer";
 const STORAGE_KEY_OPEN_LAST_CHAT_STARTUP = "sqlqs_open_last_chat_startup";
+const STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER =
+  "sqlqs_object_jump_database_filter";
+const STORAGE_KEY_OBJECT_JUMP_TYPE_FILTER = "sqlqs_object_jump_type_filter";
 
 export const DEFAULT_MAX_HISTORY = 50;
 export const MIN_MAX_HISTORY = 10;
@@ -141,6 +144,8 @@ export interface AppPreferences {
   updateChannel: UpdateChannel;
   revealCurrentDatabaseInExplorer: boolean;
   openLastChatStartup: boolean;
+  objectJumpDatabaseFilter: string;
+  objectJumpTypeFilter: string;
   editor: EditorPreferences;
   execution: ExecutionPreferences;
   format: SqlFormatPreferences;
@@ -307,6 +312,10 @@ function readPreferencesFromStorage(): AppPreferences {
       true,
     ),
     openLastChatStartup,
+    objectJumpDatabaseFilter:
+      localStorage.getItem(STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER) ?? "",
+    objectJumpTypeFilter:
+      localStorage.getItem(STORAGE_KEY_OBJECT_JUMP_TYPE_FILTER) ?? "",
     editor: readEditorPreferencesFromStorage(),
     execution: readExecutionPreferencesFromStorage(),
     format: readFormatPreferencesFromStorage(),
@@ -416,6 +425,32 @@ export function saveAiNotifications(value: boolean) {
 export function saveOpenLastChatStartup(value: boolean) {
   localStorage.setItem(STORAGE_KEY_OPEN_LAST_CHAT_STARTUP, String(value));
   setPreferences((prev) => ({ ...prev, openLastChatStartup: value }));
+}
+
+export function loadObjectJumpDatabaseFilter(): string {
+  return preferences().objectJumpDatabaseFilter;
+}
+
+export function saveObjectJumpDatabaseFilter(value: string) {
+  if (value) {
+    localStorage.setItem(STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER, value);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER);
+  }
+  setPreferences((prev) => ({ ...prev, objectJumpDatabaseFilter: value }));
+}
+
+export function loadObjectJumpTypeFilter(): string {
+  return preferences().objectJumpTypeFilter;
+}
+
+export function saveObjectJumpTypeFilter(value: string) {
+  if (value) {
+    localStorage.setItem(STORAGE_KEY_OBJECT_JUMP_TYPE_FILTER, value);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_OBJECT_JUMP_TYPE_FILTER);
+  }
+  setPreferences((prev) => ({ ...prev, objectJumpTypeFilter: value }));
 }
 
 export function loadAutoCheckUpdates(): boolean {

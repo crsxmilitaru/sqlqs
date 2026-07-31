@@ -1151,6 +1151,7 @@ async fn search_server_objects(
     query: String,
     preferred_database: Option<String>,
     object_type: Option<String>,
+    database_filter: Option<String>,
     limit: Option<usize>,
 ) -> Result<ServerObjectSearchResponse, String> {
     let limit = limit.unwrap_or(60).clamp(1, 200);
@@ -1163,6 +1164,7 @@ async fn search_server_objects(
         &query,
         preferred_database.as_deref(),
         object_type.as_deref(),
+        database_filter.as_deref(),
         limit,
     ))
 }

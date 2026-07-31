@@ -1148,6 +1148,7 @@ export default function App() {
         open={isObjectJumpOpen()}
         connected={connected()}
         currentDatabase={currentDatabase()}
+        databases={databases()}
         indexStatus={objectJumpIndexStatus()}
         onClose={() => setIsObjectJumpOpen(false)}
         onSelect={(selection: ObjectJumpSelection) =>

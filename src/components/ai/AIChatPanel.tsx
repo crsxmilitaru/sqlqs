@@ -2025,24 +2025,20 @@ export default function AIChatPanel(props: Props) {
                       return (
                         <div
                           class={`rounded-xl border transition-colors duration-200 ${
-                            isFocused()
-                              ? "border-accent/30 bg-accent/5"
-                              : isActive()
-                                ? "border-accent/30 bg-accent/5"
-                                : "border-transparent bg-transparent hover:border-border/40 hover:bg-surface-hover/60"
+                            isFocused() || isActive()
+                              ? "border-border/60 bg-surface-active/60"
+                              : "border-transparent bg-transparent hover:border-border/40 hover:bg-surface-hover/60"
                           }`}
                         >
-                          <div class="flex items-center gap-1 p-1 pr-2">
+                          <div class="flex items-center gap-2 p-1.5 pr-4">
                             <button
                               type="button"
-                              class="min-w-0 flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-left transition-colors"
+                              class="min-w-0 flex-1 cursor-pointer rounded-lg px-3 py-2.5 text-left transition-colors"
                               onClick={() =>
                                 void handleLoadConversation(conv.id)
                               }
                             >
-                              <div
-                                class={`truncate text-m font-semibold ${isActive() ? "text-accent" : "text-text"}`}
-                              >
+                              <div class="truncate text-m font-semibold text-text">
                                 {conv.title}
                               </div>
                               <div class="mt-0.5 text-s text-text-muted truncate">
@@ -2059,7 +2055,7 @@ export default function AIChatPanel(props: Props) {
                                     conv.title,
                                   );
                                 }}
-                                class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm border border-border/50 bg-surface-header text-text-muted transition-colors hover:border-error/40 hover:bg-error/10 hover:text-error cursor-pointer"
+                                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm border border-border/50 bg-surface-header text-text-muted transition-colors hover:border-error/40 hover:bg-error/10 hover:text-error cursor-pointer"
                               >
                                 <Icon name="trash" class="text-[10px]" />
                               </button>
@@ -2069,6 +2065,20 @@ export default function AIChatPanel(props: Props) {
                       );
                     }}
                   </For>
+                </div>
+                <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-border/50 px-4 py-2 text-[11px] text-text-muted">
+                  <span>
+                    <kbd class="font-sans">↑↓</kbd> navigate
+                  </span>
+                  <span>
+                    <kbd class="font-sans">↵</kbd> open
+                  </span>
+                  <span>
+                    <kbd class="font-sans">del</kbd> delete
+                  </span>
+                  <span>
+                    <kbd class="font-sans">esc</kbd> close
+                  </span>
                 </div>
             </div>
           </DialogShell>

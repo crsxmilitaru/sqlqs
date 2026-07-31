@@ -13,6 +13,12 @@ import type {
   ServerObjectIndexStatus,
   ServerObjectSearchResponse,
 } from "../../lib/types";
+import {
+  loadObjectJumpDatabaseFilter,
+  loadObjectJumpTypeFilter,
+  saveObjectJumpDatabaseFilter,
+  saveObjectJumpTypeFilter,
+} from "../../lib/settings";
 import type { ContextMenuItem } from "../ui/ContextMenu";
 import {
   Icon,
@@ -25,6 +31,7 @@ import {
   Spinner,
 } from "../ui/Icons";
 import DialogShell from "../ui/DialogShell";
+import Dropdown from "../ui/Dropdown";
 import { Loader } from "../ui/Loader";
 import type { ExplorerObjectType } from "./ObjectMenu";
 import { buildObjectExplorerMenuItems } from "./ObjectMenu";
@@ -42,6 +49,7 @@ interface Props {
   open: boolean;
   connected: boolean;
   currentDatabase?: string;
+  databases?: string[];
   indexStatus: ServerObjectIndexStatus;
   onClose: () => void;
   onSelect: (selection: ObjectJumpSelection) => void;
@@ -111,6 +119,12 @@ function getJumpObjectSourceId(object: JumpObject): string {
   return `object:${object.database}:${object.schema_name}:${object.name}:${object.object_type}`;
 }
 
+const JUMP_LISTBOX_ID = "object-jump-listbox";
+
+function getJumpObjectOptionId(object: JumpObject): string {
+  return `object-jump-option:${encodeURIComponent(object.database)}:${encodeURIComponent(object.schema_name)}:${encodeURIComponent(object.name)}:${encodeURIComponent(object.object_type)}`;
+}
+
 function getObjectTypeLabel(type: string): string {
   switch (type) {
     case "TABLE":
@@ -175,7 +189,38 @@ export default function ObjectJumpPalette(props: Props) {
   );
   const [visible, setVisible] = createSignal(false);
   const [recents, setRecents] = createSignal<JumpObject[]>(loadRecents());
-  const [typeFilter, setTypeFilter] = createSignal<string | null>(null);
+  const [typeFilter, setTypeFilter] = createSignal<string | null>(
+    loadObjectJumpTypeFilter() || null,
+  );
+  const [databaseFilter, setDatabaseFilter] = createSignal<string>(
+    loadObjectJumpDatabaseFilter(),
+  );
+
+  const databaseOptions = createMemo<{ value: string; label: string }[]>(() => {
+    const list = props.databases ?? [];
+    return [{ value: "", label: "All databases" }, ...list.map((db) => ({
+      value: db,
+      label: db,
+    }))];
+  });
+
+  const typeOptions = createMemo<{ value: string; label: string }[]>(() => [
+    { value: "", label: "All types" },
+    ...TYPE_FILTERS.map((f) => ({ value: f.value, label: f.label })),
+  ]);
+
+  createEffect(() => {
+    const current = databaseFilter();
+    const list = props.databases;
+    if (!current || !list || list.length === 0) return;
+    const isValid = list.some(
+      (db) => db.toLowerCase() === current.toLowerCase(),
+    );
+    if (!isValid) {
+      setDatabaseFilter("");
+      saveObjectJumpDatabaseFilter("");
+    }
+  });
 
   let inputRef: HTMLInputElement | undefined;
   let itemRefs: Array<HTMLButtonElement | null> = [];
@@ -210,7 +255,11 @@ export default function ObjectJumpPalette(props: Props) {
     onCleanup(() => window.clearTimeout(handle));
   });
 
-  const runSearch = async (searchQuery: string, objectType: string | null) => {
+  const runSearch = async (
+    searchQuery: string,
+    objectType: string | null,
+    databaseFilterValue: string,
+  ) => {
     const requestId = ++searchRequestRef;
     setSearchLoading(true);
 
@@ -221,6 +270,7 @@ export default function ObjectJumpPalette(props: Props) {
           query: searchQuery,
           preferredDatabase: props.currentDatabase,
           objectType: objectType ?? undefined,
+          databaseFilter: databaseFilterValue || undefined,
           limit: MAX_RESULTS,
         },
       );
@@ -277,7 +327,6 @@ export default function ObjectJumpPalette(props: Props) {
       setExpandedSourceId(null);
       setResolvingSourceId(null);
       setRunningActionId(null);
-      setTypeFilter(null);
       return;
     }
 
@@ -323,9 +372,10 @@ export default function ObjectJumpPalette(props: Props) {
     const connected = props.connected;
     const dq = deferredQuery();
     const filter = typeFilter();
+    const dbFilter = databaseFilter();
     if (!open || !connected || !isSearching()) return;
 
-    void runSearch(dq, filter);
+    void runSearch(dq, filter, dbFilter);
   });
 
   createEffect(() => {
@@ -334,10 +384,11 @@ export default function ObjectJumpPalette(props: Props) {
     const indexing = searchIndexing();
     const dq = deferredQuery();
     const filter = typeFilter();
+    const dbFilter = databaseFilter();
     if (!open || !connected || !indexing || !isSearching()) return;
 
     const interval = window.setInterval(() => {
-      void runSearch(dq, filter);
+      void runSearch(dq, filter, dbFilter);
     }, 500);
 
     onCleanup(() => {
@@ -512,10 +563,25 @@ export default function ObjectJumpPalette(props: Props) {
   const failedDatabaseCount = () => effectiveFailedDatabases().length;
   const isSearching = () => query().trim().length > 0;
   const displayItems = createMemo<JumpObject[]>(() => {
-    const base = isSearching() ? searchResults() : recents();
-    const filter = typeFilter();
-    return filter ? base.filter((item) => item.object_type === filter) : base;
+    if (isSearching()) return searchResults();
+    const typeF = typeFilter();
+    const dbF = databaseFilter();
+    if (!typeF && !dbF) return recents();
+    return recents().filter((item) => {
+      if (typeF && item.object_type !== typeF) return false;
+      if (dbF && item.database.toLowerCase() !== dbF.toLowerCase())
+        return false;
+      return true;
+    });
   });
+  const hasActiveFilter = () =>
+    typeFilter() !== null || databaseFilter() !== "";
+  const clearFilters = () => {
+    setTypeFilter(null);
+    saveObjectJumpTypeFilter("");
+    setDatabaseFilter("");
+    saveObjectJumpDatabaseFilter("");
+  };
   const canShowResults = () => displayItems().length > 0;
   const hasNoScope = () =>
     !searchLoading() &&
@@ -528,14 +594,16 @@ export default function ObjectJumpPalette(props: Props) {
       ? "Indexing objects across the whole server…"
       : "Searching objects across the whole server…";
   const emptyStateMessage = () => {
-    const filtered = typeFilter() !== null;
+    const hasType = typeFilter() !== null;
+    const hasDb = databaseFilter() !== "";
+    const hasFilter = hasType || hasDb;
     if (isSearching()) {
-      return filtered
-        ? "No objects matched that search for the selected type."
+      return hasFilter
+        ? "No objects matched that search for the selected filters."
         : "No objects matched that search.";
     }
-    return filtered
-      ? "No recent objects of that type."
+    return hasFilter
+      ? "No recent objects match the selected filters."
       : "No recent objects yet — type to search across all databases.";
   };
   const footerStatus = () =>
@@ -559,7 +627,7 @@ export default function ObjectJumpPalette(props: Props) {
           class="flex flex-col shadow-2xl"
           ariaLabel="Jump to database object"
         >
-          <div class="mx-auto flex h-full w-full max-w-2xl flex-col px-4">
+          <div class="mx-auto flex h-full w-[672px] max-w-full flex-col px-4">
               <div class="px-2 py-2">
                 <div class="relative flex items-center">
                   <Icon
@@ -573,42 +641,49 @@ export default function ObjectJumpPalette(props: Props) {
                       setQuery((event.target as HTMLInputElement).value)
                     }
                     onKeyDown={handleKeyDown}
+                    role="combobox"
+                    aria-expanded={canShowResults()}
+                    aria-controls={
+                      canShowResults() ? JUMP_LISTBOX_ID : undefined
+                    }
+                    aria-autocomplete="list"
+                    aria-activedescendant={
+                      highlightedIndex() >= 0 &&
+                      displayItems()[highlightedIndex()]
+                        ? getJumpObjectOptionId(
+                            displayItems()[highlightedIndex()],
+                          )
+                        : undefined
+                    }
                     placeholder="Jump to a table, procedure, function, trigger, or type…"
                     spellcheck={false}
                     class="h-12 w-full bg-transparent pl-11 pr-4 text-base text-text placeholder-text-muted outline-none"
                   />
                 </div>
-                <div class="flex flex-wrap items-center justify-center gap-1.5 px-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setTypeFilter(null)}
-                    class={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] transition-colors ${
-                      typeFilter() === null
-                        ? "border-border bg-surface-active text-text"
-                        : "border-border/50 text-text-muted hover:border-border hover:text-text"
-                    }`}
-                  >
-                    All
-                  </button>
-                  <For each={TYPE_FILTERS}>
-                    {(filter) => (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTypeFilter((prev) =>
-                            prev === filter.value ? null : filter.value,
-                          )
-                        }
-                        class={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.16em] transition-colors ${
-                          typeFilter() === filter.value
-                            ? "border-border bg-surface-active text-text"
-                            : "border-border/50 text-text-muted hover:border-border hover:text-text"
-                        }`}
-                      >
-                        {filter.label}
-                      </button>
-                    )}
-                  </For>
+                <div class="flex flex-wrap items-center gap-1.5 px-2 pt-2">
+                  <Dropdown
+                    value={databaseFilter()}
+                    options={databaseOptions()}
+                    onChange={(value) => {
+                      setDatabaseFilter(value);
+                      saveObjectJumpDatabaseFilter(value);
+                    }}
+                    placeholder="All databases"
+                    class="w-56"
+                    filterable
+                    compact
+                  />
+                  <Dropdown
+                    value={typeFilter() ?? ""}
+                    options={typeOptions()}
+                    onChange={(value) => {
+                      setTypeFilter(value || null);
+                      saveObjectJumpTypeFilter(value);
+                    }}
+                    placeholder="All types"
+                    class="w-36"
+                    compact
+                  />
                 </div>
               </div>
 
@@ -655,12 +730,29 @@ export default function ObjectJumpPalette(props: Props) {
                           <div class="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center text-text-muted">
                             <Icon name="compass" class="text-2xl opacity-50" />
                             <p class="text-m">{emptyStateMessage()}</p>
+                            <Show when={hasActiveFilter()}>
+                              <button
+                                type="button"
+                                onClick={clearFilters}
+                                class="rounded-md border border-border/50 px-3 py-1 text-s text-text-muted transition-colors hover:border-border hover:text-text"
+                              >
+                                Clear filters
+                              </button>
+                            </Show>
                           </div>
                         }
                       >
-                        <div class="space-y-1">
-                          <Show when={!isSearching()}>
-                            <div class="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                        <div
+                          id={JUMP_LISTBOX_ID}
+                          role="listbox"
+                          aria-label="Database objects"
+                          class="space-y-1"
+                        >
+                          <Show when={!isSearching() && !hasActiveFilter()}>
+                            <div
+                              role="presentation"
+                              class="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted"
+                            >
                               Recent
                             </div>
                           </Show>
@@ -669,6 +761,7 @@ export default function ObjectJumpPalette(props: Props) {
                               const isActive = () =>
                                 index() === highlightedIndex();
                               const sourceId = getJumpObjectSourceId(object);
+                              const optionId = getJumpObjectOptionId(object);
                               const isExpanded = () =>
                                 expandedSourceId() === sourceId;
                               const typeLabel = getObjectTypeLabel(
@@ -678,6 +771,9 @@ export default function ObjectJumpPalette(props: Props) {
 
                               return (
                                 <div
+                                  id={optionId}
+                                  role="option"
+                                  aria-selected={isActive()}
                                   class={`rounded-xl border transition-colors duration-200 ${
                                     isExpanded()
                                       ? "border-border/70 bg-surface-active/80 shadow-[0_18px_50px_-30px_var(--color-shadow-deep)]"
@@ -705,7 +801,6 @@ export default function ObjectJumpPalette(props: Props) {
                                       onMouseEnter={() =>
                                         setHighlightedIndex(index())
                                       }
-                                      aria-selected={isActive()}
                                       aria-expanded={isExpanded()}
                                       class="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
                                     >
@@ -890,14 +985,28 @@ export default function ObjectJumpPalette(props: Props) {
               <div class="flex items-center justify-between gap-3 border-t border-border/50 px-4 py-3 text-s text-text-muted">
                 <span>
                   {isSearching()
-                    ? `${Math.min(searchResults().length, totalMatches())} of ${totalMatches()} matches`
-                    : `${recents().length} recent`}
+                    ? `${displayItems().length} of ${totalMatches()} matches`
+                    : `${displayItems().length} recent`}
                 </span>
                 <span class="flex items-center gap-1.5">
                   <Show when={effectiveIndexing()}>
                     <Spinner size={12} />
                   </Show>
                   <span>{footerStatus()}</span>
+                </span>
+              </div>
+              <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-border/50 px-4 py-2 text-[11px] text-text-muted">
+                <span>
+                  <kbd class="font-sans">↑↓</kbd> navigate
+                </span>
+                <span>
+                  <kbd class="font-sans">↵</kbd>/<kbd class="font-sans">→</kbd> actions
+                </span>
+                <span>
+                  <kbd class="font-sans">↹</kbd> focus filters
+                </span>
+                <span>
+                  <kbd class="font-sans">esc</kbd> close
                 </span>
               </div>
           </div>

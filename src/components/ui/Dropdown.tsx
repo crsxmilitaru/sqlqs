@@ -240,6 +240,7 @@ export default function Dropdown(props: Props) {
       <button
         ref={buttonRef}
         type="button"
+        title={selectedOption()?.label}
         onClick={() => {
           if (disabled()) return;
           if (!isOpen()) updatePosition();
