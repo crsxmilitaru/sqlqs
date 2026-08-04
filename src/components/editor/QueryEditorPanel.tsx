@@ -136,6 +136,7 @@ export default function QueryEditorPanel(props: Props) {
   } | null>(null);
   let renameInputRef: HTMLInputElement | undefined;
   let tabBarRef: HTMLDivElement | undefined;
+  let savedTabBarScrollLeft = 0;
   let cleanupTabBarWheelListener: (() => void) | undefined;
   let cleanupDragListeners: (() => void) | undefined;
   let cleanupEditorResizeListeners: (() => void) | undefined;
@@ -204,9 +205,18 @@ export default function QueryEditorPanel(props: Props) {
       tabBarRef?.scrollBy({ left: delta });
     };
 
+    const handleTabBarScroll = () => {
+      savedTabBarScrollLeft = el.scrollLeft;
+    };
+
     el.addEventListener("wheel", handleTabBarWheel, { passive: true });
+    el.addEventListener("scroll", handleTabBarScroll, { passive: true });
+    requestAnimationFrame(() => {
+      el.scrollLeft = savedTabBarScrollLeft;
+    });
     cleanupTabBarWheelListener = () => {
       el.removeEventListener("wheel", handleTabBarWheel);
+      el.removeEventListener("scroll", handleTabBarScroll);
       if (tabBarRef === el) {
         tabBarRef = undefined;
       }
@@ -494,6 +504,21 @@ export default function QueryEditorPanel(props: Props) {
       ([activeTabId, currentDatabase, dialogOpen]) => {
         if (!activeTabId || !currentDatabase || dialogOpen) return;
         focusEditorSoon();
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.activeTabId,
+      (activeTabId) => {
+        if (!activeTabId) return;
+        requestAnimationFrame(() => {
+          tabBarRef
+            ?.querySelector('[role="tab"][aria-selected="true"]')
+            ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        });
       },
       { defer: true },
     ),
@@ -966,13 +991,6 @@ export default function QueryEditorPanel(props: Props) {
                                   <div class="tab-drop-indicator" />
                                 )}
                                 <div
-                                  ref={(el) => {
-                                    if (isActive())
-                                      el.scrollIntoView({
-                                        block: "nearest",
-                                        inline: "nearest",
-                                      });
-                                  }}
                                   data-tab-index={index()}
                                   onPointerDown={(e) =>
                                     handleTabPointerDown(e, tab.id, index())
