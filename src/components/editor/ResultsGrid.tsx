@@ -1129,6 +1129,9 @@ export default function ResultsGrid(props: Props) {
   const [rowContextMenu, setRowContextMenu] =
     createSignal<RowContextMenuState | null>(null);
   const [tableName, setTableName] = createSignal<string | null>(null);
+  const [resultSetTables, setResultSetTables] = createSignal<
+    Record<number, string | null>
+  >({});
   const [actionDialog, setActionDialog] =
     createSignal<RowActionDialogState | null>(null);
   const [expandedResultSetIndices, setExpandedResultSetIndices] = createSignal<
@@ -1162,6 +1165,44 @@ export default function ResultsGrid(props: Props) {
     invoke<string | null>("extract_table_name", { sql })
       .then(setTableName)
       .catch(() => setTableName(null));
+  });
+
+  createEffect(() => {
+    const sql = props.sourceSql;
+    const sets = props.result?.result_sets;
+    if (!sql || !sets || sets.length === 0) {
+      setResultSetTables({});
+      return;
+    }
+
+    const fromColumns: Record<number, string | null> = {};
+    let missing = 0;
+    sets.forEach((rs, index) => {
+      const base = rs.columns.find((c) => c.base_table_name);
+      if (base?.base_table_name) {
+        fromColumns[index] = base.base_schema_name
+          ? `${base.base_schema_name}.${base.base_table_name}`
+          : base.base_table_name;
+      } else {
+        fromColumns[index] = null;
+        missing += 1;
+      }
+    });
+    setResultSetTables(fromColumns);
+
+    if (missing === 0) return;
+
+    invoke<string[]>("extract_result_set_table_names", { sql })
+      .then((names) => {
+        setResultSetTables((prev) => {
+          const map: Record<number, string | null> = { ...prev };
+          names.forEach((name, index) => {
+            if (!map[index] && name) map[index] = name;
+          });
+          return map;
+        });
+      })
+      .catch(() => {});
   });
 
   const toggleResultSet = (index: number) => {
@@ -1243,6 +1284,16 @@ export default function ResultsGrid(props: Props) {
               const menu = rowContextMenu();
               return rs && menu ? rs.rows[menu.rowIndex] : null;
             };
+
+            const resolveTableName = (rs: ResultSet | null): string | null => {
+              if (!rs) return tableName();
+              const rsIndex = result().result_sets.indexOf(rs);
+              const mapped = resultSetTables()[rsIndex];
+              if (mapped) return mapped;
+              if (result().result_sets.length > 1) return null;
+              return tableName();
+            };
+            const currentTableName = () => resolveTableName(currentResultSet());
             const openActionDialog = (mode: RowActionMode) => {
               const menu = rowContextMenu();
               if (!menu) return;
@@ -1262,7 +1313,11 @@ export default function ResultsGrid(props: Props) {
               setActionDialog({ mode, rowIndex, resultSetIndex });
             };
 
-            const canDoRowActions = () => !!tableName() && !!props.sourceSql;
+            const canDoRowActions = () => {
+              if (!props.sourceSql) return false;
+              if (currentTableName()) return true;
+              return !!currentResultSet()?.columns.some((c) => c.base_table_name);
+            };
 
             const renderTruncatedNotice = (rs: ResultSet, rsi: number) => (
               <Show when={rs.truncated}>
@@ -1458,11 +1513,11 @@ export default function ResultsGrid(props: Props) {
                       id: "copy-row-insert",
                       label: "Copy Row as INSERT",
                       icon: <i class="fa-solid fa-file-import" />,
-                      disabled: !tableName(),
+                      disabled: !currentTableName(),
                       onClick: () => {
                         const row = selectedRow();
                         const rs = currentResultSet();
-                        const table = tableName();
+                        const table = currentTableName();
                         if (!row || !rs || !table) return;
                         const colsList = rs.columns.map(c => `[${c.name}]`).join(", ");
                         const valsList = row.map(val => {
@@ -1500,7 +1555,7 @@ export default function ResultsGrid(props: Props) {
                 },
               );
 
-              if (!tableName()) {
+              if (!canDoRowActions()) {
                 items.push({ id: "sep1", separator: true });
                 items.push({
                   id: "hint-text",
@@ -1601,6 +1656,7 @@ export default function ResultsGrid(props: Props) {
                           columns={rs()!.columns}
                           row={row()!}
                           sourceSql={props.sourceSql!}
+                          fallbackTableName={resolveTableName(rs() ?? null)}
                           onClose={() => setActionDialog(null)}
                           onSuccess={() => {
                             setActionDialog(null);

@@ -1061,6 +1061,10 @@ async fn execute_query_via_sidecar(
                         type_name: c.type_name,
                         is_identity: c.is_identity,
                         is_nullable: c.is_nullable,
+                        base_table_name: c.base_table_name,
+                        base_schema_name: c.base_schema_name,
+                        base_column_name: c.base_column_name,
+                        is_expression: c.is_expression,
                     }).collect(),
                     rows: rs.rows,
                     truncated: rs.truncated,
@@ -1964,14 +1968,21 @@ fn extract_table_name(sql: String) -> Option<String> {
 }
 
 #[tauri::command]
+fn extract_result_set_table_names(sql: String) -> Vec<String> {
+    sql_gen::extract_result_set_table_names(&sql)
+}
+
+#[tauri::command]
 fn build_row_sql(
     operation: String,
     source_sql: String,
     columns: Vec<sql_gen::ColumnDef>,
     row: Vec<serde_json::Value>,
     primary_key_columns: Option<Vec<String>>,
+    target_table: Option<String>,
 ) -> Result<String, String> {
-    let table_name = sql_gen::extract_table_name(&source_sql)
+    let table_name = target_table
+        .or_else(|| sql_gen::extract_table_name(&source_sql))
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
     let primary_key_columns = primary_key_columns.unwrap_or_default();
 
@@ -1983,16 +1994,35 @@ fn build_row_sql(
     }
 }
 
+fn resolve_table_ref(
+    source_sql: &str,
+    table: Option<String>,
+    schema: Option<String>,
+) -> Result<String, String> {
+    if let Some(table) = table {
+        let trimmed = table.trim();
+        if !trimmed.is_empty() {
+            if let Some(schema) = schema.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+                return Ok(format!("{}.{}", schema, trimmed));
+            }
+            return Ok(trimmed.to_string());
+        }
+    }
+    sql_gen::extract_table_name(source_sql)
+        .ok_or_else(|| "Could not determine table name from query".to_string())
+}
+
 #[tauri::command]
 async fn get_table_identity_columns(
     state: State<'_, AppState>,
     source_sql: String,
+    table: Option<String>,
+    schema: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let table_name = sql_gen::extract_table_name(&source_sql)
-        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let table_ref = resolve_table_ref(&source_sql, table, schema)?;
     let sql = format!(
         "SELECT c.name FROM sys.columns c WHERE c.object_id = OBJECT_ID('{}') AND c.is_identity = 1",
-        table_name.replace('\'', "''")
+        table_ref.replace('\'', "''")
     );
     let response = sidecar_run_query(&state, &sql).await?;
     let Some(result_set) = first_result_set(response) else {
@@ -2009,9 +2039,10 @@ async fn get_table_identity_columns(
 async fn get_primary_key_columns(
     state: State<'_, AppState>,
     source_sql: String,
+    table: Option<String>,
+    schema: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let table_name = sql_gen::extract_table_name(&source_sql)
-        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let table_ref = resolve_table_ref(&source_sql, table, schema)?;
     let sql = format!(
         "SELECT c.name \
          FROM sys.indexes i \
@@ -2019,7 +2050,7 @@ async fn get_primary_key_columns(
          JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id \
          WHERE i.object_id = OBJECT_ID('{}') AND i.is_primary_key = 1 \
          ORDER BY ic.key_ordinal",
-        table_name.replace('\'', "''")
+        table_ref.replace('\'', "''")
     );
     let response = sidecar_run_query(&state, &sql).await?;
     let Some(result_set) = first_result_set(response) else {
@@ -2036,9 +2067,10 @@ async fn get_primary_key_columns(
 async fn get_table_column_metadata(
     state: State<'_, AppState>,
     source_sql: String,
+    table: Option<String>,
+    schema: Option<String>,
 ) -> Result<Vec<ColumnInfo>, String> {
-    let table_name = sql_gen::extract_table_name(&source_sql)
-        .ok_or_else(|| "Could not determine table name from query".to_string())?;
+    let table_ref = resolve_table_ref(&source_sql, table, schema)?;
     let sql = format!(
         "SELECT \
             c.name, \
@@ -2056,7 +2088,7 @@ async fn get_table_column_metadata(
          JOIN sys.types tp ON c.user_type_id = tp.user_type_id \
          WHERE c.object_id = OBJECT_ID('{}') \
          ORDER BY c.column_id",
-        table_name.replace('\'', "''")
+        table_ref.replace('\'', "''")
     );
     let response = sidecar_run_query(&state, &sql).await?;
     let Some(result_set) = first_result_set(response) else {
@@ -2076,6 +2108,10 @@ async fn get_table_column_metadata(
                 type_name,
                 is_identity,
                 is_nullable,
+                base_table_name: None,
+                base_schema_name: None,
+                base_column_name: None,
+                is_expression: false,
             })
         })
         .collect())
@@ -2088,8 +2124,10 @@ fn build_row_update_with_edits(
     old_row: Vec<serde_json::Value>,
     new_row: Vec<serde_json::Value>,
     primary_key_columns: Vec<String>,
+    target_table: Option<String>,
 ) -> Result<String, String> {
-    let table_name = sql_gen::extract_table_name(&source_sql)
+    let table_name = target_table
+        .or_else(|| sql_gen::extract_table_name(&source_sql))
         .ok_or_else(|| "Could not determine table name from query".to_string())?;
     sql_gen::build_update_sql_with_edits(
         &table_name,
@@ -2246,6 +2284,10 @@ async fn get_columns_via_sidecar(
             type_name: c.type_name,
             is_identity: c.is_identity,
             is_nullable: c.is_nullable,
+            base_table_name: None,
+            base_schema_name: None,
+            base_column_name: None,
+            is_expression: false,
         })
         .collect())
 }
@@ -2485,6 +2527,7 @@ pub fn run() {
             brave_search,
             get_system_locale,
             extract_table_name,
+            extract_result_set_table_names,
             build_row_sql,
             build_row_update_with_edits,
             get_table_identity_columns,

@@ -13,6 +13,15 @@ pub struct ColumnDef {
     #[allow(dead_code)]
     #[serde(default = "default_true")]
     pub is_nullable: bool,
+    #[serde(default)]
+    pub base_table_name: Option<String>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    pub base_schema_name: Option<String>,
+    #[serde(default)]
+    pub base_column_name: Option<String>,
+    #[serde(default)]
+    pub is_expression: bool,
 }
 
 fn default_true() -> bool {
@@ -95,54 +104,107 @@ pub fn strip_comments(sql: &str) -> String {
 }
 
 pub fn extract_table_name(sql: &str) -> Option<String> {
-    let normalized = strip_comments(sql);
-    if normalized.is_empty() {
-        return None;
-    }
-    for keyword in &["from", "update"] {
-        if let Some(name) = extract_after_keyword(&normalized, keyword) {
-            return Some(name);
-        }
-    }
-    None
+    extract_result_set_table_names(sql).into_iter().next()
 }
 
-fn extract_after_keyword(sql: &str, keyword: &str) -> Option<String> {
-    let lower = sql.to_lowercase();
-    let mut search_start = 0;
-
-    while let Some(pos) = lower[search_start..].find(keyword) {
-        let abs_pos = search_start + pos;
-
-        if abs_pos > 0 {
-            let prev = sql.as_bytes()[abs_pos - 1];
-            if prev.is_ascii_alphanumeric() || prev == b'_' {
-                search_start = abs_pos + keyword.len();
-                continue;
-            }
-        }
-        let after_pos = abs_pos + keyword.len();
-        if after_pos < sql.len() {
-            let next = sql.as_bytes()[after_pos];
-            if next.is_ascii_alphanumeric() || next == b'_' {
-                search_start = after_pos;
-                continue;
-            }
-        }
-
-        let rest = sql[after_pos..].trim_start();
-        if rest.is_empty() {
-            return None;
-        }
-
-        let name = parse_table_identifier(rest)?;
-        let trimmed = name.trim_end_matches([';', ',']);
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-        search_start = after_pos;
+pub fn extract_result_set_table_names(sql: &str) -> Vec<String> {
+    let normalized = strip_comments(sql);
+    if normalized.is_empty() {
+        return Vec::new();
     }
-    None
+
+    let lower = normalized.to_lowercase();
+    let bytes = normalized.as_bytes();
+    let mut names = Vec::new();
+    let mut depth = 0i32;
+    let mut i = 0usize;
+    let mut in_string = false;
+    let mut in_quoted_ident = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        if in_string {
+            if b == b'\'' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    i += 2;
+                } else {
+                    in_string = false;
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if in_quoted_ident {
+            if b == b']' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                    i += 2;
+                } else {
+                    in_quoted_ident = false;
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        match b {
+            b'\'' => {
+                in_string = true;
+                i += 1;
+            }
+            b'[' => {
+                in_quoted_ident = true;
+                i += 1;
+            }
+            b'(' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            _ if depth == 0 => {
+                let mut matched = false;
+                for keyword in ["from", "update"] {
+                    if lower[i..].starts_with(keyword) {
+                        let end = i + keyword.len();
+                        let prev_ok = i == 0 || {
+                            let prev = bytes[i - 1];
+                            !prev.is_ascii_alphanumeric() && prev != b'_'
+                        };
+                        let next_ok = end >= bytes.len() || {
+                            let next = bytes[end];
+                            !next.is_ascii_alphanumeric() && next != b'_'
+                        };
+                        if prev_ok && next_ok {
+                            if let Some(name) = parse_table_identifier(normalized[end..].trim_start())
+                            {
+                                let trimmed = name.trim_end_matches([';', ',']).to_string();
+                                if !trimmed.is_empty() {
+                                    names.push(trimmed);
+                                }
+                            }
+                            i = end;
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                if !matched {
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+
+    names
 }
 
 fn parse_table_identifier(s: &str) -> Option<String> {
@@ -211,18 +273,64 @@ fn parse_table_identifier(s: &str) -> Option<String> {
 }
 
 fn find_column_index(columns: &[ColumnDef], name: &str) -> Option<usize> {
-    columns.iter().position(|col| col.name == name).or_else(|| {
-        let matches: Vec<usize> = columns
-            .iter()
-            .enumerate()
-            .filter_map(|(index, col)| col.name.eq_ignore_ascii_case(name).then_some(index))
-            .collect();
-        if matches.len() == 1 {
-            matches.first().copied()
-        } else {
-            None
-        }
-    })
+    columns
+        .iter()
+        .position(|col| col.name == name)
+        .or_else(|| {
+            columns
+                .iter()
+                .position(|col| col.base_column_name.as_deref() == Some(name))
+        })
+        .or_else(|| {
+            let matches: Vec<usize> = columns
+                .iter()
+                .enumerate()
+                .filter_map(|(index, col)| {
+                    if col.name.eq_ignore_ascii_case(name) {
+                        return Some(index);
+                    }
+                    if col
+                        .base_column_name
+                        .as_deref()
+                        .map(|n| n.eq_ignore_ascii_case(name))
+                        .unwrap_or(false)
+                    {
+                        return Some(index);
+                    }
+                    None
+                })
+                .collect();
+            if matches.len() == 1 {
+                matches.first().copied()
+            } else {
+                None
+            }
+        })
+}
+
+fn column_sql_name(col: &ColumnDef) -> &str {
+    col.base_column_name.as_deref().unwrap_or(&col.name)
+}
+
+fn column_belongs_to_table(col: &ColumnDef, target_table: Option<&str>) -> bool {
+    if col.is_expression {
+        return false;
+    }
+    match (&col.base_table_name, target_table) {
+        (Some(base), Some(target)) => base.eq_ignore_ascii_case(target),
+        (None, _) => true,
+        (Some(_), None) => false,
+    }
+}
+
+fn bare_table_name(table_name: &str) -> String {
+    let after_dot = table_name.rsplit('.').next().unwrap_or(table_name);
+    let trimmed = after_dot.trim();
+    if let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        inner.replace("]]", "]")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub fn build_where_clause(
@@ -250,7 +358,7 @@ pub fn build_where_clause(
                 )
             })?;
 
-            let qcol = quote_identifier(&col.name);
+            let qcol = quote_identifier(column_sql_name(col));
             if val.is_null() {
                 Ok(format!("{qcol} IS NULL"))
             } else {
@@ -272,17 +380,32 @@ fn wrap_single_row_dml(sql: &str) -> String {
     )
 }
 
+fn resolve_target_base_table(
+    columns: &[ColumnDef],
+    primary_key_columns: &[String],
+) -> Option<String> {
+    for pk_name in primary_key_columns {
+        if let Some(idx) = find_column_index(columns, pk_name) {
+            if let Some(base) = columns.get(idx).and_then(|c| c.base_table_name.clone()) {
+                return Some(base);
+            }
+        }
+    }
+    None
+}
+
 pub fn build_update_sql(
     table_name: &str,
     columns: &[ColumnDef],
     row: &[serde_json::Value],
     primary_key_columns: &[String],
 ) -> Result<String, String> {
+    let target_base = resolve_target_base_table(columns, primary_key_columns);
     let set_clause: Vec<String> = columns
         .iter()
         .zip(row.iter())
-        .filter(|(col, _)| !col.is_identity)
-        .map(|(col, val)| format!("  {} = {}", quote_identifier(&col.name), sql_literal(val)))
+        .filter(|(col, _)| !col.is_identity && column_belongs_to_table(col, target_base.as_deref()))
+        .map(|(col, val)| format!("  {} = {}", quote_identifier(column_sql_name(col)), sql_literal(val)))
         .collect();
     if set_clause.is_empty() {
         return Err("No editable columns are available for this row".to_string());
@@ -309,14 +432,15 @@ pub fn build_insert_sql(
     columns: &[ColumnDef],
     row: &[serde_json::Value],
 ) -> String {
+    let target = bare_table_name(table_name);
     let pairs: Vec<_> = columns
         .iter()
         .zip(row.iter())
-        .filter(|(col, _)| !col.is_identity)
+        .filter(|(col, _)| !col.is_identity && column_belongs_to_table(col, Some(&target)))
         .collect();
     let col_names: Vec<String> = pairs
         .iter()
-        .map(|(c, _)| quote_identifier(&c.name))
+        .map(|(c, _)| quote_identifier(column_sql_name(c)))
         .collect();
     let values: Vec<String> = pairs.iter().map(|(_, v)| sql_literal(v)).collect();
     if pairs.is_empty() {
@@ -337,10 +461,11 @@ pub fn build_update_sql_with_edits(
     new_row: &[serde_json::Value],
     primary_key_columns: &[String],
 ) -> Result<String, String> {
+    let target_base = resolve_target_base_table(columns, primary_key_columns);
     let set_clause: Vec<String> = columns
         .iter()
         .enumerate()
-        .filter(|(_, col)| !col.is_identity)
+        .filter(|(_, col)| !col.is_identity && column_belongs_to_table(col, target_base.as_deref()))
         .filter_map(|(i, col)| {
             let new_val = new_row.get(i)?;
             let old_val = old_row.get(i)?;
@@ -349,7 +474,7 @@ pub fn build_update_sql_with_edits(
             }
             Some(format!(
                 "  {} = {}",
-                quote_identifier(&col.name),
+                quote_identifier(column_sql_name(col)),
                 sql_literal(new_val)
             ))
         })
@@ -926,7 +1051,37 @@ mod tests {
             type_name: "int".to_string(),
             is_identity: false,
             is_nullable: true,
+            base_table_name: None,
+            base_schema_name: None,
+            base_column_name: None,
+            is_expression: false,
         }
+    }
+
+    fn col_on(name: &str, base_table: &str, base_column: &str) -> ColumnDef {
+        ColumnDef {
+            base_table_name: Some(base_table.to_string()),
+            base_column_name: Some(base_column.to_string()),
+            ..col(name)
+        }
+    }
+
+    #[test]
+    fn extract_result_set_table_names_maps_multi_select_batch() {
+        let sql = "select * from Departments\nselect * from Employees";
+        assert_eq!(
+            extract_result_set_table_names(sql),
+            vec!["Departments".to_string(), "Employees".to_string()]
+        );
+    }
+
+    #[test]
+    fn extract_result_set_table_names_skips_subquery_from() {
+        let sql = "select * from Departments where exists (select 1 from Employees)";
+        assert_eq!(
+            extract_result_set_table_names(sql),
+            vec!["Departments".to_string()]
+        );
     }
 
     #[test]
@@ -1034,5 +1189,99 @@ mod tests {
         .expect_err("no changes should error");
 
         assert!(err.contains("No changes"));
+    }
+
+    #[test]
+    fn build_delete_sql_targets_pk_column_base_table_not_first_table() {
+        let columns = vec![
+            col_on("X", "A", "X"),
+            col_on("Id", "B", "Id"),
+        ];
+        let row = vec![json!("some"), json!(42)];
+        let sql = build_delete_sql("[dbo].[B]", &columns, &row, &[String::from("Id")])
+            .expect("delete sql");
+
+        assert!(sql.contains("DELETE FROM [dbo].[B]"));
+        assert!(sql.contains("[Id] = 42"));
+    }
+
+    #[test]
+    fn build_update_sql_with_edits_filters_out_other_tables_columns() {
+        let columns = vec![
+            col_on("Id", "Customers", "Id"),
+            col_on("Name", "Customers", "Name"),
+            col_on("OrderId", "Orders", "OrderId"),
+        ];
+        let old_row = vec![json!(1), json!("Acme"), json!(99)];
+        let new_row = vec![json!(1), json!("Acme Co"), json!(99)];
+        let sql = build_update_sql_with_edits(
+            "[dbo].[Customers]",
+            &columns,
+            &old_row,
+            &new_row,
+            &[String::from("Id")],
+        )
+        .expect("update sql");
+
+        assert!(sql.contains("UPDATE [dbo].[Customers]"));
+        assert!(sql.contains("[Name] = N'Acme Co'"));
+        assert!(!sql.contains("OrderId"));
+        assert!(!sql.contains("[OrderId]"));
+    }
+
+    #[test]
+    fn build_where_clause_matches_pk_by_base_column_name_when_aliased() {
+        let columns = vec![col_on("CustomerId", "Customers", "Id")];
+        let row = vec![json!(7)];
+        let where_clause =
+            build_where_clause(&columns, &row, &[String::from("Id")]).expect("where clause");
+
+        assert_eq!(where_clause, "[Id] = 7");
+    }
+
+    #[test]
+    fn build_insert_sql_excludes_expression_and_other_table_columns() {
+        let mut computed = col("FullName");
+        computed.is_expression = true;
+        let columns = vec![
+            col_on("Id", "Customers", "Id"),
+            col_on("Name", "Customers", "Name"),
+            col_on("OrderId", "Orders", "OrderId"),
+            computed,
+        ];
+        let row = vec![json!(1), json!("Acme"), json!(99), json!("Acme Full")];
+        let sql = build_insert_sql("[dbo].[Customers]", &columns, &row);
+
+        assert!(sql.contains("INSERT INTO [dbo].[Customers]"));
+        assert!(sql.contains("[Id]"));
+        assert!(sql.contains("[Name]"));
+        assert!(!sql.contains("OrderId"));
+        assert!(!sql.contains("FullName"));
+    }
+
+    #[test]
+    fn bare_table_name_unquotes_escaped_brackets() {
+        assert_eq!(bare_table_name("[Customers]]"), "Customers]");
+        assert_eq!(bare_table_name("[dbo].[Customers]]"), "Customers]");
+        assert_eq!(bare_table_name("[[Customers]]]"), "[Customers]");
+        assert_eq!(bare_table_name("[dbo].[Customers]"), "Customers");
+        assert_eq!(bare_table_name("Customers"), "Customers");
+    }
+
+    #[test]
+    fn build_insert_sql_matches_base_table_with_bracket_in_name() {
+        let columns = vec![
+            col_on("Id", "Customers]", "Id"),
+            col_on("Name", "Customers]", "Name"),
+            col_on("OrderId", "Orders", "OrderId"),
+        ];
+        let row = vec![json!(1), json!("Acme"), json!(99)];
+        let sql = build_insert_sql("[dbo].[Customers]]", &columns, &row);
+
+        assert!(sql.contains("INSERT INTO [dbo].[Customers]]"));
+        assert!(sql.contains("[Id]"));
+        assert!(sql.contains("[Name]"));
+        assert!(!sql.contains("OrderId"));
+        assert!(!sql.contains("DEFAULT VALUES"));
     }
 }

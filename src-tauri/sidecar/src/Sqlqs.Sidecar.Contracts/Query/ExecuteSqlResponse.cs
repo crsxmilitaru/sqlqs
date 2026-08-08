@@ -52,4 +52,8 @@ public sealed class QueryColumn
     public string TypeName { get; set; } = string.Empty;
     public bool IsIdentity { get; set; }
     public bool IsNullable { get; set; }
+    public string? BaseTableName { get; set; }
+    public string? BaseSchemaName { get; set; }
+    public string? BaseColumnName { get; set; }
+    public bool IsExpression { get; set; }
 }

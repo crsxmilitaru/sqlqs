@@ -1,3 +1,4 @@
+using System.Data;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -63,7 +64,7 @@ public sealed class QueryExecutor
                 using var cmd = new SqlCommand(sql, connection);
                 cmd.CommandTimeout = 0;
 
-                using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                using (var reader = await cmd.ExecuteReaderAsync(CommandBehavior.KeyInfo, cancellationToken).ConfigureAwait(false))
                 {
                     while (true)
                     {
@@ -179,7 +180,7 @@ public sealed class QueryExecutor
                     using var cmd = new SqlCommand(batch, connection);
                     cmd.CommandTimeout = 0;
 
-                    using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.KeyInfo, cancellationToken).ConfigureAwait(false);
 
                     while (true)
                     {
@@ -253,6 +254,10 @@ public sealed class QueryExecutor
             dataTypeNames[i] = typeName;
             bool isNullable = true;
             bool isIdentity = false;
+            string? baseTableName = null;
+            string? baseSchemaName = null;
+            string? baseColumnName = null;
+            bool isExpression = false;
 
             if (schemaTable is not null && i < schemaTable.Rows.Count)
             {
@@ -265,6 +270,22 @@ public sealed class QueryExecutor
                 {
                     isIdentity = id;
                 }
+                if (row.Table.Columns.Contains("BaseTableName") && row["BaseTableName"] is string btn && !string.IsNullOrEmpty(btn))
+                {
+                    baseTableName = btn;
+                }
+                if (row.Table.Columns.Contains("BaseSchemaName") && row["BaseSchemaName"] is string bsn && !string.IsNullOrEmpty(bsn))
+                {
+                    baseSchemaName = bsn;
+                }
+                if (row.Table.Columns.Contains("BaseColumnName") && row["BaseColumnName"] is string bcn && !string.IsNullOrEmpty(bcn))
+                {
+                    baseColumnName = bcn;
+                }
+                if (row.Table.Columns.Contains("IsExpression") && row["IsExpression"] is bool ie)
+                {
+                    isExpression = ie;
+                }
             }
 
             columns.Add(new QueryColumn
@@ -273,6 +294,10 @@ public sealed class QueryExecutor
                 TypeName = typeName,
                 IsIdentity = isIdentity,
                 IsNullable = isNullable,
+                BaseTableName = baseTableName,
+                BaseSchemaName = baseSchemaName,
+                BaseColumnName = baseColumnName,
+                IsExpression = isExpression,
             });
         }
 

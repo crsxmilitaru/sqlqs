@@ -107,6 +107,14 @@ pub struct ColumnInfo {
     pub type_name: String,
     pub is_identity: bool,
     pub is_nullable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_table_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_schema_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_column_name: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_expression: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

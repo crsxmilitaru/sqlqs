@@ -56,6 +56,10 @@ export interface ColumnInfo {
   type_name: string;
   is_identity: boolean;
   is_nullable: boolean;
+  base_table_name?: string | null;
+  base_schema_name?: string | null;
+  base_column_name?: string | null;
+  is_expression?: boolean;
 }
 
 export interface DatabaseObject {

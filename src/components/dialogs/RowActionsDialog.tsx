@@ -31,6 +31,7 @@ interface Props {
   columns: ResultSet["columns"];
   row: ResultSet["rows"][number];
   sourceSql: string;
+  fallbackTableName?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -208,6 +209,67 @@ function formatBinaryValue(value: EditableValue): string {
   return text;
 }
 
+interface TableRef {
+  schema: string | null;
+  table: string;
+}
+
+function tableRefKey(ref: TableRef): string {
+  return `${ref.schema ?? ""}.${ref.table}`.toLowerCase();
+}
+
+function pickDefaultTable(
+  tables: TableRef[],
+  columns: { base_table_name?: string | null; base_schema_name?: string | null }[],
+): TableRef | null {
+  if (tables.length === 0) return null;
+  if (tables.length === 1) return tables[0]!;
+
+  const counts = new Map<string, number>();
+  for (const column of columns) {
+    if (!column.base_table_name) continue;
+    const key = tableRefKey({
+      schema: column.base_schema_name ?? null,
+      table: column.base_table_name,
+    });
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  let best: TableRef | null = null;
+  let bestCount = -1;
+  for (const ref of tables) {
+    const c = counts.get(tableRefKey(ref)) ?? 0;
+    if (c > bestCount) {
+      bestCount = c;
+      best = ref;
+    }
+  }
+  return best ?? tables[0]!;
+}
+
+function tableRefDisplayName(ref: TableRef): string {
+  return ref.schema ? `${ref.schema}.${ref.table}` : ref.table;
+}
+
+function bracketIdentifier(name: string): string {
+  return `[${name.replace(/\]/g, "]]")}]`;
+}
+
+function bracketedTargetName(ref: TableRef): string {
+  const table = bracketIdentifier(ref.table);
+  return ref.schema ? `${bracketIdentifier(ref.schema)}.${table}` : table;
+}
+
+function parseTableRef(name: string | null | undefined): TableRef | null {
+  if (!name) return null;
+  const cleaned = name.replace(/\[|\]/g, "");
+  const parts = cleaned.split(".");
+  if (parts.length >= 2) {
+    return { schema: parts[0]!, table: parts.slice(1).join(".") };
+  }
+  return { schema: null, table: cleaned };
+}
+
 export default function RowActionsDialog(props: Props) {
   const [visible, setVisible] = createSignal(false);
   const [tableColumns, setTableColumns] = createSignal<TableColumnMetadata[]>(
@@ -223,12 +285,41 @@ export default function RowActionsDialog(props: Props) {
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal(false);
   const [hydrated, setHydrated] = createSignal(false);
+  const [targetRef, setTargetRef] = createSignal<TableRef | null>(null);
+
+  const availableTables = createMemo<TableRef[]>(() => {
+    const seen = new Map<string, TableRef>();
+    for (const column of props.columns) {
+      const table = column.base_table_name;
+      if (!table) continue;
+      const ref: TableRef = {
+        schema: column.base_schema_name ?? null,
+        table,
+      };
+      const key = tableRefKey(ref);
+      if (!seen.has(key)) seen.set(key, ref);
+    }
+    return Array.from(seen.values());
+  });
+
+  const hasMultipleTables = createMemo(() => availableTables().length > 1);
 
   const findTableColumn = (name: string) =>
     tableColumns().find((column) => column.name === name) ??
     tableColumns().find(
       (column) => column.name.toLowerCase() === name.toLowerCase(),
     );
+
+  const columnBelongsToTarget = (column: Props["columns"][number]) => {
+    const ref = targetRef();
+    if (!ref || !column.base_table_name) return true;
+    return (
+      column.base_table_name.toLowerCase() === ref.table.toLowerCase() &&
+      (ref.schema === null ||
+        (column.base_schema_name ?? "").toLowerCase() ===
+          ref.schema.toLowerCase())
+    );
+  };
 
   const mergedColumns = createMemo<TableColumnMetadata[]>(() =>
     props.columns.map((column) => {
@@ -260,16 +351,25 @@ export default function RowActionsDialog(props: Props) {
     setHydrated(true);
   });
 
-  onMount(async () => {
-    requestAnimationFrame(() => setVisible(true));
+  const fetchMetadata = async (params: {
+    table?: string;
+    schema?: string | null;
+  }) => {
+    setMetadataLoading(true);
+    setMetadataError(null);
+    setPrimaryKeyCols(new Set<string>());
+    setTableColumns([]);
+    setHydrated(false);
+
+    const invokeParams = {
+      sourceSql: props.sourceSql,
+      ...(params.table ? { table: params.table } : {}),
+      ...(params.schema ? { schema: params.schema } : {}),
+    };
 
     const [columnsResult, primaryKeyResult] = await Promise.allSettled([
-      invoke<TableColumnMetadata[]>("get_table_column_metadata", {
-        sourceSql: props.sourceSql,
-      }),
-      invoke<string[]>("get_primary_key_columns", {
-        sourceSql: props.sourceSql,
-      }),
+      invoke<TableColumnMetadata[]>("get_table_column_metadata", invokeParams),
+      invoke<string[]>("get_primary_key_columns", invokeParams),
     ]);
 
     if (columnsResult.status === "fulfilled") {
@@ -290,7 +390,31 @@ export default function RowActionsDialog(props: Props) {
     }
 
     setMetadataLoading(false);
+  };
+
+  const loadMetadataFor = (ref: TableRef) =>
+    fetchMetadata({ table: ref.table, schema: ref.schema });
+
+  onMount(async () => {
+    requestAnimationFrame(() => setVisible(true));
+
+    const initial =
+      pickDefaultTable(availableTables(), props.columns) ??
+      parseTableRef(props.fallbackTableName);
+    setTargetRef(initial);
+    if (initial) {
+      await loadMetadataFor(initial);
+    } else {
+      await fetchMetadata({});
+    }
   });
+
+  const onTargetTableChange = async (key: string) => {
+    const ref = availableTables().find((t) => tableRefKey(t) === key);
+    if (!ref) return;
+    setTargetRef(ref);
+    await loadMetadataFor(ref);
+  };
 
   const isPrimaryKey = (column: TableColumnMetadata) =>
     primaryKeyCols().has(column.name);
@@ -468,12 +592,21 @@ export default function RowActionsDialog(props: Props) {
     try {
       let sql: string;
       const primaryKeyColumns = Array.from(primaryKeyCols());
-      const columns = mergedColumns().map((column) => ({
-        name: column.name,
-        type_name: column.type_name,
-        is_identity: column.is_identity,
-        is_nullable: column.is_nullable,
-      }));
+      const ref = targetRef();
+      const targetTable = ref ? bracketedTargetName(ref) : undefined;
+      const columns = props.columns.map((column, index) => {
+        const meta = mergedColumns()[index];
+        return {
+          name: column.name,
+          type_name: meta?.type_name ?? column.type_name,
+          is_identity: meta?.is_identity ?? false,
+          is_nullable: meta?.is_nullable ?? true,
+          base_table_name: column.base_table_name ?? null,
+          base_schema_name: column.base_schema_name ?? null,
+          base_column_name: column.base_column_name ?? null,
+          is_expression: column.is_expression ?? false,
+        };
+      });
 
       switch (props.mode) {
         case "delete":
@@ -483,6 +616,7 @@ export default function RowActionsDialog(props: Props) {
             columns,
             row: props.row,
             primaryKeyColumns,
+            targetTable,
           });
           break;
 
@@ -492,6 +626,7 @@ export default function RowActionsDialog(props: Props) {
             sourceSql: props.sourceSql,
             columns,
             row: getTypedRow(),
+            targetTable,
           });
           break;
 
@@ -502,6 +637,7 @@ export default function RowActionsDialog(props: Props) {
             oldRow: props.row,
             newRow: getTypedRow(),
             primaryKeyColumns,
+            targetTable,
           });
           break;
       }
@@ -591,6 +727,50 @@ export default function RowActionsDialog(props: Props) {
           )}
         </Show>
 
+        <Show when={targetRef() || props.fallbackTableName}>
+          <div class="mx-6 mt-4 p-3 rounded-lg bg-surface/40 border border-border/30">
+            <div class="flex items-center gap-2 text-sm text-text">
+              <Icon name="table" class="text-text-muted/60" />
+              <span class="text-text-muted">Target table:</span>
+              <Show
+                when={hasMultipleTables() && targetRef()}
+                fallback={
+                  <span class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border/20 text-sm text-text font-mono min-w-0 truncate">
+                    {targetRef()
+                      ? tableRefDisplayName(targetRef()!)
+                      : props.fallbackTableName}
+                  </span>
+                }
+              >
+                <select
+                  value={tableRefKey(targetRef()!)}
+                  onChange={(e) => onTargetTableChange(e.currentTarget.value)}
+                  class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border/40 text-sm text-text font-mono outline-none focus:border-accent transition-colors min-w-0"
+                >
+                  <For each={availableTables()}>
+                    {(ref) => (
+                      <option value={tableRefKey(ref)}>
+                        {tableRefDisplayName(ref)}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </Show>
+            </div>
+            <Show when={hasMultipleTables()}>
+              <p class="text-[11px] text-text-muted/60 mt-1.5">
+                This row spans multiple tables. Choose which table the{" "}
+                {props.mode === "delete"
+                  ? "delete"
+                  : props.mode === "edit"
+                    ? "changes"
+                    : "insert"}{" "}
+                applies to.
+              </p>
+            </Show>
+          </div>
+        </Show>
+
         <div class="flex-1 overflow-y-auto px-6 py-4 min-h-0">
           <div class="flex flex-col gap-3">
             <For each={mergedColumns()}>
@@ -598,10 +778,16 @@ export default function RowActionsDialog(props: Props) {
                 const cellValue = () => values()[i()];
                 const inputKind = () => getInputKind(column, cellValue());
                 const changed = () => isChanged(i());
+                const sourceColumn = () => props.columns[i()];
+                const offTarget = () =>
+                  !!targetRef() &&
+                  !!sourceColumn()?.base_table_name &&
+                  !columnBelongsToTarget(sourceColumn()!);
                 const readOnly = () =>
                   !isEditable() ||
                   column.is_identity ||
-                  inputKind() === "binary";
+                  inputKind() === "binary" ||
+                  offTarget();
                 const fieldError = () => validationErrors()[i()];
 
                 return (
