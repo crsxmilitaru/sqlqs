@@ -64,7 +64,7 @@ public sealed class QueryExecutor
                 using var cmd = new SqlCommand(sql, connection);
                 cmd.CommandTimeout = 0;
 
-                using (var reader = await cmd.ExecuteReaderAsync(CommandBehavior.KeyInfo, cancellationToken).ConfigureAwait(false))
+                using (var reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(sql), cancellationToken).ConfigureAwait(false))
                 {
                     while (true)
                     {
@@ -180,7 +180,7 @@ public sealed class QueryExecutor
                     using var cmd = new SqlCommand(batch, connection);
                     cmd.CommandTimeout = 0;
 
-                    using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.KeyInfo, cancellationToken).ConfigureAwait(false);
+                    using var reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(batch), cancellationToken).ConfigureAwait(false);
 
                     while (true)
                     {
@@ -394,6 +394,59 @@ public sealed class QueryExecutor
     private static string FormatServerError(SqlError error)
     {
         return $"Msg {error.Number}, Level {error.Class}, State {error.State}, Line {error.LineNumber}\n{error.Message}";
+    }
+
+    private static readonly Regex BatchExclusiveDdlRegex = new(
+        @"^(?:(?:CREATE\s+(?:OR\s+ALTER\s+)?|ALTER\s+)(?:PROC(?:EDURE)?|VIEW|FUNCTION|TRIGGER)|CREATE\s+(?:RULE|DEFAULT|SCHEMA))\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static CommandBehavior ResolveReaderBehavior(string sql)
+    {
+        return StartsWithBatchExclusiveDdl(sql)
+            ? CommandBehavior.Default
+            : CommandBehavior.KeyInfo;
+    }
+
+    internal static bool StartsWithBatchExclusiveDdl(string sql)
+    {
+        var i = 0;
+        while (i < sql.Length)
+        {
+            var c = sql[i];
+            if (char.IsWhiteSpace(c))
+            {
+                i++;
+                continue;
+            }
+
+            if (i + 1 < sql.Length && c == '-' && sql[i + 1] == '-')
+            {
+                i += 2;
+                while (i < sql.Length && sql[i] != '\n')
+                {
+                    i++;
+                }
+                continue;
+            }
+
+            if (i + 1 < sql.Length && c == '/' && sql[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < sql.Length && !(sql[i] == '*' && sql[i + 1] == '/'))
+                {
+                    i++;
+                }
+                if (i + 1 < sql.Length)
+                {
+                    i += 2;
+                }
+                continue;
+            }
+
+            break;
+        }
+
+        return BatchExclusiveDdlRegex.IsMatch(sql.AsSpan(i));
     }
 
     private static async Task DisableStatisticsAsync(SqlConnection connection)
