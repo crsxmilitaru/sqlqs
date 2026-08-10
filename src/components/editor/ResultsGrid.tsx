@@ -68,6 +68,7 @@ interface RowContextMenuState {
   y: number;
   rowIndex: number;
   resultSetIndex: number;
+  colIndex: number | null;
 }
 
 function ErrorSection(props: {
@@ -126,7 +127,7 @@ function VirtualGrid(props: {
   resultSet: ResultSet;
   viewState?: ResultsTableViewState;
   onViewStateChange: (state: ResultsTableViewState) => void;
-  onContextMenu: (e: MouseEvent, ri: number) => void;
+  onContextMenu: (e: MouseEvent, ri: number, ci: number | null) => void;
   onEditRow?: (ri: number) => void;
   canEditRows?: boolean;
   selectedRowIndex: number | null;
@@ -1033,7 +1034,19 @@ function VirtualGrid(props: {
                       originalIndex === props.selectedRowIndex ? "selected" : ""
                     }
                     style={{ height: `${rowHeight}px` }}
-                    onContextMenu={(e) => props.onContextMenu(e, originalIndex)}
+                    onContextMenu={(e) => {
+                      const td = (e.target as HTMLElement).closest("td");
+                      const colAttr = td?.getAttribute("data-col-index");
+                      const colIndex =
+                        colAttr != null && colAttr !== ""
+                          ? Number(colAttr)
+                          : null;
+                      props.onContextMenu(
+                        e,
+                        originalIndex,
+                        Number.isFinite(colIndex) ? colIndex : null,
+                      );
+                    }}
                   >
                     <td class="text-center px-0 text-text-muted/60 border-r border-r-border/10">
                       {visualIndex() + 1}
@@ -1050,6 +1063,7 @@ function VirtualGrid(props: {
 
                         return (
                           <td
+                            data-col-index={ci}
                             title={formattedValue}
                             class={`results-value-cell border-r border-r-border/5 ${
                               props.canEditRows ? "is-editable" : ""
@@ -1218,7 +1232,12 @@ export default function ResultsGrid(props: Props) {
     });
   };
 
-  const handleContextMenu = (e: MouseEvent, ri: number, rsi: number) => {
+  const handleContextMenu = (
+    e: MouseEvent,
+    ri: number,
+    rsi: number,
+    ci: number | null,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     setRowContextMenu({
@@ -1226,6 +1245,7 @@ export default function ResultsGrid(props: Props) {
       y: e.clientY,
       rowIndex: ri,
       resultSetIndex: rsi,
+      colIndex: ci,
     });
   };
 
@@ -1401,7 +1421,9 @@ export default function ResultsGrid(props: Props) {
                             ? rowContextMenu()!.rowIndex
                             : null
                         }
-                        onContextMenu={(e, ri) => handleContextMenu(e, ri, rsi)}
+                        onContextMenu={(e, ri, ci) =>
+                          handleContextMenu(e, ri, rsi, ci)
+                        }
                         onSendToChat={props.onSendResultToChat}
                         canEditRows={canDoRowActions()}
                         onEditRow={(ri) =>
@@ -1475,20 +1497,41 @@ export default function ResultsGrid(props: Props) {
                 items.push({ id: "sep-selection", separator: true });
               }
 
+              const menu = rowContextMenu();
+              const row = selectedRow();
+              const cellValue =
+                row && menu?.colIndex != null ? row[menu.colIndex] : undefined;
+              const canCopyValue =
+                menu?.colIndex != null &&
+                cellValue !== null &&
+                cellValue !== undefined;
+
               items.push(
                 {
                   id: "copy-submenu",
                   label: "Copy",
                   icon: <i class="fa-solid fa-copy" />,
                   children: [
+                    ...(canCopyValue
+                      ? [
+                          {
+                            id: "copy-value",
+                            label: "Copy Value",
+                            icon: <i class="fa-solid fa-font" />,
+                            onClick: () => {
+                              navigator.clipboard.writeText(String(cellValue));
+                            },
+                          },
+                        ]
+                      : []),
                     {
                       id: "copy-row",
                       label: "Copy Row Values",
                       icon: <i class="fa-solid fa-table-cells" />,
                       onClick: () => {
-                        const row = selectedRow();
-                        if (!row) return;
-                        const text = row
+                        const selected = selectedRow();
+                        if (!selected) return;
+                        const text = selected
                           .map((v) => (v === null ? "NULL" : String(v)))
                           .join("\t");
                         navigator.clipboard.writeText(text);
@@ -1499,12 +1542,12 @@ export default function ResultsGrid(props: Props) {
                       label: "Copy Row as JSON",
                       icon: <i class="fa-solid fa-file-code" />,
                       onClick: () => {
-                        const row = selectedRow();
+                        const selected = selectedRow();
                         const rs = currentResultSet();
-                        if (!row || !rs) return;
+                        if (!selected || !rs) return;
                         const obj: Record<string, any> = {};
                         rs.columns.forEach((col, idx) => {
-                          obj[col.name] = row[idx];
+                          obj[col.name] = selected[idx];
                         });
                         navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
                       },
@@ -1515,12 +1558,12 @@ export default function ResultsGrid(props: Props) {
                       icon: <i class="fa-solid fa-file-import" />,
                       disabled: !currentTableName(),
                       onClick: () => {
-                        const row = selectedRow();
+                        const selected = selectedRow();
                         const rs = currentResultSet();
                         const table = currentTableName();
-                        if (!row || !rs || !table) return;
+                        if (!selected || !rs || !table) return;
                         const colsList = rs.columns.map(c => `[${c.name}]`).join(", ");
-                        const valsList = row.map(val => {
+                        const valsList = selected.map(val => {
                           if (val === null) return "NULL";
                           if (typeof val === "number") return val;
                           if (typeof val === "boolean") return val ? 1 : 0;
