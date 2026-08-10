@@ -18,6 +18,7 @@
     "dialog:default",
     "fs:allow-write-text-file",
     "notification:default",
-    "snap-layout:default"
+    "snap-layout:default",
+    "window-state:default"
   ]
 }

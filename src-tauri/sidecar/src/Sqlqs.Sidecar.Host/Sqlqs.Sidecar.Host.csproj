@@ -10,14 +10,6 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
 
-  <!--
-    PublishTrimmed left disabled: SqlClient relies on native SNI interop types
-    (Interop.Windows.Sni.SniNativeMethods.SNIAddProviderWrapper) that the trimmer
-    strips even with the surrounding assemblies rooted. Re-enabling needs either
-    System.Text.Json source generation OR a comprehensive set of DynamicDependency
-    attributes on the SqlClient native shims. Revisit when SqlClient ships AOT/trim
-    annotations or we have time to do source generation properly.
-  -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -28,8 +20,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Nerdbank.MessagePack" Version="1.2.4" />
-    <PackageReference Include="StreamJsonRpc" Version="2.24.92" />
+    <PackageReference Include="Nerdbank.MessagePack" Version="1.2.36" />
+    <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
   </ItemGroup>
 
   <ItemGroup>

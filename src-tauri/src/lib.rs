@@ -2432,6 +2432,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_snap_layout::init().button_id("snap-btn").build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
