@@ -16,7 +16,6 @@ use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
@@ -1877,13 +1876,25 @@ fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String
     let value = BOOL::from(dark);
 
     unsafe {
-        DwmSetWindowAttribute(
+        let _ = DwmSetWindowAttribute(
             HWND(hwnd.0 as *mut _),
             windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(20),
             &value as *const BOOL as *const std::ffi::c_void,
             std::mem::size_of::<BOOL>() as u32,
-        )
-        .map_err(|e| e.to_string())?;
+        );
+        let _ = DwmSetWindowAttribute(
+            HWND(hwnd.0 as *mut _),
+            windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(19),
+            &value as *const BOOL as *const std::ffi::c_void,
+            std::mem::size_of::<BOOL>() as u32,
+        );
+        let backdrop_type: u32 = 2;
+        let _ = DwmSetWindowAttribute(
+            HWND(hwnd.0 as *mut _),
+            windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(38),
+            &backdrop_type as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
     }
 
     Ok(())
@@ -1913,6 +1924,86 @@ fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
 fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), String> {
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_taskbar_progress(
+    window: tauri::WebviewWindow,
+    progress: u64,
+    total: u64,
+    state: String,
+) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+    use windows::Win32::UI::Shell::{
+        ITaskbarList3, TaskbarList, TBPF_ERROR, TBPF_INDETERMINATE, TBPF_NOPROGRESS, TBPF_NORMAL,
+    };
+
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let hwnd_win = HWND(hwnd.0 as *mut _);
+
+    unsafe {
+        let taskbar: ITaskbarList3 = CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER)
+            .map_err(|e| e.to_string())?;
+        taskbar.HrInit().map_err(|e| e.to_string())?;
+
+        let flags = match state.as_str() {
+            "indeterminate" => TBPF_INDETERMINATE,
+            "error" => TBPF_ERROR,
+            "normal" => TBPF_NORMAL,
+            _ => TBPF_NOPROGRESS,
+        };
+
+        let _ = taskbar.SetProgressState(hwnd_win, flags);
+        if flags == TBPF_NORMAL || flags == TBPF_ERROR {
+            let _ = taskbar.SetProgressValue(hwnd_win, progress, total);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn set_taskbar_progress(
+    _window: tauri::WebviewWindow,
+    _progress: u64,
+    _total: u64,
+    _state: String,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn add_to_recent_docs(path: String) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::UI::Shell::{SHAddToRecentDocs, SHARD_PATHW};
+
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Ok(());
+    }
+
+    let mut wide: Vec<u16> = std::ffi::OsStr::new(&path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        SHAddToRecentDocs(
+            SHARD_PATHW.0 as u32,
+            Some(wide.as_mut_ptr() as *const std::ffi::c_void),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn add_to_recent_docs(_path: String) -> Result<(), String> {
+    Ok(())
+}
+
 
 #[derive(serde::Serialize)]
 struct SystemLocaleInfo {
@@ -2403,9 +2494,8 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
-    // Linux keeps single-instance file forwarding. Windows allows separate
-    // app processes, and Mac uses RunEvent::Opened instead.
-    #[cfg(target_os = "linux")]
+    // Linux & Windows keep single-instance file forwarding. Mac uses RunEvent::Opened instead.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -2423,6 +2513,7 @@ pub fn run() {
             }
         }));
     }
+
 
     let app = builder
         .plugin(tauri_plugin_process::init())
@@ -2549,6 +2640,8 @@ pub fn run() {
             xe_read_session,
             read_clipboard,
             write_clipboard,
+            set_taskbar_progress,
+            add_to_recent_docs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

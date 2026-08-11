@@ -73,9 +73,5 @@
     "typescript": "^6.0.3",
     "vite": "^8.2.1",
     "vite-plugin-solid": "^2.11.14"
-  },
-  "allowScripts": {
-    "@google/genai@2.13.0": true,
-    "protobufjs@7.6.5": true
   }
 }

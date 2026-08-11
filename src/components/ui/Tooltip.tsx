@@ -94,9 +94,9 @@ export default function Tooltip(props: Props) {
         onMouseEnter={show}
         onMouseLeave={hide}
         onPointerDown={hide}
-        onFocus={show}
-        onBlur={hide}
-        style={{ display: "contents" }}
+        onFocusIn={show}
+        onFocusOut={hide}
+        class="inline-flex max-w-full"
       >
         {props.children}
       </span>

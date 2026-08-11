@@ -12,6 +12,7 @@ import type { JSX } from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
 import { loadExecutionPreferences } from "../../lib/settings";
 import { formatSqlDateValue } from "../../lib/sql-date";
+import { startTaskbarOperation } from "../../lib/taskbar";
 import type { QueryResult, ResultSet } from "../../lib/types";
 import ColumnSelector from "./ColumnSelector";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
@@ -342,14 +343,21 @@ function VirtualGrid(props: {
       filters: [{ name: "CSV", extensions: ["csv"] }],
     });
     if (!filePath) return;
-    await invoke("export_results_csv", {
-      path: filePath,
-      columns: props.resultSet.columns.map((c) => ({
-        name: c.name,
-        type_name: c.type_name,
-      })),
-      rows: getAllProcessedRows().map(({ row }) => row),
-    });
+    const taskbarOperation = startTaskbarOperation();
+    try {
+      await invoke("export_results_csv", {
+        path: filePath,
+        columns: props.resultSet.columns.map((c) => ({
+          name: c.name,
+          type_name: c.type_name,
+        })),
+        rows: getAllProcessedRows().map(({ row }) => row),
+      });
+      taskbarOperation.complete();
+    } catch (err) {
+      taskbarOperation.fail();
+      throw err;
+    }
   };
 
   const exportToJson = async () => {
@@ -359,14 +367,21 @@ function VirtualGrid(props: {
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!filePath) return;
-    await invoke("export_results_json", {
-      path: filePath,
-      columns: props.resultSet.columns.map((c) => ({
-        name: c.name,
-        type_name: c.type_name,
-      })),
-      rows: getAllProcessedRows().map(({ row }) => row),
-    });
+    const taskbarOperation = startTaskbarOperation();
+    try {
+      await invoke("export_results_json", {
+        path: filePath,
+        columns: props.resultSet.columns.map((c) => ({
+          name: c.name,
+          type_name: c.type_name,
+        })),
+        rows: getAllProcessedRows().map(({ row }) => row),
+      });
+      taskbarOperation.complete();
+    } catch (err) {
+      taskbarOperation.fail();
+      throw err;
+    }
   };
 
   const exportToXlsx = async () => {
@@ -376,14 +391,21 @@ function VirtualGrid(props: {
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (!filePath) return;
-    await invoke("export_results_xlsx", {
-      path: filePath,
-      columns: props.resultSet.columns.map((c) => ({
-        name: c.name,
-        type_name: c.type_name,
-      })),
-      rows: getAllProcessedRows().map(({ row }) => row),
-    });
+    const taskbarOperation = startTaskbarOperation();
+    try {
+      await invoke("export_results_xlsx", {
+        path: filePath,
+        columns: props.resultSet.columns.map((c) => ({
+          name: c.name,
+          type_name: c.type_name,
+        })),
+        rows: getAllProcessedRows().map(({ row }) => row),
+      });
+      taskbarOperation.complete();
+    } catch (err) {
+      taskbarOperation.fail();
+      throw err;
+    }
   };
 
   const escapeMarkdownCell = (val: unknown): string => {

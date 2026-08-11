@@ -11,6 +11,7 @@ import { getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { generateTabTitle } from "../../lib/sql";
 import { loadTheme } from "../../lib/theme";
+import { startTaskbarOperation } from "../../lib/taskbar";
 import type {
   ConnectionConfig,
   QueryResult,
@@ -514,6 +515,7 @@ export default function App() {
     const execPrefs = loadExecutionPreferences();
 
     updateTab(tabId, { isExecuting: true, error: undefined });
+    const taskbarOperation = startTaskbarOperation();
 
     try {
       const result: QueryResult = await invoke("execute_query", {
@@ -522,6 +524,7 @@ export default function App() {
         timeoutSeconds:
           execPrefs.timeoutSeconds > 0 ? execPrefs.timeoutSeconds : null,
       });
+      taskbarOperation.complete();
       const updates: Partial<QueryTab> = { result, isExecuting: false };
       if (!tab.userTitle) {
         const generatedTitle = generateTabTitle(sqlToExecute);
@@ -546,6 +549,7 @@ export default function App() {
       }
     } catch (err: any) {
       updateTab(tabId, { error: String(err), isExecuting: false });
+      taskbarOperation.fail();
     }
   }
 
@@ -656,6 +660,7 @@ export default function App() {
       }>("read_sql_file", { path });
 
       addTab(file.content, file.file_name, `file:${file.path}`, true);
+      void invoke("add_to_recent_docs", { path: file.path }).catch(() => undefined);
     } catch (error) {
       console.error("Failed to open SQL file from path:", error);
     }
@@ -695,30 +700,41 @@ export default function App() {
     if (!tab || !tab.sql.trim()) return;
 
     try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
       const lastFolder = localStorage.getItem(
         LAST_SQL_EXPORT_FOLDER_STORAGE_KEY,
       );
-      const documentsPath = await invoke<string>("get_documents_folder");
-      const folderPath = await invoke<string | null>("pick_folder_dialog", {
-        title: "Choose a folder for your SQL file",
-        startingDirectory: lastFolder || documentsPath,
+      const fileName = getSqlFileName(tab.title);
+      const filePath = await save({
+        title: "Save SQL file",
+        defaultPath: lastFolder ? joinPath(lastFolder, fileName) : fileName,
+        filters: [{ name: "SQL", extensions: ["sql"] }],
       });
 
-      if (!folderPath) {
+      if (!filePath) {
         return;
       }
 
-      const filePath = joinPath(folderPath, getSqlFileName(tab.title));
       await invoke<string>("write_sql_file", {
         path: filePath,
         content: tab.sql,
       });
 
-      localStorage.setItem(LAST_SQL_EXPORT_FOLDER_STORAGE_KEY, folderPath);
+      const lastSep = Math.max(
+        filePath.lastIndexOf("/"),
+        filePath.lastIndexOf("\\"),
+      );
+      if (lastSep > 0) {
+        localStorage.setItem(
+          LAST_SQL_EXPORT_FOLDER_STORAGE_KEY,
+          filePath.slice(0, lastSep),
+        );
+      }
+
       promoteTab(tabId);
       updateTab(tabId, { savedSql: tab.sql });
     } catch (error) {
-      console.error("Failed to save SQL file to chosen folder:", error);
+      console.error("Failed to save SQL file:", error);
     }
   }
 
