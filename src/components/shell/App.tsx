@@ -10,7 +10,7 @@ import { useTabs } from "../../hooks/useTabs";
 import { getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { generateTabTitle } from "../../lib/sql";
-import { loadTheme } from "../../lib/theme";
+import { loadTheme, THEME_CHANGED_EVENT, type ThemeSelection } from "../../lib/theme";
 import { startTaskbarOperation } from "../../lib/taskbar";
 import type {
   ConnectionConfig,
@@ -339,8 +339,20 @@ export default function App() {
 
   createEffect(() => {
     const handleStorage = () => setTheme(loadTheme());
+    const handleThemeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<ThemeSelection>).detail;
+      if (detail?.id && detail?.mode) {
+        setTheme(detail);
+        return;
+      }
+      setTheme(loadTheme());
+    };
     window.addEventListener("storage", handleStorage);
-    onCleanup(() => window.removeEventListener("storage", handleStorage));
+    window.addEventListener(THEME_CHANGED_EVENT, handleThemeChanged);
+    onCleanup(() => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChanged);
+    });
   });
 
   onMount(() => {

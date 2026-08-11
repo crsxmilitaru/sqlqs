@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { createMemo, createSignal, onMount, For, Show } from "solid-js";
+import { createMemo, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { AiService, BraveSearchService } from "../../lib/ai";
 import {
@@ -55,6 +55,9 @@ import {
   type ThemeSelection,
   registerCustomThemes,
   getThemeMode,
+  loadFollowSystemTheme,
+  setFollowSystemTheme,
+  THEME_CHANGED_EVENT,
 } from "../../lib/theme";
 import type {
   AppSettings,
@@ -131,6 +134,9 @@ export default function SettingsView(props: Props) {
   const [activeTab, setActiveTab] = createSignal<Tab>("general");
   const [search, setSearch] = createSignal("");
   const [themeId, setThemeId] = createSignal(currentTheme.id);
+  const [followSystemTheme, setFollowSystemThemeState] = createSignal(
+    loadFollowSystemTheme(),
+  );
   const [customThemes, setCustomThemes] = createSignal<ThemeOption[]>([]);
   const activeTheme = createMemo(() =>
     [...THEMES, ...customThemes()].find((t) => t.id === themeId()),
@@ -240,6 +246,18 @@ export default function SettingsView(props: Props) {
     });
     void refreshConnections();
     void refreshCustomThemes();
+
+    const handleThemeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<ThemeSelection>).detail;
+      if (detail?.id) {
+        setThemeId(detail.id);
+      }
+      setFollowSystemThemeState(loadFollowSystemTheme());
+    };
+    window.addEventListener(THEME_CHANGED_EVENT, handleThemeChanged);
+    onCleanup(() => {
+      window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChanged);
+    });
   });
 
   async function refreshCustomThemes() {
@@ -449,12 +467,18 @@ export default function SettingsView(props: Props) {
   }
 
   function handleThemeChange(newThemeId: string, customThemeData?: ThemeOption) {
-    setThemeId(newThemeId);
-    saveTheme(newThemeId, customThemeData);
-    props.onThemeChange?.({
-      id: newThemeId,
-      mode: customThemeData?.mode ?? getThemeMode(newThemeId),
-    });
+    setFollowSystemThemeState(false);
+    const selection = saveTheme(newThemeId, customThemeData);
+    setThemeId(selection.id);
+    props.onThemeChange?.(selection);
+  }
+
+  function handleFollowSystemThemeToggle() {
+    const next = !followSystemTheme();
+    setFollowSystemThemeState(next);
+    const selection = setFollowSystemTheme(next);
+    setThemeId(selection.id);
+    props.onThemeChange?.(selection);
   }
 
   interface Section {
@@ -1054,9 +1078,18 @@ export default function SettingsView(props: Props) {
       id: "appearance-theme",
       tab: "appearance",
       title: "Theme",
-      keywords: "theme color appearance dark light",
+      keywords: "theme color appearance dark light auto system device",
       render: () => (
         <div class="flex flex-col gap-6">
+          <ToggleSetting
+            title="Use device theme"
+            description="Automatically switch between Dark and Light to match your system"
+            checked={followSystemTheme()}
+            onToggle={handleFollowSystemThemeToggle}
+          />
+
+          <div class="h-px bg-border/40 w-full" />
+
           <div>
             <h4 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">
               Built-in Themes

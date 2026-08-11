@@ -1866,37 +1866,127 @@ async fn get_object_definition(
 }
 
 #[cfg(target_os = "windows")]
-#[tauri::command]
-fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
-    use windows::core::BOOL;
-    use windows::Win32::Foundation::HWND;
+static MICA_PREFERS_DARK: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(target_os = "windows")]
+static MICA_SUBCLASS_INSTALLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+static MICA_REFRESH_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "windows")]
+const MICA_SUBCLASS_ID: usize = 0x5351_4C51; // "SQLQ"
+
+#[cfg(target_os = "windows")]
+fn apply_mica_theme_hwnd(hwnd: windows::Win32::Foundation::HWND, dark: bool) {
     use windows::Win32::Graphics::Dwm::DwmSetWindowAttribute;
 
-    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-    let value = BOOL::from(dark);
+    let immersive_dark: i32 = if dark { 1 } else { 0 };
+    let backdrop_mica: u32 = 2;
 
     unsafe {
         let _ = DwmSetWindowAttribute(
-            HWND(hwnd.0 as *mut _),
+            hwnd,
             windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(20),
-            &value as *const BOOL as *const std::ffi::c_void,
-            std::mem::size_of::<BOOL>() as u32,
+            &immersive_dark as *const i32 as *const std::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
         );
         let _ = DwmSetWindowAttribute(
-            HWND(hwnd.0 as *mut _),
+            hwnd,
             windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(19),
-            &value as *const BOOL as *const std::ffi::c_void,
-            std::mem::size_of::<BOOL>() as u32,
+            &immersive_dark as *const i32 as *const std::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
         );
-        let backdrop_type: u32 = 2;
         let _ = DwmSetWindowAttribute(
-            HWND(hwnd.0 as *mut _),
+            hwnd,
             windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(38),
-            &backdrop_type as *const u32 as *const std::ffi::c_void,
+            &backdrop_mica as *const u32 as *const std::ffi::c_void,
             std::mem::size_of::<u32>() as u32,
         );
     }
+}
 
+#[cfg(target_os = "windows")]
+fn schedule_mica_theme_refresh(hwnd: windows::Win32::Foundation::HWND) {
+    let generation = MICA_REFRESH_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let hwnd_bits = hwnd.0 as usize;
+
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        if MICA_REFRESH_GENERATION.load(std::sync::atomic::Ordering::SeqCst) != generation {
+            return;
+        }
+        let dark = MICA_PREFERS_DARK.load(std::sync::atomic::Ordering::SeqCst);
+        apply_mica_theme_hwnd(
+            windows::Win32::Foundation::HWND(hwnd_bits as *mut _),
+            dark,
+        );
+    });
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn mica_subclass_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::WM_SETTINGCHANGE;
+
+    if msg == WM_SETTINGCHANGE && lparam.0 != 0 {
+        let name = unsafe { PCWSTR(lparam.0 as *const u16).to_string() }.unwrap_or_default();
+        if name == "ImmersiveColorSet" {
+            schedule_mica_theme_refresh(hwnd);
+        }
+    }
+
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+#[cfg(target_os = "windows")]
+fn install_mica_theme_subclass(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::Shell::SetWindowSubclass;
+
+    if MICA_SUBCLASS_INSTALLED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+
+    let installed = unsafe { SetWindowSubclass(hwnd, Some(mica_subclass_proc), MICA_SUBCLASS_ID, 0) };
+    if installed.0 != 0 {
+        return;
+    }
+
+    MICA_SUBCLASS_INSTALLED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(target_os = "windows")]
+fn apply_stored_mica_theme(window: &tauri::WebviewWindow) {
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0 as *mut _);
+        install_mica_theme_subclass(hwnd);
+        let dark = MICA_PREFERS_DARK.load(std::sync::atomic::Ordering::SeqCst);
+        apply_mica_theme_hwnd(hwnd, dark);
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_mica_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    use windows::Win32::Foundation::HWND;
+
+    MICA_PREFERS_DARK.store(dark, std::sync::atomic::Ordering::SeqCst);
+    MICA_REFRESH_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let hwnd = HWND(hwnd.0 as *mut _);
+    install_mica_theme_subclass(hwnd);
+    apply_mica_theme_hwnd(hwnd, dark);
     Ok(())
 }
 
@@ -2526,6 +2616,11 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+
+            #[cfg(target_os = "windows")]
+            {
+                apply_stored_mica_theme(&window);
+            }
 
             let window_clone = window.clone();
             tauri::async_runtime::spawn(async move {
