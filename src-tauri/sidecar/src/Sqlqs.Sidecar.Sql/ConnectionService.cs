@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Data;
 using Microsoft.Data.SqlClient;
 using Sqlqs.Contracts.Connection;
 
@@ -29,7 +30,11 @@ public sealed class ConnectionService : IAsyncDisposable
         }
 
         var id = Guid.NewGuid();
-        var managed = new ManagedConnection(id, connection);
+        var spid = await ReadSessionIdAsync(connection, cancellationToken).ConfigureAwait(false);
+        var managed = new ManagedConnection(id, connection, connectionString, spid)
+        {
+            CurrentDatabase = string.IsNullOrEmpty(connection.Database) ? null : connection.Database,
+        };
         if (!_connections.TryAdd(id, managed))
         {
             await managed.DisposeAsync().ConfigureAwait(false);
@@ -66,6 +71,46 @@ public sealed class ConnectionService : IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task TryKillSessionAsync(string connectionId)
+    {
+        if (!Guid.TryParseExact(connectionId, "D", out var id))
+        {
+            return;
+        }
+
+        if (!_connections.TryGetValue(id, out var managed) || managed.Spid is not int spid)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var killer = new SqlConnection(managed.ConnectionString);
+            await killer.OpenAsync().ConfigureAwait(false);
+            await using var cmd = new SqlCommand($"KILL {spid}", killer);
+            cmd.CommandTimeout = 5;
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            managed.NeedsReconnect = true;
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task<int?> ReadSessionIdAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var cmd = new SqlCommand("SELECT @@SPID", connection);
+            var value = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return value is null or DBNull ? null : Convert.ToInt32(value);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task CloseAsync(string connectionId)
     {
         var id = ParseConnectionId(connectionId);
@@ -100,6 +145,7 @@ public sealed class ConnectionService : IAsyncDisposable
         }
         await using var lease = await AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
         lease.Connection.ChangeDatabase(database);
+        ResolveManaged(connectionId).CurrentDatabase = database;
     }
 
     /// <summary>
@@ -122,6 +168,15 @@ public sealed class ConnectionService : IAsyncDisposable
         {
             managed.Gate.Release();
             throw new InvalidOperationException($"Connection {connectionId} is closed");
+        }
+        try
+        {
+            await managed.ReconnectIfBrokenAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            managed.Gate.Release();
+            throw;
         }
         return new ConnectionLease(managed.Connection, managed.Gate);
     }
@@ -243,14 +298,20 @@ public sealed class ConnectionService : IAsyncDisposable
 
     private sealed class ManagedConnection : IAsyncDisposable
     {
-        public ManagedConnection(Guid id, SqlConnection connection)
+        public ManagedConnection(Guid id, SqlConnection connection, string connectionString, int? spid)
         {
             Id = id;
             Connection = connection;
+            ConnectionString = connectionString;
+            Spid = spid;
         }
 
         public Guid Id { get; }
-        public SqlConnection Connection { get; }
+        public SqlConnection Connection { get; private set; }
+        public string ConnectionString { get; }
+        public int? Spid { get; private set; }
+        public string? CurrentDatabase { get; set; }
+        public bool NeedsReconnect { get; set; }
         public bool IsClosing => Volatile.Read(ref _closing) != 0;
 
         // A single SqlConnection cannot run concurrent commands; this gate
@@ -262,6 +323,44 @@ public sealed class ConnectionService : IAsyncDisposable
         public bool TryBeginClose()
         {
             return Interlocked.Exchange(ref _closing, 1) == 0;
+        }
+
+        public async Task ReconnectIfBrokenAsync(CancellationToken cancellationToken)
+        {
+            if (Connection.State == ConnectionState.Open && !NeedsReconnect)
+            {
+                return;
+            }
+
+            var database = CurrentDatabase;
+            try
+            {
+                try
+                {
+                    await Connection.DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+
+                Connection = new SqlConnection(ConnectionString);
+                await Connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                await InitializeSessionAsync(Connection, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(database)
+                    && !string.Equals(Connection.Database, database, StringComparison.OrdinalIgnoreCase))
+                {
+                    Connection.ChangeDatabase(database);
+                }
+
+                CurrentDatabase = string.IsNullOrEmpty(Connection.Database) ? database : Connection.Database;
+                Spid = await ReadSessionIdAsync(Connection, cancellationToken).ConfigureAwait(false);
+                NeedsReconnect = false;
+            }
+            catch
+            {
+                NeedsReconnect = true;
+                throw;
+            }
         }
 
         public async ValueTask DisposeAsync()

@@ -496,9 +496,11 @@ export default function App() {
     setIsConnectionDialogOpen(false);
   }
 
+  const executeGenerations = new Map<string, number>();
+
   async function handleExecute(tabId: string, selectedSql?: string) {
     const tab = tabs().find((t) => t.id === tabId);
-    if (!tab) return;
+    if (!tab || tab.isExecuting) return;
 
     const sqlToExecute = (selectedSql || tab.sql).trim();
     if (!sqlToExecute) return;
@@ -525,19 +527,37 @@ export default function App() {
     const tab = tabs().find((t) => t.id === tabId);
     if (!tab) return;
     const execPrefs = loadExecutionPreferences();
+    const generation = (executeGenerations.get(tabId) ?? 0) + 1;
+    executeGenerations.set(tabId, generation);
+    const isCurrent = () => executeGenerations.get(tabId) === generation;
 
-    updateTab(tabId, { isExecuting: true, error: undefined });
+    updateTab(tabId, {
+      isExecuting: true,
+      error: undefined,
+      errorTone: undefined,
+      execStartedAt: performance.now(),
+    });
     const taskbarOperation = startTaskbarOperation();
 
     try {
       const result: QueryResult = await invoke("execute_query", {
+        queryId: tabId,
         sql: sqlToExecute,
         maxRows: execPrefs.maxRows > 0 ? execPrefs.maxRows : null,
         timeoutSeconds:
           execPrefs.timeoutSeconds > 0 ? execPrefs.timeoutSeconds : null,
       });
+      if (!isCurrent()) {
+        taskbarOperation.complete();
+        return;
+      }
       taskbarOperation.complete();
-      const updates: Partial<QueryTab> = { result, isExecuting: false };
+      const updates: Partial<QueryTab> = {
+        result,
+        isExecuting: false,
+        errorTone: undefined,
+        execStartedAt: undefined,
+      };
       if (!tab.userTitle) {
         const generatedTitle = generateTabTitle(sqlToExecute);
         if (generatedTitle) {
@@ -560,9 +580,37 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      updateTab(tabId, { error: String(err), isExecuting: false });
+      if (!isCurrent()) {
+        taskbarOperation.complete();
+        return;
+      }
+      const message = String(err);
+      const isCancelled =
+        message === "Query cancelled by user" ||
+        message === "Query cancelled";
+      updateTab(tabId, {
+        error: message,
+        errorTone: isCancelled ? "cancelled" : "error",
+        isExecuting: false,
+        execStartedAt: undefined,
+      });
       taskbarOperation.fail();
     }
+  }
+
+  async function handleCancelQuery(tabId: string) {
+    executeGenerations.set(tabId, (executeGenerations.get(tabId) ?? 0) + 1);
+    try {
+      await invoke("cancel_query", { queryId: tabId });
+    } catch (err) {
+      console.error("Failed to cancel query:", err);
+    }
+    updateTab(tabId, {
+      isExecuting: false,
+      error: "Query cancelled by user",
+      errorTone: "cancelled",
+      execStartedAt: undefined,
+    });
   }
 
   function describeDestructive(findings: UnguardedStatement[]): string {
@@ -1126,6 +1174,7 @@ export default function App() {
                 onTabPromote={promoteTab}
                 onOpenSqlFile={handleOpenSqlFile}
                 onExecute={handleExecute}
+                onCancelQuery={handleCancelQuery}
                 onConnect={() => setIsConnectionDialogOpen(true)}
                 connected={connected()}
                 isInitializing={isInitializing()}

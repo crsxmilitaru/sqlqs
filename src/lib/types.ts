@@ -183,7 +183,9 @@ export interface QueryTab {
   history?: QueryTabHistoryEntry[];
   result?: QueryResult;
   isExecuting: boolean;
+  execStartedAt?: number;
   error?: string;
+  errorTone?: "error" | "cancelled";
   sourceId?: string;
   userTitle?: boolean;
   pinned?: boolean;

@@ -71,6 +71,10 @@ export function IconPlay(props: { class?: string }) {
   return <Icon name="play" class={props.class} />;
 }
 
+export function IconStop(props: { class?: string }) {
+  return <Icon name="stop" class={props.class} />;
+}
+
 export function IconChevronRight(props: { class?: string }) {
   return (
     <Icon name="chevron-right" class={`text-3xs ${props.class || ""}`} />

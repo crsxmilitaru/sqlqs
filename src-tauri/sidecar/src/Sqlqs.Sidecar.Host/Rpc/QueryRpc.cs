@@ -22,4 +22,11 @@ internal sealed class QueryRpc
         }
         return _executor.ExecuteAsync(request.ConnectionId, request.Sql, request.MaxRows, cancellationToken);
     }
+
+    [JsonRpcMethod("query.cancel", UseSingleObjectParameterDeserialization = true)]
+    public Task Cancel(CancelQueryRequest request)
+    {
+        _executor.Cancel(request.ConnectionId);
+        return Task.CompletedTask;
+    }
 }

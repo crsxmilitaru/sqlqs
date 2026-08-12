@@ -26,6 +26,7 @@ import RowActionsDialog, {
 interface Props {
   result?: QueryResult;
   error?: string;
+  errorTone?: "error" | "cancelled";
   isExecuting: boolean;
   sourceSql?: string;
   tableViewStates: Record<number, ResultsTableViewState | undefined>;
@@ -74,9 +75,11 @@ interface RowContextMenuState {
 
 function ErrorSection(props: {
   error: string;
+  tone?: "error" | "cancelled";
   onSendToChat?: (error: string) => void;
 }) {
   const [copied, setCopied] = createSignal(false);
+  const isCancelled = () => props.tone === "cancelled";
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(props.error);
@@ -90,9 +93,17 @@ function ErrorSection(props: {
   return (
     <div class="p-4 h-full overflow-auto bg-surface flex flex-col gap-3">
       <div class="flex items-center justify-between">
-        <span class="text-s font-semibold text-error/80 flex items-center gap-2">
-          <i class="fa-solid fa-circle-exclamation" />
-          Query Error
+        <span
+          class={`text-s font-semibold flex items-center gap-2 ${
+            isCancelled() ? "text-warning/80" : "text-error/80"
+          }`}
+        >
+          <i
+            class={`fa-solid ${
+              isCancelled() ? "fa-circle-info" : "fa-circle-exclamation"
+            }`}
+          />
+          {isCancelled() ? "Query Cancelled" : "Query Error"}
         </span>
         <div class="flex items-center gap-2">
           <Show when={props.onSendToChat}>
@@ -113,11 +124,17 @@ function ErrorSection(props: {
             }`}
           >
             <i class={`fa-solid ${copied() ? "fa-check" : "fa-copy"}`} />
-            <span>{copied() ? "Copied" : "Copy Error"}</span>
+            <span>{copied() ? "Copied" : "Copy"}</span>
           </button>
         </div>
       </div>
-      <div class="text-error text-m font-mono whitespace-pre-wrap leading-relaxed select-text p-4 bg-error/5 border border-error/10 rounded-lg">
+      <div
+        class={`text-m font-mono whitespace-pre-wrap leading-relaxed select-text p-4 rounded-lg border ${
+          isCancelled()
+            ? "text-warning bg-warning/5 border-warning/10"
+            : "text-error bg-error/5 border-error/10"
+        }`}
+      >
         {props.error}
       </div>
     </div>
@@ -1285,6 +1302,7 @@ export default function ResultsGrid(props: Props) {
         fallback={
           <ErrorSection
             error={props.error!}
+            tone={props.errorTone}
             onSendToChat={props.onSendErrorToChat}
           />
         }

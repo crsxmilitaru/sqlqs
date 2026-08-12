@@ -56,7 +56,7 @@ impl SidecarHandle {
         self.rpc.shutdown().await;
         let mut child = self.child.lock().await;
         let _ = child.start_kill();
-        let _ = child.wait().await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await;
     }
 }
 
@@ -141,6 +141,30 @@ fn resolve_binary_path() -> Result<PathBuf, SupervisorError> {
 
     if let Ok(current_exe) = std::env::current_exe() {
         if let Some(exe_dir) = current_exe.parent() {
+            #[cfg(debug_assertions)]
+            {
+                for up in [1, 2, 3, 4, 5] {
+                    let mut search = exe_dir.to_path_buf();
+                    for _ in 0..up {
+                        if !search.pop() {
+                            break;
+                        }
+                    }
+                    let debug = search
+                        .join("sidecar")
+                        .join("src")
+                        .join(BINARY_BASENAME)
+                        .join("bin")
+                        .join("Debug")
+                        .join(DEBUG_TFM)
+                        .join(format!("{BINARY_BASENAME}{ext}"));
+                    if debug.is_file() {
+                        return Ok(debug);
+                    }
+                    tried.push(debug);
+                }
+            }
+
             let bundled = exe_dir
                 .join("sidecar")
                 .join("bin")
@@ -178,18 +202,21 @@ fn resolve_binary_path() -> Result<PathBuf, SupervisorError> {
                         break;
                     }
                 }
-                let debug = search
-                    .join("sidecar")
-                    .join("src")
-                    .join(BINARY_BASENAME)
-                    .join("bin")
-                    .join("Debug")
-                    .join(DEBUG_TFM)
-                    .join(format!("{BINARY_BASENAME}{ext}"));
-                if debug.is_file() {
-                    return Ok(debug);
+                #[cfg(not(debug_assertions))]
+                {
+                    let debug = search
+                        .join("sidecar")
+                        .join("src")
+                        .join(BINARY_BASENAME)
+                        .join("bin")
+                        .join("Debug")
+                        .join(DEBUG_TFM)
+                        .join(format!("{BINARY_BASENAME}{ext}"));
+                    if debug.is_file() {
+                        return Ok(debug);
+                    }
+                    tried.push(debug);
                 }
-                tried.push(debug);
 
                 let dev = search
                     .join("sidecar")

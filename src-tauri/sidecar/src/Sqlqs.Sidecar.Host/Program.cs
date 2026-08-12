@@ -25,6 +25,7 @@ internal static class Program
         formatter.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         var handler = new HeaderDelimitedMessageHandler(stdout, stdin, formatter);
         using var rpc = new JsonRpc(handler);
+        rpc.SynchronizationContext = null;
 
         await using var connections = new ConnectionService();
         var schema = new SchemaReader(connections);

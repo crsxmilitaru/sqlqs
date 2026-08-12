@@ -14,7 +14,9 @@ use db::{
 use serde::{Deserialize, Serialize};
 use settings::{AppSettings, SavedConnection};
 use sidecar::{PingResponse, SidecarHandle, SidecarSupervisor};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
@@ -69,15 +71,11 @@ fn is_sql_path(path: &Path) -> bool {
     !path.is_dir()
 }
 
-struct CancelSlot {
-    token: Option<CancellationToken>,
-    generation: u64,
-}
+static NEXT_ANON_QUERY_ID: AtomicU64 = AtomicU64::new(0);
 
 struct AppState {
     active_connection: Arc<Mutex<Option<ActiveConnection>>>,
-    cancel_token: Arc<Mutex<CancelSlot>>,
-    cancel_generation: std::sync::atomic::AtomicU64,
+    cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     server_object_index: Arc<Mutex<CachedServerObjectIndex>>,
     server_object_index_token: Arc<Mutex<Option<CancellationToken>>>,
     sidecar: Arc<RwLock<Option<Arc<SidecarHandle>>>>,
@@ -368,9 +366,22 @@ fn close_sidecar_connection_later(rpc: Arc<sidecar::JsonRpcClient>, connection_i
     });
 }
 
-async fn cancel_current_query(state: &AppState) {
-    let mut slot = state.cancel_token.lock().await;
-    if let Some(token) = slot.token.take() {
+async fn cancel_query_by_id(state: &AppState, query_id: &str) {
+    let token = state.cancel_tokens.lock().await.get(query_id).cloned();
+    if let Some(token) = token {
+        token.cancel();
+    }
+}
+
+async fn cancel_all_queries(state: &AppState) {
+    let tokens = state
+        .cancel_tokens
+        .lock()
+        .await
+        .drain()
+        .map(|(_, token)| token)
+        .collect::<Vec<_>>();
+    for token in tokens {
         token.cancel();
     }
 }
@@ -748,6 +759,36 @@ fn write_sql_file(path: String, content: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn delete_sql_file(path: String) -> Result<(), String> {
+    let file_path = PathBuf::from(&path);
+    let documents_dir =
+        dirs::document_dir().ok_or_else(|| "Cannot resolve Documents folder".to_string())?;
+    let saved_queries_dir = documents_dir.join("SQL Query Studio").join("Queries");
+
+    if !file_path.exists() {
+        return Ok(());
+    }
+
+    let canonical_root = saved_queries_dir.canonicalize().map_err(|err| {
+        format!(
+            "Failed to resolve saved queries directory '{}': {}",
+            saved_queries_dir.display(),
+            err
+        )
+    })?;
+    let canonical_file = file_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve SQL file '{}': {}", path, err))?;
+
+    if !canonical_file.starts_with(&canonical_root) || !canonical_file.is_file() {
+        return Err("Only saved query files can be deleted".to_string());
+    }
+
+    std::fs::remove_file(&canonical_file)
+        .map_err(|err| format!("Failed to delete SQL file '{}': {}", path, err))
+}
+
+#[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
     let folder = PathBuf::from(&path);
     if !folder.exists() {
@@ -959,7 +1000,7 @@ async fn connect_to_server(
         lock.replace(new_connection_id)
     };
     if let Some(previous_connection_id) = previous_connection_id {
-        cancel_current_query(&state).await;
+        cancel_all_queries(&state).await;
         close_sidecar_connection_later(Arc::clone(&rpc), previous_connection_id);
     }
 
@@ -975,7 +1016,7 @@ async fn connect_to_server(
 
 #[tauri::command]
 async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String> {
-    cancel_current_query(&state).await;
+    cancel_all_queries(&state).await;
     let sidecar_id = state.sidecar_connection_id.lock().await.take();
     if let Some(id) = sidecar_id {
         if let Ok(rpc) = sidecar_rpc(&state).await {
@@ -992,17 +1033,19 @@ async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String
 #[tauri::command]
 async fn execute_query(
     state: State<'_, AppState>,
+    query_id: Option<String>,
     sql: String,
     max_rows: Option<u64>,
     timeout_seconds: Option<u64>,
 ) -> Result<QueryResult, String> {
     let id = sidecar_connection_id(&state).await?;
-    execute_query_via_sidecar(&state, &id, sql, max_rows, timeout_seconds).await
+    execute_query_via_sidecar(&state, &id, query_id, sql, max_rows, timeout_seconds).await
 }
 
 async fn execute_query_via_sidecar(
     state: &AppState,
     connection_id: &str,
+    query_id: Option<String>,
     sql: String,
     max_rows: Option<u64>,
     timeout_seconds: Option<u64>,
@@ -1014,14 +1057,19 @@ async fn execute_query_via_sidecar(
     let batches = db::split_batches(&sql);
 
     let cancel = CancellationToken::new();
-    let cancel_gen = state
-        .cancel_generation
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        .wrapping_add(1);
+    let query_id = query_id.unwrap_or_else(|| {
+        format!(
+            "query-{}",
+            NEXT_ANON_QUERY_ID.fetch_add(1, Ordering::Relaxed)
+        )
+    });
     {
-        let mut slot = state.cancel_token.lock().await;
-        slot.token = Some(cancel.clone());
-        slot.generation = cancel_gen;
+        let mut tokens = state.cancel_tokens.lock().await;
+        // Reusing a query_id cancels the in-flight run; the superseded future
+        // resolves with "Query cancelled by user" and the frontend ignores it.
+        if let Some(previous) = tokens.insert(query_id.clone(), cancel.clone()) {
+            previous.cancel();
+        }
     }
 
     let timeout = timeout_seconds.filter(|s| *s > 0);
@@ -1045,6 +1093,9 @@ async fn execute_query_via_sidecar(
     );
 
     let result = tokio::select! {
+        _ = cancel.cancelled() => {
+            Err("Query cancelled by user".to_string())
+        }
         res = exec_future => {
             let response = res.map_err(|err| {
                 if cancel.is_cancelled() {
@@ -1053,6 +1104,9 @@ async fn execute_query_via_sidecar(
                     err.query_message()
                 }
             })?;
+            if cancel.is_cancelled() {
+                Err("Query cancelled by user".to_string())
+            } else {
             Ok(QueryResult {
                 result_sets: response.result_sets.into_iter().map(|rs| ResultSet {
                     columns: rs.columns.into_iter().map(|c| ColumnInfo {
@@ -1094,6 +1148,7 @@ async fn execute_query_via_sidecar(
                     message: o.message,
                 }).collect(),
             })
+            }
         }
         secs = &mut timeout_future => {
             cancel.cancel();
@@ -1102,9 +1157,9 @@ async fn execute_query_via_sidecar(
     };
 
     {
-        let mut slot = state.cancel_token.lock().await;
-        if slot.generation == cancel_gen {
-            slot.token = None;
+        let mut tokens = state.cancel_tokens.lock().await;
+        if tokens.get(&query_id).is_some_and(|token| token == &cancel) {
+            tokens.remove(&query_id);
         }
     }
 
@@ -1112,8 +1167,8 @@ async fn execute_query_via_sidecar(
 }
 
 #[tauri::command]
-async fn cancel_query(state: State<'_, AppState>) -> Result<(), String> {
-    cancel_current_query(&state).await;
+async fn cancel_query(state: State<'_, AppState>, query_id: String) -> Result<(), String> {
+    cancel_query_by_id(&state, &query_id).await;
     Ok(())
 }
 
@@ -2006,7 +2061,16 @@ fn maximize_window(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.close().map_err(|e| e.to_string())
+    eprintln!("[window] close_window invoked");
+    window.destroy().map_err(|e| {
+        eprintln!("[window] close_window failed: {e}");
+        e.to_string()
+    })
+}
+
+#[tauri::command]
+fn log_window(message: String) {
+    eprintln!("[window] {message}");
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -2612,7 +2676,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_snap_layout::init().button_id("snap-btn").build())
+        .plugin(tauri_plugin_snap_layout::init().button_id("snap-btn").padding_right(-4).build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -2623,6 +2687,11 @@ pub fn run() {
             }
 
             let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    eprintln!("[window] CloseRequested");
+                }
+            });
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                 window_clone.show().ok();
@@ -2652,11 +2721,7 @@ pub fn run() {
         })
         .manage(AppState {
             active_connection: Arc::new(Mutex::new(None)),
-            cancel_token: Arc::new(Mutex::new(CancelSlot {
-                token: None,
-                generation: 0,
-            })),
-            cancel_generation: std::sync::atomic::AtomicU64::new(0),
+            cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             server_object_index: Arc::new(Mutex::new(CachedServerObjectIndex::default())),
             server_object_index_token: Arc::new(Mutex::new(None)),
             sidecar: Arc::new(RwLock::new(None)),
@@ -2697,6 +2762,7 @@ pub fn run() {
             get_startup_sql_file_path,
             read_sql_file,
             write_sql_file,
+            delete_sql_file,
             get_documents_folder,
             pick_folder_dialog,
             open_folder,
@@ -2707,6 +2773,7 @@ pub fn run() {
             minimize_window,
             maximize_window,
             close_window,
+            log_window,
             store_api_key,
             load_api_key,
             store_brave_search_key,
@@ -2757,7 +2824,7 @@ pub fn run() {
         }
         tauri::RunEvent::ExitRequested { .. } => {
             let sidecar = app_handle.state::<AppState>().sidecar.clone();
-            tauri::async_runtime::block_on(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Some(handle) = sidecar.write().await.take() {
                     handle.shutdown().await;
                 }

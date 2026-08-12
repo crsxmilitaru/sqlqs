@@ -33,6 +33,9 @@ pub enum RpcError {
     #[error("sidecar disconnected before response (method `{0}`)")]
     Disconnected(String),
 
+    #[error("request cancelled")]
+    Cancelled,
+
     #[error("sidecar serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 }
@@ -65,7 +68,7 @@ type Pending = Arc<Mutex<HashMap<u64, PendingEntry>>>;
 pub struct JsonRpcClient {
     writer: Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>,
     pending: Pending,
-    next_id: AtomicU64,
+    next_id: Arc<AtomicU64>,
     reader_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -87,7 +90,7 @@ impl JsonRpcClient {
         Arc::new(Self {
             writer,
             pending,
-            next_id: AtomicU64::new(1),
+            next_id: Arc::new(AtomicU64::new(1)),
             reader_handle: Mutex::new(Some(handle)),
         })
     }
@@ -110,14 +113,34 @@ impl JsonRpcClient {
         P: Serialize,
         R: DeserializeOwned,
     {
-        self.call_inner(method, params, Some(cancel)).await
+        self.call_inner(method, params, Some((cancel, None))).await
+    }
+
+    pub async fn call_with_cancel_notify<P, R>(
+        &self,
+        method: &str,
+        params: &P,
+        cancel: CancellationToken,
+        notify_method: &str,
+        notify_params: Value,
+    ) -> Result<R, RpcError>
+    where
+        P: Serialize,
+        R: DeserializeOwned,
+    {
+        self.call_inner(
+            method,
+            params,
+            Some((cancel, Some((notify_method.to_string(), notify_params)))),
+        )
+        .await
     }
 
     async fn call_inner<P, R>(
         &self,
         method: &str,
         params: &P,
-        cancel: Option<CancellationToken>,
+        cancel: Option<(CancellationToken, Option<(String, Value)>)>,
     ) -> Result<R, RpcError>
     where
         P: Serialize,
@@ -149,17 +172,37 @@ impl JsonRpcClient {
             }
         }
 
-        let cancel_watcher = cancel.map(|ct| {
+        let cancel_watcher = cancel.map(|(ct, notify)| {
             let writer = Arc::clone(&self.writer);
+            let pending = Arc::clone(&self.pending);
+            let next_id = Arc::clone(&self.next_id);
             tokio::spawn(async move {
                 ct.cancelled().await;
+
+                if let Some(entry) = pending.lock().await.remove(&id) {
+                    let _ = entry.sender.send(Err(RpcError::Cancelled));
+                }
+
+                let mut w = writer.lock().await;
+                if let Some((notify_method, notify_params)) = notify {
+                    let cancel_id = next_id.fetch_add(1, Ordering::Relaxed);
+                    let notify_msg = json!({
+                        "jsonrpc": JSONRPC_VERSION,
+                        "id": cancel_id,
+                        "method": notify_method,
+                        "params": notify_params,
+                    });
+                    if let Ok(bytes) = serde_json::to_vec(&notify_msg) {
+                        let _ = write_frame(w.as_mut(), &bytes).await;
+                    }
+                }
+
                 let cancel_msg = json!({
                     "jsonrpc": JSONRPC_VERSION,
                     "method": "$/cancelRequest",
                     "params": { "id": id },
                 });
                 if let Ok(bytes) = serde_json::to_vec(&cancel_msg) {
-                    let mut w = writer.lock().await;
                     let _ = write_frame(w.as_mut(), &bytes).await;
                 }
             })

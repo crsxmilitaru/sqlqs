@@ -27,6 +27,7 @@ import {
   IconPlay,
   IconSave,
   IconSearch,
+  IconStop,
   IconWrapText,
 } from "../ui/Icons";
 import EditorHistoryDialog from "./EditorHistoryDialog";
@@ -103,6 +104,7 @@ interface Props {
   onTabPromote: (id: string) => void;
   onOpenSqlFile?: () => void;
   onExecute: (id: string, customSql?: string) => void;
+  onCancelQuery?: (id: string) => void;
   onConnect?: () => void;
   connected: boolean;
   isInitializing?: boolean;
@@ -440,8 +442,74 @@ export default function QueryEditorPanel(props: Props) {
   const [editorHeight, setEditorHeight] = createSignal(300);
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
   const [showStats, setShowStats] = createSignal(false);
+  const [elapsedMs, setElapsedMs] = createSignal(0);
 
   createEffect(on(() => props.activeTabId, () => setShowStats(false)));
+
+  let elapsedTimer: ReturnType<typeof setInterval> | undefined;
+  const [cancellingTabId, setCancellingTabId] = createSignal<string | null>(
+    null,
+  );
+
+  createEffect(
+    on(
+      () => {
+        const tab = activeTab();
+        return [
+          props.activeTabId,
+          tab?.isExecuting ?? false,
+          tab?.execStartedAt,
+        ] as const;
+      },
+      ([_tabId, isExecuting, execStartedAt]) => {
+        if (elapsedTimer !== undefined) {
+          clearInterval(elapsedTimer);
+          elapsedTimer = undefined;
+        }
+
+        if (isExecuting) {
+          const startMark = execStartedAt ?? performance.now();
+          const tick = () => {
+            setElapsedMs(Math.max(0, performance.now() - startMark));
+          };
+          tick();
+          elapsedTimer = setInterval(tick, 100);
+          return;
+        }
+
+        setElapsedMs(0);
+      },
+    ),
+  );
+
+  createEffect(() => {
+    const id = cancellingTabId();
+    if (!id) return;
+    const tab = props.tabs.find((t) => t.id === id);
+    if (!tab?.isExecuting) setCancellingTabId(null);
+  });
+
+  onCleanup(() => {
+    if (elapsedTimer !== undefined) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = undefined;
+    }
+  });
+
+  const formattedElapsed = createMemo(() => {
+    const ms = elapsedMs();
+    if (ms <= 0) return "";
+    const seconds = ms / 1000;
+    if (seconds < 10) return `${seconds.toFixed(1)}s`;
+    return `${Math.floor(seconds)}s`;
+  });
+
+  function handleCancelExecute() {
+    const tab = activeTab();
+    if (!tab?.isExecuting || cancellingTabId() === tab.id) return;
+    setCancellingTabId(tab.id);
+    props.onCancelQuery?.(tab.id);
+  }
   const [aiChatWidth, setAiChatWidth] = createSignal(
     (() => {
       const saved = localStorage.getItem("sqlqs_ai_chat_width");
@@ -478,6 +546,10 @@ export default function QueryEditorPanel(props: Props) {
     Array.isArray(props.tabs)
       ? props.tabs.find((t) => t.id === props.activeTabId)
       : undefined,
+  );
+  const isActiveExecuting = createMemo(() => activeTab()?.isExecuting === true);
+  const isActiveCancelling = createMemo(
+    () => cancellingTabId() === props.activeTabId && isActiveExecuting(),
   );
 
   function focusEditorSoon() {
@@ -566,6 +638,7 @@ export default function QueryEditorPanel(props: Props) {
 
   function handleExecute(selectedSql?: string) {
     if (!props.activeTabId || !hasDatabaseSelected()) return;
+    if (activeTab()?.isExecuting) return;
     setResultsCollapsed(false);
     setResultTableViewStates((prev) => {
       const next = { ...prev };
@@ -1139,26 +1212,54 @@ export default function QueryEditorPanel(props: Props) {
                           class="w-48"
                           filterable
                           compact
+                          disabled={isActiveExecuting()}
                         />
                       )}
-                    <Tooltip content="Execute (F5)" placement="bottom">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleExecute(editorRef?.getSelectedText())
+                    <Show
+                      when={isActiveExecuting() && !!props.onCancelQuery}
+                      fallback={
+                        <Tooltip content="Execute (F5)" placement="bottom">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleExecute(editorRef?.getSelectedText())
+                            }
+                            disabled={
+                              !props.connected ||
+                              !hasDatabaseSelected() ||
+                              !tab.sql.trim() ||
+                              isActiveExecuting()
+                            }
+                            class="btn btn-primary btn-compact btn-execute"
+                          >
+                            <IconPlay />
+                            <span>Execute</span>
+                          </button>
+                        </Tooltip>
+                      }
+                    >
+                      <Tooltip
+                        content={
+                          isActiveCancelling()
+                            ? "Cancelling query…"
+                            : "Cancel running query"
                         }
-                        disabled={
-                          !props.connected ||
-                          !hasDatabaseSelected() ||
-                          !tab.sql.trim() ||
-                          tab.isExecuting
-                        }
-                        class="btn btn-primary btn-compact btn-execute"
+                        placement="bottom"
                       >
-                        <IconPlay />
-                        <span>Execute</span>
-                      </button>
-                    </Tooltip>
+                        <button
+                          type="button"
+                          onClick={handleCancelExecute}
+                          disabled={isActiveCancelling()}
+                          class="btn btn-danger btn-compact"
+                        >
+                          <IconStop />
+                          <Show when={formattedElapsed()}>
+                            <span class="tabular-nums">{formattedElapsed()}</span>
+                          </Show>
+                          <span>{isActiveCancelling() ? "Cancelling…" : "Cancel"}</span>
+                        </button>
+                      </Tooltip>
+                    </Show>
                   </div>
 
                   <div class="grow shrink-0 flex items-center gap-1 justify-center">
@@ -1352,7 +1453,7 @@ export default function QueryEditorPanel(props: Props) {
                     <button
                       type="button"
                       onClick={() => setShowStats(true)}
-                      disabled={tab.isExecuting}
+                      disabled={isActiveExecuting()}
                       class="btn btn-secondary"
                     >
                       <i class="fa-solid fa-chart-simple" />
@@ -1378,7 +1479,8 @@ export default function QueryEditorPanel(props: Props) {
                   <ResultsGrid
                     result={tab.result}
                     error={tab.error}
-                    isExecuting={tab.isExecuting}
+                    errorTone={tab.errorTone}
+                    isExecuting={isActiveExecuting()}
                     sourceSql={tab.sql}
                     tableViewStates={getResultTableViewStates(tab.id)}
                     onTableViewStateChange={(resultSetIndex, state) =>

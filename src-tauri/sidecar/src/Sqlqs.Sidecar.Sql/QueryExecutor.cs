@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Globalization;
@@ -12,10 +13,26 @@ namespace Sqlqs.Sidecar.Sql;
 public sealed class QueryExecutor
 {
     private readonly ConnectionService _connections;
+    private readonly ConcurrentDictionary<string, SqlCommand> _activeCommands = new(StringComparer.Ordinal);
 
     public QueryExecutor(ConnectionService connections)
     {
         _connections = connections;
+    }
+
+    public void Cancel(string connectionId)
+    {
+        if (string.IsNullOrWhiteSpace(connectionId))
+        {
+            return;
+        }
+
+        if (_activeCommands.TryGetValue(connectionId, out var command))
+        {
+            TryCancel(command);
+        }
+
+        Console.Error.WriteLine($"[sqlqs-sidecar] cancel {connectionId}");
     }
 
     public async Task<ExecuteSqlResponse> ExecuteAsync(
@@ -27,6 +44,7 @@ public sealed class QueryExecutor
         var limit = (maxRows.HasValue && maxRows.Value > 0) ? maxRows.Value : (long?)null;
 
         await using var lease = await _connections.AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        using var killReg = RegisterSessionKill(connectionId, cancellationToken);
         var connection = lease.Connection;
         var watch = Stopwatch.StartNew();
         var outputs = new List<OutputItem>();
@@ -63,9 +81,14 @@ public sealed class QueryExecutor
 
                 using var cmd = new SqlCommand(sql, connection);
                 cmd.CommandTimeout = 0;
+                using var cancelReg = RegisterCommandCancel(cmd, cancellationToken);
+                using var active = TrackActiveCommand(connectionId, cmd);
 
-                using (var reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(sql), cancellationToken).ConfigureAwait(false))
+                SqlDataReader? reader = null;
+                var stoppedEarly = false;
+                try
                 {
+                    reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(sql), cancellationToken).ConfigureAwait(false);
                     while (true)
                     {
                         if (reader.FieldCount > 0)
@@ -74,6 +97,12 @@ public sealed class QueryExecutor
                             if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
                             resultSets.Add(data);
                             outputs.Add(new OutputItem { Type = 0, ResultSetIndex = resultSets.Count - 1 });
+                            if (truncated)
+                            {
+                                TryCancel(cmd);
+                                stoppedEarly = true;
+                                break;
+                            }
                         }
 
                         if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
@@ -82,10 +111,18 @@ public sealed class QueryExecutor
                         }
                     }
 
-                    if (reader.RecordsAffected > 0)
+                    if (!stoppedEarly && reader.RecordsAffected > 0)
                     {
                         rowsAffected = reader.RecordsAffected;
                     }
+                }
+                catch (Exception ex) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException("Query cancelled by user", ex, cancellationToken);
+                }
+                finally
+                {
+                    await DisposeReaderQuietlyAsync(reader).ConfigureAwait(false);
                 }
 
                 if (statisticsEnabled)
@@ -136,6 +173,7 @@ public sealed class QueryExecutor
         var limit = (maxRows.HasValue && maxRows.Value > 0) ? maxRows.Value : (long?)null;
 
         await using var lease = await _connections.AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
+        using var killReg = RegisterSessionKill(connectionId, cancellationToken);
         var connection = lease.Connection;
         var watch = Stopwatch.StartNew();
         var outputs = new List<OutputItem>();
@@ -169,38 +207,59 @@ public sealed class QueryExecutor
                 var allResultSets = new List<ResultSetData>();
                 long totalRowsAffected = 0;
                 long? rowLimitApplied = null;
+                var stoppedEarly = false;
 
                 for (int i = 0; i < batches.Count; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (stoppedEarly) break;
 
                     var batch = batches[i];
                     if (string.IsNullOrWhiteSpace(batch)) continue;
 
                     using var cmd = new SqlCommand(batch, connection);
                     cmd.CommandTimeout = 0;
+                    using var cancelReg = RegisterCommandCancel(cmd, cancellationToken);
+                    using var active = TrackActiveCommand(connectionId, cmd);
 
-                    using var reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(batch), cancellationToken).ConfigureAwait(false);
-
-                    while (true)
+                    SqlDataReader? reader = null;
+                    try
                     {
-                        if (reader.FieldCount > 0)
+                        reader = await cmd.ExecuteReaderAsync(ResolveReaderBehavior(batch), cancellationToken).ConfigureAwait(false);
+                        while (true)
                         {
-                            var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
-                            if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
-                            allResultSets.Add(data);
-                            outputs.Add(new OutputItem { Type = 0, ResultSetIndex = allResultSets.Count - 1 });
+                            if (reader.FieldCount > 0)
+                            {
+                                var (data, truncated) = await ReadResultSetAsync(reader, limit, cancellationToken).ConfigureAwait(false);
+                                if (truncated && rowLimitApplied is null) rowLimitApplied = limit;
+                                allResultSets.Add(data);
+                                outputs.Add(new OutputItem { Type = 0, ResultSetIndex = allResultSets.Count - 1 });
+                                if (truncated)
+                                {
+                                    TryCancel(cmd);
+                                    stoppedEarly = true;
+                                    break;
+                                }
+                            }
+
+                            if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+                            {
+                                break;
+                            }
                         }
 
-                        if (!await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+                        if (!stoppedEarly && reader.RecordsAffected > 0)
                         {
-                            break;
+                            totalRowsAffected += reader.RecordsAffected;
                         }
                     }
-
-                    if (reader.RecordsAffected > 0)
+                    catch (Exception ex) when (cancellationToken.IsCancellationRequested)
                     {
-                        totalRowsAffected += reader.RecordsAffected;
+                        throw new OperationCanceledException("Query cancelled by user", ex, cancellationToken);
+                    }
+                    finally
+                    {
+                        await DisposeReaderQuietlyAsync(reader).ConfigureAwait(false);
                     }
                 }
 
@@ -243,6 +302,7 @@ public sealed class QueryExecutor
         long? limit,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var columns = new List<QueryColumn>(reader.FieldCount);
         var dataTypeNames = new string[reader.FieldCount];
         var schemaTable = await reader.GetSchemaTableAsync(cancellationToken).ConfigureAwait(false);
@@ -310,7 +370,7 @@ public sealed class QueryExecutor
             if (limit.HasValue && count >= limit.Value)
             {
                 truncated = true;
-                continue;
+                break;
             }
             count++;
 
@@ -399,6 +459,89 @@ public sealed class QueryExecutor
     private static readonly Regex BatchExclusiveDdlRegex = new(
         @"^(?:(?:CREATE\s+(?:OR\s+ALTER\s+)?|ALTER\s+)(?:PROC(?:EDURE)?|VIEW|FUNCTION|TRIGGER)|CREATE\s+(?:RULE|DEFAULT|SCHEMA))\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private ActiveCommandScope TrackActiveCommand(string connectionId, SqlCommand command)
+    {
+        _activeCommands[connectionId] = command;
+        return new ActiveCommandScope(this, connectionId, command);
+    }
+
+    private static CancellationTokenRegistration RegisterCommandCancel(
+        SqlCommand command,
+        CancellationToken cancellationToken)
+    {
+        return cancellationToken.Register(
+            static state => TryCancel((SqlCommand)state!),
+            command,
+            useSynchronizationContext: false);
+    }
+
+    private sealed class ActiveCommandScope : IDisposable
+    {
+        private readonly QueryExecutor _owner;
+        private readonly string _connectionId;
+        private readonly SqlCommand _command;
+        private int _disposed;
+
+        public ActiveCommandScope(QueryExecutor owner, string connectionId, SqlCommand command)
+        {
+            _owner = owner;
+            _connectionId = connectionId;
+            _command = command;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            _owner._activeCommands.TryRemove(
+                new KeyValuePair<string, SqlCommand>(_connectionId, _command));
+        }
+    }
+
+    private CancellationTokenRegistration RegisterSessionKill(
+        string connectionId,
+        CancellationToken cancellationToken)
+    {
+        return cancellationToken.Register(
+            static state =>
+            {
+                var (connections, id) = ((ConnectionService, string))state!;
+                _ = connections.TryKillSessionAsync(id);
+            },
+            (_connections, connectionId),
+            useSynchronizationContext: false);
+    }
+
+    private static void TryCancel(SqlCommand command)
+    {
+        try
+        {
+            command.Cancel();
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task DisposeReaderQuietlyAsync(SqlDataReader? reader)
+    {
+        if (reader is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await reader.DisposeAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
 
     private static CommandBehavior ResolveReaderBehavior(string sql)
     {
