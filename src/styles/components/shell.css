@@ -254,9 +254,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    -webkit-app-region: no-drag;
     transition:
       background-color var(--duration-fast) ease,
       color var(--duration-fast) ease;
+  }
+
+  .windows-caption-btn *,
+  .no-drag,
+  .no-drag * {
+    -webkit-app-region: no-drag;
   }
 
   .windows-caption-btn:hover,
@@ -443,9 +450,11 @@
   }
 
   [data-tauri-drag-region] button,
+  [data-tauri-drag-region] button *,
   [data-tauri-drag-region] select,
   [data-tauri-drag-region] input,
-  .no-drag {
+  .no-drag,
+  .no-drag * {
     -webkit-app-region: no-drag;
   }
 

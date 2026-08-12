@@ -7,6 +7,7 @@ interface Props {
   children: JSX.Element;
   delay?: number;
   placement?: "top" | "bottom" | "left" | "right";
+  class?: string;
 }
 
 interface TooltipPos {
@@ -96,7 +97,7 @@ export default function Tooltip(props: Props) {
         onPointerDown={hide}
         onFocusIn={show}
         onFocusOut={hide}
-        class="inline-flex max-w-full"
+        class={`inline-flex max-w-full ${props.class ?? ""}`}
       >
         {props.children}
       </span>

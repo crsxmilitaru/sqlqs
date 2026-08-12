@@ -25,6 +25,7 @@ interface Props {
   filterable?: boolean;
   openUpwards?: boolean;
   compact?: boolean;
+  title?: string;
 }
 
 export default function Dropdown(props: Props) {
@@ -54,6 +55,8 @@ export default function Dropdown(props: Props) {
   const filterable = () => props.filterable ?? false;
   const openUpwards = () => props.openUpwards ?? false;
   const compact = () => props.compact ?? false;
+  const title = () =>
+    props.title !== undefined ? props.title : selectedOption()?.label;
   const listboxId = `dropdown-listbox-${Math.random().toString(36).slice(2)}`;
   const accessibleLabel = () => props.placeholder ?? "Select option";
 
@@ -240,7 +243,7 @@ export default function Dropdown(props: Props) {
       <button
         ref={buttonRef}
         type="button"
-        title={selectedOption()?.label}
+        title={title()}
         onClick={() => {
           if (disabled()) return;
           if (!isOpen()) updatePosition();

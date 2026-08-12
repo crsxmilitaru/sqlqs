@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import type { JSX } from "solid-js";
 import { getModifierKeyLabel } from "../../lib/platform";
+import { baseFileName } from "../../lib/path";
 import { loadExecutionPreferences } from "../../lib/settings";
 import { formatSqlDateValue } from "../../lib/sql-date";
 import { startTaskbarOperation } from "../../lib/taskbar";
@@ -22,6 +23,7 @@ import Tooltip from "../ui/Tooltip";
 import RowActionsDialog, {
   type RowActionMode,
 } from "../dialogs/RowActionsDialog";
+import { toast } from "../ui/Toaster";
 
 interface Props {
   result?: QueryResult;
@@ -197,7 +199,7 @@ function VirtualGrid(props: {
     props.viewState ?? {
       sortConfig: null,
       filters: {},
-      showFilters: false,
+      showFilters: true,
     };
 
   const sortConfig = () => viewState().sortConfig;
@@ -371,9 +373,10 @@ function VirtualGrid(props: {
         rows: getAllProcessedRows().map(({ row }) => row),
       });
       taskbarOperation.complete();
+      toast.success(`Exported to ${baseFileName(filePath)}`);
     } catch (err) {
       taskbarOperation.fail();
-      throw err;
+      toast.error(`CSV export failed: ${String(err)}`);
     }
   };
 
@@ -395,9 +398,10 @@ function VirtualGrid(props: {
         rows: getAllProcessedRows().map(({ row }) => row),
       });
       taskbarOperation.complete();
+      toast.success(`Exported to ${baseFileName(filePath)}`);
     } catch (err) {
       taskbarOperation.fail();
-      throw err;
+      toast.error(`JSON export failed: ${String(err)}`);
     }
   };
 
@@ -419,9 +423,10 @@ function VirtualGrid(props: {
         rows: getAllProcessedRows().map(({ row }) => row),
       });
       taskbarOperation.complete();
+      toast.success(`Exported to ${baseFileName(filePath)}`);
     } catch (err) {
       taskbarOperation.fail();
-      throw err;
+      toast.error(`Excel export failed: ${String(err)}`);
     }
   };
 
@@ -958,21 +963,22 @@ function VirtualGrid(props: {
             <tr>
               <th class="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
                 <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
-                  <button
-                    type="button"
-                    aria-label={
-                      showFilters() ? "Hide column filters" : "Show column filters"
-                    }
-                    onClick={() => setShowFilters(!showFilters())}
-                    class={`p-1 rounded hover:bg-surface-hover transition-colors ${
-                      Object.values(filters()).some((v) => v.trim())
-                        ? "text-accent"
-                        : "text-text-muted/60"
-                    }`}
-                    title="Toggle filters"
-                  >
-                    <i class="fa-solid fa-filter text-[10px]" />
-                  </button>
+                  <Tooltip content="Toggle filters" placement="bottom">
+                    <button
+                      type="button"
+                      aria-label={
+                        showFilters() ? "Hide column filters" : "Show column filters"
+                      }
+                      onClick={() => setShowFilters(!showFilters())}
+                      class={`p-1 rounded hover:bg-surface-hover transition-colors ${
+                        Object.values(filters()).some((v) => v.trim())
+                          ? "text-accent"
+                          : "text-text-muted/60"
+                      }`}
+                    >
+                      <i class="fa-solid fa-filter text-[10px]" />
+                    </button>
+                  </Tooltip>
                   <Show when={showFilters()}>
                     <div class="mt-2 text-[10px] text-text-muted/40 font-normal">
                       #

@@ -9,6 +9,7 @@ import {
 import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "./Icons";
+import { toast } from "./Toaster";
 
 export interface ContextMenuItem {
   id: string;
@@ -19,7 +20,7 @@ export interface ContextMenuItem {
   danger?: boolean;
   separator?: boolean;
   children?: ContextMenuItem[];
-  onClick?: () => void;
+  onClick?: () => unknown;
 }
 
 interface Props {
@@ -105,8 +106,17 @@ export default function ContextMenu(props: Props) {
       setActiveSubmenu(activeSubmenu() === item.id ? null : item.id);
       return;
     }
-    item.onClick?.();
     props.onClose();
+    try {
+      const result = item.onClick?.();
+      if (result && typeof (result as Promise<void>).then === "function") {
+        (result as Promise<void>).catch((err) => {
+          toast.error(String(err));
+        });
+      }
+    } catch (err) {
+      toast.error(String(err));
+    }
   }
 
   const renderItem = (item: ContextMenuItem, isSubmenuItem = false) => {

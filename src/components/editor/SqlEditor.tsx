@@ -36,12 +36,7 @@ import {
   searchKeymap,
   searchPanelOpen,
 } from "@codemirror/search";
-import {
-  EditorState,
-  Compartment,
-  Transaction,
-  type Extension,
-} from "@codemirror/state";
+import { EditorState, Compartment, Transaction, Annotation, type Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { SyntaxNode } from "@lezer/common";
 import {
@@ -70,6 +65,8 @@ import type {
   DatabaseSchemaCatalogEntry,
   QueryTabUpdateOptions,
 } from "../../lib/types";
+
+const externalSyncAnnotation = Annotation.define<boolean>();
 
 const searchScrollbarPlugin = ViewPlugin.fromClass(
   class {
@@ -1376,9 +1373,8 @@ const editorGutterTheme = EditorView.theme({
     padding: `0 ${EDITOR_LINE_END_PADDING}px 0 ${EDITOR_LINE_START_PADDING}px`,
   },
   "&.cm-minimap-enabled .cm-line": {
-    paddingRight: `${
-      EDITOR_MINIMAP_WIDTH + MINIMAP_CODE_GAP + EDITOR_LINE_END_PADDING
-    }px`,
+    paddingRight: `${EDITOR_MINIMAP_WIDTH + MINIMAP_CODE_GAP + EDITOR_LINE_END_PADDING
+      }px`,
   },
 });
 
@@ -1500,7 +1496,7 @@ const fillMinimapPlugin = ViewPlugin.fromClass(
         1,
         Math.floor(
           this.view.scrollDOM.clientHeight ||
-            this.view.dom.getBoundingClientRect().height,
+          this.view.dom.getBoundingClientRect().height,
         ),
       );
       const clientHeight = Math.max(1, this.view.scrollDOM.clientHeight);
@@ -1519,10 +1515,10 @@ const fillMinimapPlugin = ViewPlugin.fromClass(
       const overlayTop =
         maxScrollTop > 0
           ? clamp(
-              (this.view.scrollDOM.scrollTop / maxScrollTop) * maxOverlayTop,
-              0,
-              maxOverlayTop,
-            )
+            (this.view.scrollDOM.scrollTop / maxScrollTop) * maxOverlayTop,
+            0,
+            maxOverlayTop,
+          )
           : 0;
 
       return {
@@ -1918,7 +1914,7 @@ export default function SqlEditor(props: Props) {
 
     let catalog =
       schemaRef.database === database &&
-      schemaRef.generation === schemaCatalogGeneration
+        schemaRef.generation === schemaCatalogGeneration
         ? schemaRef.catalog
         : undefined;
     if (!catalog) {
@@ -2025,10 +2021,15 @@ export default function SqlEditor(props: Props) {
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        props.onChange(
-          update.state.doc.toString(),
-          historyOptionsForEditorUpdate(update),
+        const isExternalSync = update.transactions.some((transaction) =>
+          transaction.annotation(externalSyncAnnotation) === true,
         );
+        if (!isExternalSync) {
+          props.onChange(
+            update.state.doc.toString(),
+            historyOptionsForEditorUpdate(update),
+          );
+        }
       }
 
       if (viewRef && searchPanelOpen(update.state) && containerRef) {
@@ -2359,6 +2360,10 @@ export default function SqlEditor(props: Props) {
           to: viewRef.state.doc.length,
           insert: value,
         },
+        annotations: [
+          Transaction.addToHistory.of(false),
+          externalSyncAnnotation.of(true),
+        ],
       });
     }
   });

@@ -100,6 +100,13 @@ export function useSavedQueries() {
         return false;
       }
 
+      try {
+        await invoke("delete_sql_file", { path: query.filePath });
+      } catch (err) {
+        console.error("Failed to delete saved query file:", err);
+        return false;
+      }
+
       setSavedQueries((prev) => prev.filter((q) => q.id !== id));
       return true;
     } catch (err) {

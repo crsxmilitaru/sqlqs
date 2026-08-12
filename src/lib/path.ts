@@ -11,8 +11,6 @@ export function joinPath(...segments: string[]): string {
     })
     .join("/");
 
-  // Convert to native Windows separators for drive-letter (`C:\…`) and UNC
-  // (`\\server\share\…`) paths. Mac/Linux paths fall through with `/`.
   if (/^[A-Za-z]:/.test(joined)) {
     return joined.replace(/\//g, "\\");
   }
@@ -24,4 +22,9 @@ export function joinPath(...segments: string[]): string {
 
 export function getSavedQueriesDir(documentsPath: string): string {
   return joinPath(documentsPath, "SQL Query Studio", "Queries");
+}
+
+export function baseFileName(path: string): string {
+  const lastSep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return lastSep >= 0 ? path.slice(lastSep + 1) : path;
 }

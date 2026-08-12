@@ -32,6 +32,7 @@ import {
 } from "../ui/Icons";
 import DialogShell from "../ui/DialogShell";
 import Dropdown from "../ui/Dropdown";
+import Tooltip from "../ui/Tooltip";
 import { Loader } from "../ui/Loader";
 import type { ExplorerObjectType } from "./ObjectMenu";
 import { buildObjectExplorerMenuItems } from "./ObjectMenu";
@@ -661,29 +662,47 @@ export default function ObjectJumpPalette(props: Props) {
                   />
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5 px-2 pt-2">
-                  <Dropdown
-                    value={databaseFilter()}
-                    options={databaseOptions()}
-                    onChange={(value) => {
-                      setDatabaseFilter(value);
-                      saveObjectJumpDatabaseFilter(value);
-                    }}
-                    placeholder="All databases"
-                    class="w-56"
-                    filterable
-                    compact
-                  />
-                  <Dropdown
-                    value={typeFilter() ?? ""}
-                    options={typeOptions()}
-                    onChange={(value) => {
-                      setTypeFilter(value || null);
-                      saveObjectJumpTypeFilter(value);
-                    }}
-                    placeholder="All types"
-                    class="w-36"
-                    compact
-                  />
+                  <Tooltip content="Database" placement="bottom">
+                    <Dropdown
+                      value={databaseFilter()}
+                      options={databaseOptions()}
+                      onChange={(value) => {
+                        setDatabaseFilter(value);
+                        saveObjectJumpDatabaseFilter(value);
+                      }}
+                      placeholder="All databases"
+                      class="w-56"
+                      filterable
+                      compact
+                      title=""
+                    />
+                  </Tooltip>
+                  <Tooltip content="Type" placement="bottom">
+                    <Dropdown
+                      value={typeFilter() ?? ""}
+                      options={typeOptions()}
+                      onChange={(value) => {
+                        setTypeFilter(value || null);
+                        saveObjectJumpTypeFilter(value);
+                      }}
+                      placeholder="All types"
+                      class="w-36"
+                      compact
+                      title=""
+                    />
+                  </Tooltip>
+                  <Show when={hasActiveFilter()}>
+                    <Tooltip content="Reset filters" placement="bottom">
+                      <button
+                        type="button"
+                        onClick={clearFilters}
+                        aria-label="Reset filters"
+                        class="flex h-[30px] w-[30px] flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-border/50 text-text-muted transition-colors hover:border-border hover:bg-surface-hover hover:text-text"
+                      >
+                        <Icon name="arrows-rotate" class="text-s" />
+                      </button>
+                    </Tooltip>
+                  </Show>
                 </div>
               </div>
 

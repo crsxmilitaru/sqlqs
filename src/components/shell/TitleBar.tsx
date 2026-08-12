@@ -1,5 +1,6 @@
 import { IconWinMinimize, IconWinMaximize, IconWinRestore, IconWinClose, IconMacClose, IconMacMinimize, IconMacMaximize, } from "../ui/Icons";
 import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
 import { isMacOS } from "../../lib/platform";
@@ -42,6 +43,7 @@ interface Props {
   onViewUpdateDetails?: () => void;
   hideAppContent?: boolean;
   hasTabs: boolean;
+  onRequestClose?: () => void;
 }
 
 export default function TitleBar(props: Props) {
@@ -88,6 +90,25 @@ export default function TitleBar(props: Props) {
 
     void subscribe((cb) => win.onResized(cb));
 
+    if (!isMac) {
+      const clampSnapOverlay = () => {
+        const snap = document.getElementById("snap-btn");
+        const closeBtn = document.getElementById("window-close-btn");
+        if (!snap || !closeBtn) return;
+        const overlap = snap.getBoundingClientRect().right - closeBtn.getBoundingClientRect().left;
+        if (overlap <= 0) return;
+        const right = -Math.ceil(overlap + 2);
+        void import("tauri-plugin-snap-layout")
+          .then((mod) => mod.changePadding({ right }))
+          .catch(() => {
+            window.snapLayout?.changePadding({ right });
+          });
+      };
+      requestAnimationFrame(clampSnapOverlay);
+      window.addEventListener("resize", clampSnapOverlay);
+      unlistens.push(() => window.removeEventListener("resize", clampSnapOverlay));
+    }
+
     onCleanup(() => {
       cancelled = true;
       for (const unlisten of unlistens) unlisten();
@@ -126,10 +147,22 @@ export default function TitleBar(props: Props) {
     } catch { /* empty */ }
   }
 
-  async function handleClose() {
+  async function handleClose(event?: MouseEvent) {
+    event?.stopPropagation();
+    if (props.onRequestClose) {
+      props.onRequestClose();
+      return;
+    }
     try {
-      await win.close();
-    } catch { /* empty */ }
+      await invoke("close_window");
+    } catch (err) {
+      console.error("Failed to close window:", err);
+      try {
+        await win.destroy();
+      } catch (err2) {
+        console.error("Failed to destroy window:", err2);
+      }
+    }
   }
 
   function handleTitleBarMouseDown(
@@ -152,7 +185,6 @@ export default function TitleBar(props: Props) {
   return (
     <>
       <div
-        data-tauri-drag-region
         class="app-titlebar flex items-center h-11 select-none flex-shrink-0 relative"
         onMouseDown={handleTitleBarMouseDown}
       >
@@ -313,7 +345,7 @@ export default function TitleBar(props: Props) {
           </div>
         )}
 
-        <div class="flex-1" />
+        <div class="flex-1 h-full" data-tauri-drag-region />
 
         <div class="flex h-full flex-shrink-0">
           {!props.hideAppContent && isMac && props.connected && (
@@ -370,8 +402,12 @@ export default function TitleBar(props: Props) {
           )}
           {!isMac && !props.hideAppContent && <div class="ui-divider mx-2.5 self-center" />}
           {!isMac && (
-            <div class="flex h-full relative z-[9999]">
-              <Tooltip content="Minimize" placement="bottom">
+            <div
+              class="flex h-full relative z-[9999] no-drag"
+              data-tauri-drag-region="false"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <Tooltip content="Minimize" placement="bottom" class="h-full">
                 <button
                   type="button"
                   aria-label="Minimize window"
@@ -381,7 +417,7 @@ export default function TitleBar(props: Props) {
                   <IconWinMinimize />
                 </button>
               </Tooltip>
-              <Tooltip content={isMaximized() ? "Restore" : "Maximize"} placement="bottom">
+              <Tooltip content={isMaximized() ? "Restore" : "Maximize"} placement="bottom" class="h-full">
                 <button
                   type="button"
                   aria-label={isMaximized() ? "Restore window" : "Maximize window"}
@@ -394,11 +430,13 @@ export default function TitleBar(props: Props) {
                   </Show>
                 </button>
               </Tooltip>
-              <Tooltip content="Close" placement="bottom">
+              <Tooltip content="Close" placement="bottom" class="h-full">
                 <button
                   type="button"
                   aria-label="Close window"
+                  id="window-close-btn"
                   onClick={handleClose}
+                  onMouseDown={(event) => event.stopPropagation()}
                   class="windows-caption-btn windows-caption-btn-close"
                 >
                   <IconWinClose />

@@ -7,7 +7,7 @@ import { useConnection } from "../../hooks/useConnection";
 import { useHistory } from "../../hooks/useHistory";
 import { useSavedQueries } from "../../hooks/useSavedQueries";
 import { useTabs } from "../../hooks/useTabs";
-import { getSavedQueriesDir, joinPath } from "../../lib/path";
+import { baseFileName, getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { generateTabTitle } from "../../lib/sql";
 import { loadTheme, THEME_CHANGED_EVENT, type ThemeSelection } from "../../lib/theme";
@@ -48,6 +48,7 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import TitleBar from "./TitleBar";
 import UpdateDialog from "../dialogs/UpdateDialog";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
+import Toaster, { toast } from "../ui/Toaster";
 
 type RiskySchemaChangeKind = "ALTER" | "DROP";
 
@@ -238,10 +239,14 @@ export default function App() {
     unguarded: UnguardedStatement[];
     schemaChanges: RiskySchemaChange[];
   } | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] = createSignal(false);
   const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
   const [explorerWidth, setExplorerWidth] = createSignal(325);
   const [theme, setTheme] = createSignal(loadTheme());
   const [isObjectJumpOpen, setIsObjectJumpOpen] = createSignal(false);
+  const [exitConfirm, setExitConfirm] = createSignal<{
+    reason: "executing" | "unsaved";
+  } | null>(null);
   const [backupRestoreDatabase, setBackupRestoreDatabase] = createSignal<
     string | null
   >(null);
@@ -327,6 +332,26 @@ export default function App() {
 
   function handleToggleAiChat() {
     setAiChatOpen((prev) => !prev);
+  }
+
+  function handleWindowClose() {
+    const executing = tabs().some((t) => t.isExecuting);
+    if (executing) {
+      setExitConfirm({ reason: "executing" });
+      return;
+    }
+
+    const prefs = loadPreferences();
+    const hasDirtyTabs =
+      prefs.confirmCloseUnsaved &&
+      !prefs.persistTabs &&
+      tabs().some((t) => t.sql !== t.savedSql);
+    if (hasDirtyTabs) {
+      setExitConfirm({ reason: "unsaved" });
+      return;
+    }
+
+    void invoke("close_window");
   }
 
   onMount(() => {
@@ -613,6 +638,21 @@ export default function App() {
     });
   }
 
+  function requestDisconnect() {
+    if (tabs().some((t) => t.isExecuting)) {
+      setPendingDisconnect(true);
+      return;
+    }
+    void disconnect();
+  }
+
+  async function handleDatabaseChange(db: string) {
+    const ok = await changeDatabase(db);
+    if (!ok) {
+      toast.error(`Failed to switch to database "${db}".`);
+    }
+  }
+
   function describeDestructive(findings: UnguardedStatement[]): string {
     const counts = findings.reduce(
       (acc, f) => {
@@ -681,7 +721,7 @@ export default function App() {
     temporary?: boolean;
   }) {
     if (database && database !== currentDatabase()) {
-      changeDatabase(database);
+      void handleDatabaseChange(database);
     }
 
     const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
@@ -703,8 +743,10 @@ export default function App() {
         const content = await file.text();
         const title = file.name.replace(/\.sql$/i, "").trim();
         addTab(content, title || undefined);
+        toast.success(`Opened ${file.name}`);
       } catch (error) {
         console.error("Failed to open SQL file:", error);
+        toast.error(`Failed to open ${file.name}: ${String(error)}`);
       }
     };
 
@@ -721,8 +763,10 @@ export default function App() {
 
       addTab(file.content, file.file_name, `file:${file.path}`, true);
       void invoke("add_to_recent_docs", { path: file.path }).catch(() => undefined);
+      toast.success(`Opened ${file.file_name}`);
     } catch (error) {
       console.error("Failed to open SQL file from path:", error);
+      toast.error(`Failed to open file: ${String(error)}`);
     }
   }
 
@@ -750,7 +794,11 @@ export default function App() {
     const tab = tabs().find((t) => t.id === tabId);
     if (!tab || !tab.sql.trim()) return;
 
-    await saveQuery(tab.title, tab.sql);
+    const saved = await saveQuery(tab.title, tab.sql);
+    if (!saved) {
+      toast.error(`Failed to save query "${tab.title}".`);
+      return;
+    }
     promoteTab(tabId);
     updateTab(tabId, { savedSql: tab.sql });
   }
@@ -793,8 +841,10 @@ export default function App() {
 
       promoteTab(tabId);
       updateTab(tabId, { savedSql: tab.sql });
+      toast.success(`Saved to ${baseFileName(filePath)}`);
     } catch (error) {
       console.error("Failed to save SQL file:", error);
+      toast.error(`Failed to save SQL file: ${String(error)}`);
     }
   }
 
@@ -806,7 +856,9 @@ export default function App() {
   }
 
   async function handleDeleteSavedQuery(id: string) {
-    await deleteQuery(id);
+    if (!(await deleteQuery(id))) {
+      toast.error("Failed to delete saved query.");
+    }
   }
 
   async function handleOpenSavedQueriesFolder() {
@@ -828,7 +880,9 @@ export default function App() {
     !!renameTarget() ||
     !!dropTarget() ||
     !!dependenciesTarget() ||
-    !!pendingRisky();
+    !!pendingRisky() ||
+    !!pendingDisconnect() ||
+    !!exitConfirm();
   const canOpenObjectJump = () => connected();
 
   function handleToggleObjectJump() {
@@ -901,6 +955,54 @@ export default function App() {
         event.preventDefault();
         setIsSettingsOpen((prev) => !prev);
         return;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Fallback when the editor is unfocused. SqlEditor's F5 keymap runs first
+      // and preventDefault()s; this listener must stay in the bubble phase so
+      // defaultPrevented is visible and F5 is not executed twice.
+      if (event.defaultPrevented) return;
+
+      if (
+        event.key === "F5" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey
+      ) {
+        if (isAnyDialogOpen()) return;
+        const tab = tabs().find((t) => t.id === activeTabId());
+        if (
+          !tab ||
+          !connected() ||
+          !currentDatabase() ||
+          !tab.sql.trim() ||
+          tab.isExecuting
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void handleExecute(tab.id);
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "s"
+      ) {
+        if (isAnyDialogOpen()) return;
+        const tab = tabs().find((t) => t.id === activeTabId());
+        if (!tab || !tab.sql.trim()) return;
+        event.preventDefault();
+        void handleTabSave(tab.id);
       }
     };
 
@@ -1057,7 +1159,7 @@ export default function App() {
         isInitializing={isInitializing()}
         serverName={serverName()}
         onConnect={() => setIsConnectionDialogOpen(true)}
-        onDisconnect={disconnect}
+        onDisconnect={requestDisconnect}
         onOpenSqlFile={handleOpenSqlFile}
         onShowBackupRestore={() =>
           setBackupRestoreDatabase(currentDatabase() || databases()[0] || "")
@@ -1075,6 +1177,7 @@ export default function App() {
         objectJumpOpen={isObjectJumpOpen()}
         objectJumpIndexStatus={objectJumpIndexStatus()}
         hideAppContent={isSettingsOpen()}
+        onRequestClose={handleWindowClose}
         updateAvailable={!!updateAvailable()}
         onViewUpdateDetails={() => setUpdateDialogVisible(true)}
         hasTabs={tabs().length > 0}
@@ -1133,7 +1236,7 @@ export default function App() {
                         sourceId,
                       });
                     }}
-                    onDatabaseChange={changeDatabase}
+                    onDatabaseChange={handleDatabaseChange}
                     currentDatabase={currentDatabase()}
                     executedQueries={executedQueries()}
                     onDeleteHistory={deleteHistory}
@@ -1180,7 +1283,7 @@ export default function App() {
                 isInitializing={isInitializing()}
                 currentDatabase={currentDatabase()}
                 databases={databases()}
-                onDatabaseChange={changeDatabase}
+                onDatabaseChange={handleDatabaseChange}
                 theme={theme()}
                 aiChatOpen={aiChatOpen()}
                 onAiChatOpenChange={setAiChatOpen}
@@ -1322,6 +1425,44 @@ export default function App() {
         )}
       </Show>
 
+      <Show when={pendingDisconnect()}>
+        <ConfirmDialog
+          title="Disconnect while query running?"
+          message="A query is still executing. Disconnecting now will interrupt it. Disconnect anyway?"
+          confirmLabel="Disconnect"
+          variant="danger"
+          onConfirm={() => {
+            setPendingDisconnect(false);
+            void disconnect();
+          }}
+          onCancel={() => setPendingDisconnect(false)}
+        />
+      </Show>
+
+      <Show when={exitConfirm()}>
+        {(confirm) => (
+          <ConfirmDialog
+            title={
+              confirm().reason === "executing"
+                ? "Query still running"
+                : "Unsaved queries"
+            }
+            message={
+              confirm().reason === "executing"
+                ? "A query is still executing. Closing now will interrupt it. Close anyway?"
+                : "You have unsaved query tabs. Closing now will discard them. Close anyway?"
+            }
+            confirmLabel="Close anyway"
+            variant={confirm().reason === "executing" ? "danger" : "primary"}
+            onConfirm={() => {
+              setExitConfirm(null);
+              void invoke("close_window");
+            }}
+            onCancel={() => setExitConfirm(null)}
+          />
+        )}
+      </Show>
+
       <Show when={globalContextMenu()?.visible}>
         <ContextMenu
           items={globalContextMenu()!.items}
@@ -1330,6 +1471,8 @@ export default function App() {
           onClose={() => setGlobalContextMenu(null)}
         />
       </Show>
+
+      <Toaster />
     </div>
   );
 }

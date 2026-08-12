@@ -32,6 +32,7 @@ import {
 } from "./ObjectMenu";
 import Tooltip from "../ui/Tooltip";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import { toast } from "../ui/Toaster";
 
 export interface ObjectExplorerHandle {
   refreshDatabaseObjects: (database: string) => Promise<void>;
@@ -365,6 +366,9 @@ export default function ObjectExplorer(props: Props) {
     Record<string, DatabaseObject[]>
   >({});
   const [loading, setLoading] = createSignal<Set<string>>(new Set());
+  const [loadErrors, setLoadErrors] = createSignal<Record<string, string>>(
+    {},
+  );
   const [folderFilters, setFolderFilters] = createSignal<
     Record<string, string>
   >({});
@@ -580,9 +584,18 @@ export default function ObjectExplorer(props: Props) {
       const tables: DatabaseObject[] = await invoke("get_tables", { database });
       batch(() => {
         setTableCache((prev) => ({ ...prev, [database]: tables }));
+        setLoadErrors((prev) => {
+          if (!prev[database]) return prev;
+          const next = { ...prev };
+          delete next[database];
+          return next;
+        });
       });
     } catch (err) {
       console.error("Failed to load tables:", err);
+      const message = `Failed to load objects from "${database}".`;
+      setLoadErrors((prev) => ({ ...prev, [database]: String(err) }));
+      toast.error(message);
     } finally {
       setLoading((prev) => {
         const next = new Set(prev);
@@ -604,6 +617,7 @@ export default function ObjectExplorer(props: Props) {
   async function refreshDatabasesAndObjects() {
     const previousDatabases = props.databases;
     setTableCache({});
+    setLoadErrors({});
 
     try {
       await props.onRefreshDatabases?.();
@@ -1047,14 +1061,42 @@ export default function ObjectExplorer(props: Props) {
                             when={tableCache()[db]}
                             fallback={
                               <Show when={expanded().has(db)}>
-                                <div
-                                  class="tree-node"
-                                  style={{ "--depth": "1" }}
+                                <Show
+                                  when={loadErrors()[db]}
+                                  fallback={
+                                    <div
+                                      class="tree-node"
+                                      style={{ "--depth": "1" }}
+                                    >
+                                      <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
+                                        Loading objects…
+                                      </span>
+                                    </div>
+                                  }
                                 >
-                                  <span class="truncate flex-1 min-w-0 text-text-muted italic animate-pulse">
-                                    Loading objects…
-                                  </span>
-                                </div>
+                                  {(errMsg) => (
+                                    <div
+                                      class="tree-node"
+                                      style={{ "--depth": "1" }}
+                                    >
+                                      <span
+                                        class="truncate flex-1 min-w-0 text-error italic"
+                                        title={errMsg()}
+                                      >
+                                        Failed to load objects
+                                      </span>
+                                      <button
+                                        type="button"
+                                        class="text-text-muted hover:text-text transition-colors flex-shrink-0"
+                                        title="Retry loading objects"
+                                        aria-label="Retry loading objects"
+                                        onClick={() => loadTables(db, true)}
+                                      >
+                                        <i class="fa-solid fa-rotate-right" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </Show>
                               </Show>
                             }
                           >

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { createSignal, createEffect, onMount, batch } from "solid-js";
 import { loadPreferences, saveAutoConnectStartup } from "../lib/settings";
 import type { ConnectionConfig, AppSettings } from "../lib/types";
+import { toast } from "../components/ui/Toaster";
 
 const STORAGE_KEY_LAST_DATABASE = "sqlqs_last_database";
 
@@ -49,7 +50,9 @@ export function useConnection() {
   const disconnect = async () => {
     try {
       await invoke("disconnect_from_server");
-    } catch {}
+    } catch (err) {
+      toast.error(`Disconnect failed: ${String(err)}`);
+    }
     setIsInitializing(false);
     setConnected(false);
     setServerName("");
@@ -58,12 +61,16 @@ export function useConnection() {
     restored = false;
   };
 
-  const changeDatabase = async (db: string) => {
+  const changeDatabase = async (db: string): Promise<boolean> => {
     try {
       await invoke("change_database", { database: db });
       setCurrentDatabase(db);
       localStorage.setItem(STORAGE_KEY_LAST_DATABASE, db);
-    } catch {}
+      return true;
+    } catch (err) {
+      console.error("Failed to change database:", err);
+      return false;
+    }
   };
 
   createEffect(() => {
@@ -78,7 +85,12 @@ export function useConnection() {
     if (saved && databases().includes(saved)) {
       restored = true;
       setCurrentDatabase(saved);
-      invoke("change_database", { database: saved }).catch(() => {});
+      void changeDatabase(saved).then((ok) => {
+        if (!ok) {
+          setCurrentDatabase(undefined);
+          toast.error(`Failed to restore database "${saved}".`);
+        }
+      });
     }
   });
 
@@ -90,7 +102,7 @@ export function useConnection() {
         saveAutoConnectStartup(settings.auto_connect_startup);
       }
     } catch (err) {
-      const _unused = err;
+      toast.error(`Failed to load connection settings: ${String(err)}`);
     }
 
     if (!loadPreferences().autoConnectStartup) {
@@ -109,7 +121,12 @@ export function useConnection() {
           if (saved && result.databases.includes(saved)) {
             db = saved;
             restored = true;
-            invoke("change_database", { database: saved }).catch(() => {});
+            void changeDatabase(saved).then((ok) => {
+              if (!ok) {
+                setCurrentDatabase(undefined);
+                toast.error(`Failed to restore database "${saved}".`);
+              }
+            });
           }
         }
         setCurrentDatabase(db);
@@ -120,8 +137,8 @@ export function useConnection() {
           void loadDatabases();
         }
       }
-    } catch {
-      /* */
+    } catch (err) {
+      toast.error(`Auto-connect failed: ${String(err)}`);
     } finally {
       if (!cancelled) {
         setIsInitializing(false);
