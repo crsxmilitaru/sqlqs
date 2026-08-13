@@ -3,8 +3,10 @@ import {
   createMemo,
   createSignal,
   For,
+  lazy,
   on,
   Show,
+  Suspense,
   onCleanup,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,10 +15,7 @@ import type {
   QueryTab,
   QueryTabUpdateOptions,
 } from "../../lib/types";
-import AIChatPanel, {
-  type ApplyMode,
-  type PendingChatMessage,
-} from "../ai/AIChatPanel";
+import type { ApplyMode, PendingChatMessage } from "../ai/AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import Dropdown from "../ui/Dropdown";
 import {
@@ -32,14 +31,19 @@ import {
 } from "../ui/Icons";
 import EditorHistoryDialog from "./EditorHistoryDialog";
 import ResultsGrid, { type ResultsTableViewState } from "./ResultsGrid";
-import SqlEditor, { type SqlEditorHandle } from "./SqlEditor";
+import type { SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
 import { Loader } from "../ui/Loader";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
+import { AiService } from "../../lib/ai";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { loadPreferences } from "../../lib/settings";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
+
+const SqlEditor = lazy(() => import("./SqlEditor"));
+const loadAIChatPanel = () => import("../ai/AIChatPanel");
+const AIChatPanel = lazy(loadAIChatPanel);
 
 const DRAG_THRESHOLD = 5;
 
@@ -542,6 +546,22 @@ export default function QueryEditorPanel(props: Props) {
   >({});
   let editorRef: SqlEditorHandle | null = null;
 
+  createEffect(() => {
+    if (!props.connected) return;
+    void import("./SqlEditor");
+    const preloadAi = () => {
+      void loadAIChatPanel();
+      void AiService.listAvailableModels();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idle = window.requestIdleCallback(preloadAi, { timeout: 1500 });
+      onCleanup(() => window.cancelIdleCallback(idle));
+      return;
+    }
+    const timeout = window.setTimeout(preloadAi, 400);
+    onCleanup(() => window.clearTimeout(timeout));
+  });
+
   const activeTab = createMemo(() =>
     Array.isArray(props.tabs)
       ? props.tabs.find((t) => t.id === props.activeTabId)
@@ -648,11 +668,11 @@ export default function QueryEditorPanel(props: Props) {
     props.onExecute(props.activeTabId, selectedSql);
   }
 
-  function handleFormatSql() {
+  async function handleFormatSql() {
     const tab = activeTab();
     if (!tab) return;
     try {
-      const formatted = formatSqlWithPrefs(tab.sql);
+      const formatted = await formatSqlWithPrefs(tab.sql);
       props.onTabUpdate(
         tab.id,
         { sql: formatted },
@@ -795,7 +815,7 @@ export default function QueryEditorPanel(props: Props) {
       const text = await invoke<string>("read_clipboard");
       if (!text) return;
       if (!editorRef) return;
-      const nextText = format ? formatSqlWithPrefs(text) : text;
+      const nextText = format ? await formatSqlWithPrefs(text) : text;
       const tab = activeTab();
       if (tab) {
         props.onTabUpdate(
@@ -1014,10 +1034,10 @@ export default function QueryEditorPanel(props: Props) {
 
   return (
     <div class="flex flex-col h-full min-h-0 overflow-hidden">
+      <div class="flex flex-row flex-1 min-h-0 overflow-hidden">
       {(() => {
         const tab = activeTab();
         return tab && props.connected ? (
-          <div class="flex flex-row flex-1 min-h-0 overflow-hidden">
           <div class="flex flex-col flex-1 min-w-0 min-h-0">
             <div
               class={`editor-island flex flex-col min-w-0 overflow-hidden ${
@@ -1083,7 +1103,7 @@ export default function QueryEditorPanel(props: Props) {
                                       props.onTabChange(tab.id);
                                     }
                                   }}
-                                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text-muted cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""}`}
+                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""}`}
                                   onClick={() => {
                                     if (justDraggedRef) return;
                                     props.onTabChange(tab.id);
@@ -1374,7 +1394,7 @@ export default function QueryEditorPanel(props: Props) {
                     >
                       <button
                         type="button"
-                        aria-label="Text History"
+                        aria-label={`History ${restorableHistoryCount(tab)}`}
                         onClick={() => setHistoryOpen(true)}
                         disabled={
                           !hasDatabaseSelected() || !hasRestorableHistory(tab)
@@ -1392,21 +1412,23 @@ export default function QueryEditorPanel(props: Props) {
                 </div>
 
                 <div class="relative flex-1 min-w-0 min-h-0">
-                  <SqlEditor
-                    value={tab.sql}
-                    onChange={(val: string, options?: QueryTabUpdateOptions) =>
-                      props.onTabUpdate(tab.id, { sql: val }, options)
-                    }
-                    onExecute={handleExecute}
-                    onFormat={handleFormatSql}
-                    readOnly={!hasDatabaseSelected()}
-                    theme={props.theme}
-                    currentDatabase={props.currentDatabase}
-                    onContextMenu={handleEditorContextMenu}
-                    onRef={(handle) => (editorRef = handle)}
-                    onSearchPanelChange={setSearchOpen}
-                    wrapLines={wrapLines()}
-                  />
+                  <Suspense fallback={<div class="h-full bg-surface-panel" />}>
+                    <SqlEditor
+                      value={tab.sql}
+                      onChange={(val: string, options?: QueryTabUpdateOptions) =>
+                        props.onTabUpdate(tab.id, { sql: val }, options)
+                      }
+                      onExecute={handleExecute}
+                      onFormat={handleFormatSql}
+                      readOnly={!hasDatabaseSelected()}
+                      theme={props.theme}
+                      currentDatabase={props.currentDatabase}
+                      onContextMenu={handleEditorContextMenu}
+                      onRef={(handle) => (editorRef = handle)}
+                      onSearchPanelChange={setSearchOpen}
+                      wrapLines={wrapLines()}
+                    />
+                  </Suspense>
                   {!hasDatabaseSelected() && (
                     <div class="absolute inset-0 z-10 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-surface-panel)_76%,transparent)]">
                       <div class="mx-6 flex max-w-[280px] flex-col items-center gap-3 rounded-xl border border-border bg-surface-panel px-6 py-5 text-center">
@@ -1499,24 +1521,6 @@ export default function QueryEditorPanel(props: Props) {
               )}
             </div>
           </div>
-
-          {props.aiChatOpen && (
-            <AIChatPanel
-              currentCode={tab.sql}
-              currentDatabase={props.currentDatabase}
-              currentResultMessage={currentResultMessage()}
-              onApplyCode={handleGeneratedRowSql}
-              width={aiChatWidth()}
-              onWidthChange={setAiChatWidth}
-              pendingMessage={pendingChatMessage()}
-              onPendingMessageHandled={(id) => {
-                setPendingChatMessage((current) =>
-                  current?.id === id ? null : current,
-                );
-              }}
-            />
-          )}
-          </div>
         ) : (
           <div class="app-panel flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
           {props.connected ? (
@@ -1595,6 +1599,42 @@ export default function QueryEditorPanel(props: Props) {
           </div>
         );
       })()}
+      <Show when={props.aiChatOpen && props.connected && !!activeTab()}>
+        <Suspense
+          fallback={
+            <div
+              class="flex-shrink-0 h-full flex min-h-0"
+              style={{ width: `${aiChatWidth()}px` }}
+            >
+              <div class="resizer resizer-h" />
+              <div class="app-panel flex flex-col flex-1 min-w-0">
+                <div class="relative flex-1 min-h-0 flex flex-col">
+                  <div class="app-panel-header">
+                    <span class="app-section-title">Chat</span>
+                  </div>
+                  <Loader variant="vertical" />
+                </div>
+              </div>
+            </div>
+          }
+        >
+          <AIChatPanel
+            currentCode={activeTab()?.sql ?? ""}
+            currentDatabase={props.currentDatabase}
+            currentResultMessage={currentResultMessage()}
+            onApplyCode={handleGeneratedRowSql}
+            width={aiChatWidth()}
+            onWidthChange={setAiChatWidth}
+            pendingMessage={pendingChatMessage()}
+            onPendingMessageHandled={(id) => {
+              setPendingChatMessage((current) =>
+                current?.id === id ? null : current,
+              );
+            }}
+          />
+        </Suspense>
+      </Show>
+      </div>
       {editorContextMenu()?.visible && (
         <ContextMenu
           items={getEditorContextMenuItems()}

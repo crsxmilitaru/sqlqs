@@ -117,6 +117,7 @@ export default function ThemeDialog(props: Props) {
                 Theme Name
               </label>
               <Input
+                name="theme-name"
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
                 placeholder="My Custom Theme"
@@ -164,6 +165,7 @@ export default function ThemeDialog(props: Props) {
                         <div class="relative w-8 h-8 rounded border border-border overflow-hidden shrink-0 flex items-center justify-center">
                           <input
                             type="color"
+                            name={`theme-color-${field.key}`}
                             value={hexValue()}
                             onInput={(e) => {
                               const val = e.currentTarget.value;
@@ -180,6 +182,7 @@ export default function ThemeDialog(props: Props) {
                           />
                         </div>
                         <Input
+                          name={`theme-color-hex-${field.key}`}
                           value={colorValue()}
                           onInput={(e) => {
                             const val = e.currentTarget.value;

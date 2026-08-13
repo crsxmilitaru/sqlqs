@@ -58,6 +58,7 @@ import {
   untrack,
 } from "solid-js";
 import { loadEditorPreferences } from "../../lib/settings";
+import { registerSchemaCatalogInvalidator } from "../../lib/schema-catalog";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { sqlLinter } from "../../lib/sql-linter";
 import type { ThemeSelection } from "../../lib/theme";
@@ -242,23 +243,23 @@ function formatSelectionInEditor(view: EditorView): boolean {
   if (selection.from === selection.to) return false;
 
   const selectedSql = view.state.doc.sliceString(selection.from, selection.to);
-  let formatted: string;
-  try {
-    formatted = formatSqlWithPrefs(selectedSql);
-  } catch (err) {
-    const _ignored = err;
-    return true;
-  }
-
-  view.dispatch({
-    changes: { from: selection.from, to: selection.to, insert: formatted },
-    selection: {
-      anchor: selection.from,
-      head: selection.from + formatted.length,
-    },
-    scrollIntoView: true,
-    annotations: Transaction.userEvent.of("input.format"),
-  });
+  const from = selection.from;
+  const to = selection.to;
+  const initialState = view.state;
+  void formatSqlWithPrefs(selectedSql)
+    .then((formatted) => {
+      if (view.state !== initialState) return;
+      view.dispatch({
+        changes: { from, to, insert: formatted },
+        selection: {
+          anchor: from,
+          head: from + formatted.length,
+        },
+        scrollIntoView: true,
+        annotations: Transaction.userEvent.of("input.format"),
+      });
+    })
+    .catch(() => undefined);
   return true;
 }
 
@@ -368,7 +369,7 @@ function setCachedSchemaCatalog(database: string, catalog: SchemaCatalog) {
   trimSchemaCatalogCache();
 }
 
-export function invalidateSchemaCatalog(database?: string) {
+function invalidateSchemaCatalog(database?: string) {
   if (database) {
     schemaCatalogCache.delete(database);
   } else {
@@ -376,6 +377,8 @@ export function invalidateSchemaCatalog(database?: string) {
   }
   schemaCatalogGeneration++;
 }
+
+registerSchemaCatalogInvalidator(invalidateSchemaCatalog);
 
 function normalizeIdentifier(name: string): string {
   return unquoteIdentifier(name).toLowerCase();
@@ -1781,6 +1784,10 @@ const fillMinimapPlugin = ViewPlugin.fromClass(
   },
 );
 
+const editorA11yAttrs = EditorView.contentAttributes.of({
+  "aria-label": "SQL editor",
+});
+
 function buildMinimapExt() {
   return [
     EditorView.editorAttributes.of({ class: "cm-minimap-enabled" }),
@@ -2121,17 +2128,18 @@ export default function SqlEditor(props: Props) {
         if (!loadEditorPreferences().formatOnPaste) return false;
         const text = event.clipboardData?.getData("text/plain");
         if (!text) return false;
-        try {
-          const formatted = formatSqlWithPrefs(text);
-          event.preventDefault();
-          view.dispatch({
-            ...view.state.replaceSelection(formatted),
-            annotations: Transaction.userEvent.of("input.paste"),
-          });
-          return true;
-        } catch {
-          return false;
-        }
+        const initialState = view.state;
+        event.preventDefault();
+        void formatSqlWithPrefs(text)
+          .then((formatted) => {
+            if (view.state !== initialState) return;
+            view.dispatch({
+              ...view.state.replaceSelection(formatted),
+              annotations: Transaction.userEvent.of("input.paste"),
+            });
+          })
+          .catch(() => undefined);
+        return true;
       },
     });
 
@@ -2159,6 +2167,7 @@ export default function SqlEditor(props: Props) {
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         themeCompartment.of(buildThemeExtension(initialTheme)),
         editorGutterTheme,
+        editorA11yAttrs,
         editorSafeAreaScrollMargins,
         fontThemeCompartment.of(
           buildFontTheme(initialPrefs.fontFamily, initialPrefs.fontSize),

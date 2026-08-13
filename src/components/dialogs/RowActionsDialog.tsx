@@ -743,6 +743,7 @@ export default function RowActionsDialog(props: Props) {
                 }
               >
                 <select
+                  name="target-table"
                   value={tableRefKey(targetRef()!)}
                   onChange={(e) => onTargetTableChange(e.currentTarget.value)}
                   class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border/40 text-sm text-text font-mono outline-none focus:border-accent transition-colors min-w-0"
@@ -880,6 +881,7 @@ export default function RowActionsDialog(props: Props) {
                                           ? "datetime-local"
                                           : "text"
                                     }
+                                    name={`row-field-${column.name}`}
                                     value={
                                       typeof cellValue() === "string"
                                         ? String(cellValue())
@@ -909,6 +911,7 @@ export default function RowActionsDialog(props: Props) {
                                 >
                                   <input
                                     type="checkbox"
+                                    name={`row-field-${column.name}`}
                                     checked={cellValue() === true}
                                     ref={(element) => {
                                       element.indeterminate =
@@ -931,6 +934,7 @@ export default function RowActionsDialog(props: Props) {
                             }
                           >
                             <textarea
+                              name={`row-field-${column.name}`}
                               value={
                                 typeof cellValue() === "string"
                                   ? String(cellValue())

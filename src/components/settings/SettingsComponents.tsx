@@ -1,7 +1,11 @@
-import { Show } from "solid-js";
+import { Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 import type { ThemeOption } from "../../lib/theme";
 import type { SavedConnection } from "../../lib/types";
+import {
+  getAppShortcutCategories,
+  type ShortcutDefinition,
+} from "../../lib/shortcuts";
 import { Icon } from "../ui/Icons";
 
 export function SettingsSection(props: { children: JSX.Element }) {
@@ -43,6 +47,7 @@ export function ToggleSetting(props: {
 export function RangeSetting(props: {
   title: string;
   description: JSX.Element;
+  name: string;
   value: number;
   min: number;
   max: number;
@@ -63,6 +68,7 @@ export function RangeSetting(props: {
       </div>
       <input
         type="range"
+        name={props.name}
         min={props.min}
         max={props.max}
         step={props.step ?? 1}
@@ -238,6 +244,76 @@ export function ConnectionRow(props: {
           <Icon name="trash" class="text-s" />
         </button>
       </div>
+    </div>
+  );
+}
+
+function ShortcutKeyBadge(props: { keys: string }) {
+  if (props.keys.includes("…") || props.keys.includes(" / ")) {
+    return <kbd class="font-sans text-3xs">{props.keys}</kbd>;
+  }
+
+  const parts = () => props.keys.split("+");
+
+  return (
+    <span class="inline-flex items-center gap-0.5">
+      <For each={parts()}>
+        {(part, index) => (
+          <>
+            {index() > 0 && (
+              <span class="text-text-muted/50 text-3xs select-none">+</span>
+            )}
+            <kbd class="font-sans text-3xs">{part}</kbd>
+          </>
+        )}
+      </For>
+    </span>
+  );
+}
+
+function ShortcutKeys(props: { keys: string[] }) {
+  return (
+    <span class="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+      <For each={props.keys}>
+        {(keys, index) => (
+          <>
+            {index() > 0 && (
+              <span class="text-text-muted/60 text-3xs select-none">or</span>
+            )}
+            <ShortcutKeyBadge keys={keys} />
+          </>
+        )}
+      </For>
+    </span>
+  );
+}
+
+function ShortcutRow(props: { shortcut: ShortcutDefinition }) {
+  return (
+    <div class="settings-about-row">
+      <span class="text-m text-text-muted">{props.shortcut.label}</span>
+      <ShortcutKeys keys={props.shortcut.keys} />
+    </div>
+  );
+}
+
+export function ShortcutsReference(props: { isPreviewBuild: boolean }) {
+  const categories = () => getAppShortcutCategories(props.isPreviewBuild);
+
+  return (
+    <div class="space-y-5">
+      <For each={categories()}>
+        {(category) => (
+          <SettingsSection>
+            <h4 class="text-m font-medium text-text mb-3">{category.title}</h4>
+            <div class="space-y-2">
+              <For each={category.shortcuts}>
+                {(shortcut) => <ShortcutRow shortcut={shortcut} />}
+              </For>
+            </div>
+          </SettingsSection>
+        )}
+      </For>
     </div>
   );
 }

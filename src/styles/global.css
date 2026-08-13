@@ -5,9 +5,13 @@
   --color-surface: #0c0c0e;
   --color-surface-panel: #181818;
   --color-text: #f4f4f5;
-  --color-text-muted: color-mix(in srgb, var(--color-text) 62%, transparent);
+  --color-text-muted: color-mix(
+    in srgb,
+    var(--color-text) 78%,
+    var(--color-surface-panel)
+  );
   --color-border: color-mix(in srgb, var(--color-text) 15%, transparent);
-  --color-accent: #0284c7;
+  --color-accent: #0369a1;
   --color-accent-text: #ffffff;
   --color-success: #10b981;
   --color-error: #ef4444;

@@ -70,9 +70,10 @@
   }
 
   .explorer-list-row {
+    width: 100%;
     padding: 6px 16px;
     border-radius: var(--radius-md);
-    color: var(--color-text-muted);
+    color: var(--color-text);
     cursor: pointer;
     user-select: text;
     white-space: nowrap;

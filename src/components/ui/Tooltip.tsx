@@ -76,6 +76,26 @@ export default function Tooltip(props: Props) {
   }
 
   createEffect(() => {
+    const content = props.content;
+    const el = wrapperRef?.firstElementChild as HTMLElement | undefined;
+    if (!el) return;
+    const tag = el.tagName;
+    const isControl =
+      tag === "BUTTON" ||
+      tag === "A" ||
+      tag === "INPUT" ||
+      el.getAttribute("role") === "button";
+    if (!isControl) return;
+    if (el.hasAttribute("aria-label") && !el.hasAttribute("data-tooltip-aria")) {
+      return;
+    }
+    const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+    if (text) return;
+    el.setAttribute("aria-label", content);
+    el.setAttribute("data-tooltip-aria", "");
+  });
+
+  createEffect(() => {
     if (!visible()) return;
     const anchor = wrapperRef?.firstElementChild;
     if (!anchor || !tooltipRef) return;

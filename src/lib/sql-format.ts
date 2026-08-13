@@ -1,7 +1,9 @@
-import { format, type KeywordCase } from "sql-formatter";
 import { loadFormatPreferences } from "./settings";
 
-export function formatSqlWithPrefs(sql: string): string {
+type KeywordCase = "upper" | "lower" | "preserve";
+
+export async function formatSqlWithPrefs(sql: string): Promise<string> {
+  const { format } = await import("sql-formatter");
   const prefs = loadFormatPreferences();
   const keywordCase: KeywordCase =
     prefs.keywordCase === "upper"

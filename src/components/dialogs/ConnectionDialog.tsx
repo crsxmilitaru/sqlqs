@@ -418,6 +418,7 @@ export default function ConnectionDialog(props: Props) {
                   Connection String
                 </label>
                 <textarea
+                  name="connection-string"
                   value={connectionString()}
                   onInput={(e) => setConnectionString(e.currentTarget.value)}
                   placeholder="Server=localhost;Database=mydb;User Id=sa;Password=secret;TrustServerCertificate=true"
@@ -434,6 +435,7 @@ export default function ConnectionDialog(props: Props) {
                   </label>
                   <Input
                     type="password"
+                    name="connection-password-override"
                     value={password()}
                     onInput={(e) => setPassword(e.currentTarget.value)}
                     placeholder="Override password from string"
@@ -441,6 +443,7 @@ export default function ConnectionDialog(props: Props) {
                   <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer mt-1.5 select-none">
                     <input
                       type="checkbox"
+                      name="remember-password"
                       checked={rememberPassword()}
                       onChange={(e) =>
                         setRememberPassword(e.currentTarget.checked)
@@ -458,6 +461,7 @@ export default function ConnectionDialog(props: Props) {
                   Server
                 </label>
                 <Input
+                  name="server"
                   value={server()}
                   onInput={(e) => {
                     const val = e.currentTarget.value;
@@ -477,6 +481,7 @@ export default function ConnectionDialog(props: Props) {
                   Database (optional)
                 </label>
                 <Input
+                  name="database"
                   value={database()}
                   onInput={(e) => setDatabase(e.currentTarget.value)}
                   placeholder="master"
@@ -487,6 +492,7 @@ export default function ConnectionDialog(props: Props) {
                 <label class="flex items-center gap-2.5 text-m text-text cursor-pointer mt-0.5 select-none">
                   <input
                     type="checkbox"
+                    name="use-windows-auth"
                     checked={useWindowsAuth()}
                     onChange={(e) => setUseWindowsAuth(e.currentTarget.checked)}
                   />
@@ -501,6 +507,7 @@ export default function ConnectionDialog(props: Props) {
                       Username
                     </label>
                     <Input
+                      name="username"
                       value={username()}
                       onInput={(e) => {
                         const val = e.currentTarget.value;
@@ -517,12 +524,14 @@ export default function ConnectionDialog(props: Props) {
                     </label>
                     <Input
                       type="password"
+                      name="password"
                       value={password()}
                       onInput={(e) => setPassword(e.currentTarget.value)}
                     />
                     <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer mt-1 select-none">
                       <input
                         type="checkbox"
+                        name="remember-password"
                         checked={rememberPassword()}
                         onChange={(e) =>
                           setRememberPassword(e.currentTarget.checked)
@@ -538,6 +547,7 @@ export default function ConnectionDialog(props: Props) {
                 <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
                   <input
                     type="checkbox"
+                    name="encrypt"
                     checked={encrypt()}
                     onChange={(e) => setEncrypt(e.currentTarget.checked)}
                   />
@@ -546,6 +556,7 @@ export default function ConnectionDialog(props: Props) {
                 <label class="flex items-center gap-2.5 text-m text-text-muted cursor-pointer select-none">
                   <input
                     type="checkbox"
+                    name="trust-cert"
                     checked={trustCert()}
                     onChange={(e) => setTrustCert(e.currentTarget.checked)}
                   />
@@ -561,6 +572,7 @@ export default function ConnectionDialog(props: Props) {
                 Save as (optional)
               </label>
               <Input
+                name="save-name"
                 value={saveName()}
                 onInput={(e) => setSaveName(e.currentTarget.value)}
                 placeholder="My Server"

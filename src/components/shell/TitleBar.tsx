@@ -192,7 +192,7 @@ export default function TitleBar(props: Props) {
           class="flex items-center h-full px-3 gap-1.5 flex-shrink-0"
           style={{
             width:
-              props.sidebarVisible && props.connected
+              props.sidebarVisible
                 ? `${(props.sidebarWidth ?? 325) + 1}px`
                 : "auto",
           }}
@@ -252,7 +252,7 @@ export default function TitleBar(props: Props) {
                 >
                   <button
                     onClick={props.onToggleSidebar}
-                    disabled={(props.dialogOpen ?? false) || !props.connected}
+                    disabled={props.dialogOpen ?? false}
                     class={`control-icon-btn titlebar-icon-btn ${
                       (props.sidebarVisible ?? true) ? "" : "is-active"
                       }`}
@@ -390,6 +390,10 @@ export default function TitleBar(props: Props) {
               >
                 <button
                   onClick={props.onToggleAiChat}
+                  onPointerEnter={() => {
+                    void import("../ai/AIChatPanel");
+                    void AiService.listAvailableModels();
+                  }}
                   disabled={!hasAiKey() || !props.connected || !props.hasTabs}
                   class={`control-icon-btn titlebar-icon-btn ${
                     props.aiChatOpen ? "is-active" : ""

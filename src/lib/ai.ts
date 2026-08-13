@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from "@google/genai";
+import type { ThinkingConfig as GeminiThinkingConfig } from "@google/genai";
 import {
   executeTool,
   getEnabledToolDeclarations,
@@ -9,7 +9,15 @@ import {
 } from "./ai-tools";
 import type { GeminiStatus } from "./types";
 
+let genaiModule: Promise<typeof import("@google/genai")> | undefined;
+
+function loadGenAI() {
+  genaiModule ??= import("@google/genai");
+  return genaiModule;
+}
+
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
+const GEMINI_MODELS_CACHE_KEY = "sqlqs_gemini_models";
 const GEMINI_THINKING_LEVEL_STORAGE_KEY = "sqlqs_gemini_thinking_level";
 const GEMINI_THINKING_ENABLED_STORAGE_KEY = "sqlqs_gemini_thinking_enabled";
 const MAX_TOOL_TURNS = 8;
@@ -33,8 +41,62 @@ const CATEGORY_ORDER: GeminiCategory[] = ["pro", "flash", "flash-lite"];
 
 interface ModelCandidate {
   id: string;
-  version: string | null;
   versionRank: number;
+  label: string;
+}
+
+function describeModelId(id: string): {
+  category: GeminiCategory;
+  versionRank: number;
+  label: string;
+} | null {
+  let category: GeminiCategory | null = null;
+  if (/(^|-)flash-lite($|-)/.test(id)) category = "flash-lite";
+  else if (/(^|-)flash($|-)/.test(id)) category = "flash";
+  else if (/(^|-)pro($|-)/.test(id)) category = "pro";
+  if (!category) return null;
+
+  const versionMatch = id.match(/^gemini-(\d+)(?:\.(\d+))?/);
+  let version: string | null = null;
+  let versionRank = 0;
+  if (versionMatch) {
+    const major = parseInt(versionMatch[1], 10);
+    const minor = versionMatch[2] ? parseInt(versionMatch[2], 10) : 0;
+    version = versionMatch[2] ? `${major}.${minor}` : `${major}`;
+    versionRank = major * 1000 + minor;
+  }
+
+  return {
+    category,
+    versionRank,
+    label: version
+      ? `${CATEGORY_LABELS[category]} ${version}`
+      : CATEGORY_LABELS[category],
+  };
+}
+
+export function labelForModelId(id: string): string {
+  return describeModelId(id)?.label ?? id;
+}
+
+function readCachedModels(): GeminiModelOption[] {
+  try {
+    const raw = localStorage.getItem(GEMINI_MODELS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is GeminiModelOption =>
+        !!item &&
+        typeof item === "object" &&
+        typeof item.id === "string" &&
+        item.id.length > 0 &&
+        typeof item.label === "string" &&
+        item.label.length > 0,
+    );
+  } catch {
+    return [];
+  }
 }
 
 function pickLatestByCategory(rawModels: any[]): GeminiModelOption[] {
@@ -60,22 +122,13 @@ function pickLatestByCategory(rawModels: any[]): GeminiModelOption[] {
       continue;
     }
 
-    let category: GeminiCategory | null = null;
-    if (/(^|-)flash-lite($|-)/.test(id)) category = "flash-lite";
-    else if (/(^|-)flash($|-)/.test(id)) category = "flash";
-    else if (/(^|-)pro($|-)/.test(id)) category = "pro";
-    if (!category) continue;
-
-    const versionMatch = id.match(/^gemini-(\d+)(?:\.(\d+))?/);
-    let version: string | null = null;
-    let versionRank = 0;
-    if (versionMatch) {
-      const major = parseInt(versionMatch[1], 10);
-      const minor = versionMatch[2] ? parseInt(versionMatch[2], 10) : 0;
-      version = versionMatch[2] ? `${major}.${minor}` : `${major}`;
-      versionRank = major * 1000 + minor;
-    }
-    buckets[category].push({ id, version, versionRank });
+    const described = describeModelId(id);
+    if (!described) continue;
+    buckets[described.category].push({
+      id,
+      versionRank: described.versionRank,
+      label: described.label,
+    });
   }
 
   const result: GeminiModelOption[] = [];
@@ -87,10 +140,7 @@ function pickLatestByCategory(rawModels: any[]): GeminiModelOption[] {
       return a.id.length - b.id.length;
     });
     const chosen = matches[0];
-    const label = chosen.version
-      ? `${CATEGORY_LABELS[category]} ${chosen.version}`
-      : CATEGORY_LABELS[category];
-    result.push({ id: chosen.id, label });
+    result.push({ id: chosen.id, label: chosen.label });
   }
   return result;
 }
@@ -121,7 +171,10 @@ function normalizeThinkingLevel(
   return level;
 }
 
-function toThinkingLevelEnum(level: GeminiThinkingLevel): ThinkingLevel {
+function toThinkingLevelEnum(
+  level: GeminiThinkingLevel,
+  ThinkingLevel: (typeof import("@google/genai"))["ThinkingLevel"],
+) {
   switch (level) {
     case "minimal":
       return ThinkingLevel.MINIMAL;
@@ -135,20 +188,22 @@ function toThinkingLevelEnum(level: GeminiThinkingLevel): ThinkingLevel {
   }
 }
 
-function buildThinkingConfig(
+async function buildThinkingConfig(
   modelId: string,
   thinkingLevel: GeminiThinkingLevel,
-): ThinkingConfig {
-  const config: ThinkingConfig = { includeThoughts: true };
+): Promise<GeminiThinkingConfig> {
+  const config: GeminiThinkingConfig = { includeThoughts: true };
 
   if (!usesThinkingLevel(modelId)) {
     return config;
   }
 
+  const { ThinkingLevel } = await loadGenAI();
   return {
     ...config,
     thinkingLevel: toThinkingLevelEnum(
       normalizeThinkingLevel(modelId, thinkingLevel),
+      ThinkingLevel,
     ),
   };
 }
@@ -466,6 +521,10 @@ export const AiService = {
     return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY);
   },
 
+  getCachedModels(): GeminiModelOption[] {
+    return readCachedModels();
+  },
+
   setThinkingLevel(level: GeminiThinkingLevel) {
     localStorage.setItem(GEMINI_THINKING_LEVEL_STORAGE_KEY, level);
   },
@@ -502,7 +561,11 @@ export const AiService = {
       if (!response.ok) return [];
       const data = await response.json();
       const models: any[] = Array.isArray(data?.models) ? data.models : [];
-      return pickLatestByCategory(models);
+      const options = pickLatestByCategory(models);
+      if (options.length > 0) {
+        localStorage.setItem(GEMINI_MODELS_CACHE_KEY, JSON.stringify(options));
+      }
+      return options;
     } catch {
       return [];
     }
@@ -565,6 +628,7 @@ RULES:
       throw new DOMException("Aborted", "AbortError");
     }
 
+    const { GoogleGenAI } = await loadGenAI();
     const genAI = new GoogleGenAI({ apiKey });
     const modelId = await this.resolveModel();
     const thinkingLevel = this.getThinkingLevel();
@@ -612,7 +676,7 @@ RULES:
           tools: toolsConfig.length > 0 ? toolsConfig : undefined,
           temperature: 0.7,
           maxOutputTokens: 4096,
-          thinkingConfig: buildThinkingConfig(modelId, thinkingLevel),
+          thinkingConfig: await buildThinkingConfig(modelId, thinkingLevel),
         },
       });
 

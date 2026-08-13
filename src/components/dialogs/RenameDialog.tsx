@@ -170,6 +170,7 @@ export default function RenameDialog(props: Props) {
               <input
                 ref={inputRef}
                 type="text"
+                name="rename"
                 value={newName()}
                 onInput={(e) => {
                   setNewName(e.currentTarget.value);

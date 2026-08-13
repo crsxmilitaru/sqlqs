@@ -175,7 +175,7 @@
     border: 0;
     border-radius: var(--radius-md);
     background: transparent;
-    color: var(--color-text-muted);
+    color: var(--color-text);
     cursor: pointer;
     font-size: var(--text-s);
     font-weight: 500;

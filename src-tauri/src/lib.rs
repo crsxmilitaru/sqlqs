@@ -2073,6 +2073,29 @@ fn log_window(message: String) {
     eprintln!("[window] {message}");
 }
 
+fn preview_build_enabled() -> bool {
+    env!("CARGO_PKG_VERSION").contains("-preview")
+}
+
+#[tauri::command]
+fn is_preview_build() -> bool {
+    preview_build_enabled()
+}
+
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
+    if !preview_build_enabled() {
+        return Ok(());
+    }
+
+    if window.is_devtools_open() {
+        window.close_devtools();
+    } else {
+        window.open_devtools();
+    }
+    Ok(())
+}
+
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), String> {
@@ -2774,6 +2797,8 @@ pub fn run() {
             maximize_window,
             close_window,
             log_window,
+            is_preview_build,
+            open_devtools,
             store_api_key,
             load_api_key,
             store_brave_search_key,

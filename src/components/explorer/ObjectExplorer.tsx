@@ -175,7 +175,9 @@ function FilterInput(props: {
     <input
       ref={inputRef}
       type="text"
+      name="explorer-filter"
       placeholder={props.placeholder}
+      aria-label={props.placeholder}
       value={props.value}
       onInput={(e) => props.onChange((e.target as HTMLInputElement).value)}
       onClick={(e) => e.stopPropagation()}
@@ -1306,7 +1308,7 @@ export default function ObjectExplorer(props: Props) {
                 ) : (
                   <For each={filteredSavedQueries()}>
                     {(item) => (
-                      <Tooltip content={item.title} placement="right">
+                      <Tooltip content={item.title} placement="right" class="w-full">
                         <div
                           class={`${LIST_ROW} ${
                             contextMenu()?.visible &&
@@ -1426,7 +1428,7 @@ export default function ObjectExplorer(props: Props) {
                 ) : (
                   <For each={filteredHistory()}>
                     {(item) => (
-                      <Tooltip content={item.sql} placement="right">
+                      <Tooltip content={item.sql} placement="right" class="w-full">
                         <div
                           class={`${LIST_ROW} ${
                             contextMenu()?.visible &&
@@ -1460,7 +1462,7 @@ export default function ObjectExplorer(props: Props) {
                               {item.title}
                             </span>
                           </div>
-                          <div class="flex items-center justify-between mt-1 text-icon opacity-50">
+                          <div class="flex items-center justify-between mt-1 text-xs text-text-muted">
                             <span class="truncate max-w-[150px]">
                               {item.database}
                             </span>

@@ -637,6 +637,7 @@ export default function ObjectJumpPalette(props: Props) {
                   />
                   <input
                     ref={inputRef}
+                    name="object-jump-query"
                     value={query()}
                     onInput={(event) =>
                       setQuery((event.target as HTMLInputElement).value)

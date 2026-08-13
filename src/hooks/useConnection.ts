@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createSignal, createEffect, onMount, batch } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, batch } from "solid-js";
 import { loadPreferences, saveAutoConnectStartup } from "../lib/settings";
 import type { ConnectionConfig, AppSettings } from "../lib/types";
 import { toast } from "../components/ui/Toaster";
@@ -94,56 +94,68 @@ export function useConnection() {
     }
   });
 
-  onMount(async () => {
+  onMount(() => {
     let cancelled = false;
-    try {
-      const settings = await invoke<AppSettings>("load_connections");
-      if (settings.auto_connect_startup !== loadPreferences().autoConnectStartup) {
-        saveAutoConnectStartup(settings.auto_connect_startup);
-      }
-    } catch (err) {
-      toast.error(`Failed to load connection settings: ${String(err)}`);
-    }
 
-    if (!loadPreferences().autoConnectStartup) {
-      setIsInitializing(false);
-      return;
-    }
-    try {
-      const result = await invoke<AutoConnectResult>("try_auto_connect");
-      if (cancelled) return;
-      if (result.connected) {
-        setConnected(true);
-        setServerName(result.server || "");
-        let db = result.database || undefined;
-        if (!db) {
-          const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
-          if (saved && result.databases.includes(saved)) {
-            db = saved;
-            restored = true;
-            void changeDatabase(saved).then((ok) => {
-              if (!ok) {
-                setCurrentDatabase(undefined);
-                toast.error(`Failed to restore database "${saved}".`);
-              }
-            });
+    void (async () => {
+      try {
+        const settings = await invoke<AppSettings>("load_connections");
+        if (cancelled) return;
+        if (settings.auto_connect_startup !== loadPreferences().autoConnectStartup) {
+          saveAutoConnectStartup(settings.auto_connect_startup);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(`Failed to load connection settings: ${String(err)}`);
+        }
+      }
+
+      if (!loadPreferences().autoConnectStartup) {
+        if (!cancelled) setIsInitializing(false);
+        return;
+      }
+      try {
+        const result = await invoke<AutoConnectResult>("try_auto_connect");
+        if (cancelled) return;
+        if (result.connected) {
+          setConnected(true);
+          setServerName(result.server || "");
+          let db = result.database || undefined;
+          if (!db) {
+            const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
+            if (saved && result.databases.includes(saved)) {
+              db = saved;
+              restored = true;
+              void changeDatabase(saved).then((ok) => {
+                if (!ok) {
+                  setCurrentDatabase(undefined);
+                  toast.error(`Failed to restore database "${saved}".`);
+                }
+              });
+            }
+          }
+          setCurrentDatabase(db);
+          batch(() => {
+            setDatabases(result.databases);
+          });
+          if (result.databases.length === 0) {
+            void loadDatabases();
           }
         }
-        setCurrentDatabase(db);
-        batch(() => {
-          setDatabases(result.databases);
-        });
-        if (result.databases.length === 0) {
-          void loadDatabases();
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(`Auto-connect failed: ${String(err)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsInitializing(false);
         }
       }
-    } catch (err) {
-      toast.error(`Auto-connect failed: ${String(err)}`);
-    } finally {
-      if (!cancelled) {
-        setIsInitializing(false);
-      }
-    }
+    })();
+
+    onCleanup(() => {
+      cancelled = true;
+    });
   });
 
   return {

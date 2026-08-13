@@ -17,7 +17,7 @@ export default defineConfig({
     exclude: ["tauri-plugin-snap-layout"],
   },
   build: {
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 700,
     rolldownOptions: {
       checks: {
         pluginTimings: false,

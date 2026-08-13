@@ -138,7 +138,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     background: var(--color-surface-hover);
-    color: var(--color-text-muted);
+    color: var(--color-text);
     cursor: pointer;
     font-size: var(--text-s);
     font-weight: 600;
@@ -247,7 +247,7 @@
   .btn-secondary {
     background: var(--color-surface-hover);
     border-color: var(--color-border-subtle);
-    color: var(--color-text-muted);
+    color: var(--color-text);
     font-weight: 600;
   }
 

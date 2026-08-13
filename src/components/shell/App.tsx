@@ -32,7 +32,7 @@ import PropertiesDialog, {
 } from "../dialogs/PropertiesDialog";
 import QueryEditorPanel from "../editor/QueryEditorPanel";
 import RenameDialog from "../dialogs/RenameDialog";
-import { invalidateSchemaCatalog } from "../editor/SqlEditor";
+import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
 import SettingsView from "../settings/SettingsView";
 import {
   loadAutoCheckUpdates,
@@ -893,42 +893,59 @@ export default function App() {
     setIsObjectJumpOpen((prev) => !prev);
   }
 
-  createEffect(() => {
-    let isMounted = true;
-    let unlisten: (() => void) | undefined;
-    let unlistenDragDrop: (() => void) | undefined;
+  onMount(() => {
+    let cancelled = false;
+    const unlistens: Array<() => void> = [];
+
+    const subscribe = (listenFn: () => Promise<() => void>) => {
+      void listenFn()
+        .then((fn) => {
+          if (cancelled) {
+            fn();
+          } else {
+            unlistens.push(fn);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.error("Failed to register SQL file handlers:", error);
+          }
+        });
+    };
+
+    subscribe(() =>
+      listen<string>("sql-file-opened", async (event) => {
+        await handleOpenSqlFilePath(event.payload);
+      }),
+    );
+    subscribe(() =>
+      listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+        const paths = event.payload.paths;
+        if (!Array.isArray(paths)) return;
+        for (const path of paths) {
+          await handleOpenSqlFilePath(path);
+        }
+      }),
+    );
 
     void (async () => {
       try {
         const startupPath = await invoke<string | null>(
           "get_startup_sql_file_path",
         );
-        if (isMounted && startupPath) {
+        if (!cancelled && startupPath) {
           await handleOpenSqlFilePath(startupPath);
         }
-
-        unlisten = await listen<string>("sql-file-opened", async (event) => {
-          await handleOpenSqlFilePath(event.payload);
-        });
-
-        unlistenDragDrop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-          if (!isMounted) return;
-          const paths = event.payload.paths;
-          if (Array.isArray(paths)) {
-            for (const path of paths) {
-              await handleOpenSqlFilePath(path);
-            }
-          }
-        });
       } catch (error) {
-        console.error("Failed to register SQL file handlers:", error);
+        if (!cancelled) {
+          console.error("Failed to open startup SQL file:", error);
+        }
       }
     })();
 
     onCleanup(() => {
-      isMounted = false;
-      unlisten?.();
-      unlistenDragDrop?.();
+      cancelled = true;
+      for (const unlisten of unlistens) unlisten();
     });
   });
 
@@ -955,6 +972,21 @@ export default function App() {
         event.preventDefault();
         setIsSettingsOpen((prev) => !prev);
         return;
+      }
+      const devtoolsShortcut =
+        event.key === "F12" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey;
+      const chromiumDevToolsShortcut =
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "i";
+      if (devtoolsShortcut || chromiumDevToolsShortcut) {
+        event.preventDefault();
+        void invoke("open_devtools");
       }
     };
 
@@ -1217,13 +1249,14 @@ export default function App() {
           />
         ) : (
           <>
-            {connected() && isSidebarOpen() && (
+            {isSidebarOpen() && (
               <>
                 <div
                   style={{ width: `${explorerWidth()}px` }}
                   class="app-sidebar-surface flex-shrink-0 overflow-hidden relative z-10"
                 >
-                  <ObjectExplorer
+                  {connected() && (
+                    <ObjectExplorer
                     onRef={(handle) => (explorerRef = handle)}
                     databases={databases()}
                     onRefreshDatabases={refreshDatabases}
@@ -1252,7 +1285,8 @@ export default function App() {
                     onShowBackupRestore={(database) =>
                       setBackupRestoreDatabase(database)
                     }
-                  />
+                    />
+                  )}
                 </div>
                 <div
                   class="resizer resizer-h"

@@ -412,6 +412,7 @@ export default function BackupRestoreDialog(props: Props) {
 
   const renderCheck = (
     label: string,
+    name: string,
     checked: boolean,
     onChange: (checked: boolean) => void,
     disabled = false,
@@ -421,6 +422,7 @@ export default function BackupRestoreDialog(props: Props) {
     >
       <input
         type="checkbox"
+        name={name}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.currentTarget.checked)}
@@ -518,6 +520,7 @@ export default function BackupRestoreDialog(props: Props) {
                     Destination on SQL Server
                   </label>
                   <Input
+                    name="backup-destination-path"
                     value={destinationPath()}
                     placeholder={
                       loadingDefaults()
@@ -535,6 +538,7 @@ export default function BackupRestoreDialog(props: Props) {
                     Schedule Folder on SQL Server
                   </label>
                   <Input
+                    name="backup-schedule-folder"
                     value={scheduleFolder()}
                     placeholder="C:\\SQLBackups"
                     onInput={(e) => setScheduleFolder(e.currentTarget.value)}
@@ -569,6 +573,7 @@ export default function BackupRestoreDialog(props: Props) {
                     </label>
                     <Input
                       type="time"
+                      name="backup-schedule-time"
                       value={scheduleTime()}
                       onInput={(e) => setScheduleTime(e.currentTarget.value)}
                     />
@@ -598,6 +603,7 @@ export default function BackupRestoreDialog(props: Props) {
                     </label>
                     <Input
                       type="number"
+                      name="backup-monthly-day"
                       min="1"
                       max="31"
                       value={monthlyDay()}
@@ -617,17 +623,29 @@ export default function BackupRestoreDialog(props: Props) {
                   <div class="flex flex-col gap-2">
                     {renderCheck(
                       "Overwrite destination",
+                      "overwrite-destination",
                       overwrite(),
                       setOverwrite,
                     )}
                     {renderCheck(
                       "Copy-only backup",
+                      "copy-only-backup",
                       copyOnly(),
                       setCopyOnly,
                       backupType() === "differential",
                     )}
-                    {renderCheck("Compression", compression(), setCompression)}
-                    {renderCheck("Checksum", checksum(), setChecksum)}
+                    {renderCheck(
+                      "Compression",
+                      "backup-compression",
+                      compression(),
+                      setCompression,
+                    )}
+                    {renderCheck(
+                      "Checksum",
+                      "backup-checksum",
+                      checksum(),
+                      setChecksum,
+                    )}
                   </div>
                 </div>
                 <div class="rounded-lg border border-border/50 bg-surface-overlay/30 p-3 text-s text-text-muted leading-relaxed">
@@ -646,6 +664,7 @@ export default function BackupRestoreDialog(props: Props) {
                     Backup file on SQL Server
                   </label>
                   <Input
+                    name="restore-source-path"
                     value={sourcePath()}
                     placeholder="C:\\SQLBackups\\Database_full.bak"
                     onInput={(e) =>
@@ -677,6 +696,7 @@ export default function BackupRestoreDialog(props: Props) {
                     Restore as database
                   </label>
                   <Input
+                    name="restore-target-database"
                     value={targetDatabase()}
                     placeholder="RestoredDatabase"
                     onInput={(e) => setTargetDatabase(e.currentTarget.value)}
@@ -731,6 +751,7 @@ export default function BackupRestoreDialog(props: Props) {
                             {formatSize(file()?.size_bytes ?? 0)}
                           </span>
                           <Input
+                            name={`restore-move-path-${index()}`}
                             value={move.physical_name}
                             onInput={(e) =>
                               updateMove(index(), e.currentTarget.value)
@@ -746,12 +767,19 @@ export default function BackupRestoreDialog(props: Props) {
               <div class="flex flex-wrap gap-4">
                 {renderCheck(
                   "Replace existing database",
+                  "replace-existing-database",
                   replaceExisting(),
                   setReplaceExisting,
                 )}
-                {renderCheck("Recover database", recovery(), setRecovery)}
+                {renderCheck(
+                  "Recover database",
+                  "recover-database",
+                  recovery(),
+                  setRecovery,
+                )}
                 {renderCheck(
                   "Restricted user after restore",
+                  "restricted-user-after-restore",
                   restrictedUser(),
                   setRestrictedUser,
                 )}

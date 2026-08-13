@@ -20,8 +20,13 @@ export default function ConfirmDialog(props: Props) {
   const [visible, setVisible] = createSignal(false);
   const [suppressFuture, setSuppressFuture] = createSignal(false);
 
+  let confirmRef: HTMLButtonElement | undefined;
+
   onMount(() => {
-    requestAnimationFrame(() => setVisible(true));
+    requestAnimationFrame(() => {
+      setVisible(true);
+      confirmRef?.focus();
+    });
   });
 
   const result = (): ConfirmDialogResult => ({
@@ -42,6 +47,7 @@ export default function ConfirmDialog(props: Props) {
             <label class="mt-4 flex items-center gap-2 text-sm text-text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
+                name="suppress-future"
                 checked={suppressFuture()}
                 onChange={(event) =>
                   setSuppressFuture(event.currentTarget.checked)
@@ -61,6 +67,7 @@ export default function ConfirmDialog(props: Props) {
             {props.cancelLabel ?? "Cancel"}
           </button>
           <button
+            ref={confirmRef}
             type="button"
             onClick={() => props.onConfirm(result())}
             class={

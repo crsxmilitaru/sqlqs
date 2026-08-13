@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
-import { createMemo, createSignal, onMount, onCleanup, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { AiService, BraveSearchService } from "../../lib/ai";
 import {
@@ -76,6 +76,7 @@ import {
   RangeSetting,
   SettingsSection,
   SettingTitle,
+  ShortcutsReference,
   ThemeCard,
   ToggleSetting,
 } from "./SettingsComponents";
@@ -101,6 +102,8 @@ type Tab =
   | "appearance"
   | "ai"
   | "updates"
+  | "shortcuts"
+  | "developer"
   | "about";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -111,6 +114,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "appearance", label: "Appearance", icon: "fa-solid fa-palette" },
   { id: "ai", label: "AI", icon: "fa-solid fa-wand-magic-sparkles" },
   { id: "updates", label: "Updates", icon: "fa-solid fa-arrows-rotate" },
+  { id: "shortcuts", label: "Shortcuts", icon: "fa-solid fa-keyboard" },
+  { id: "developer", label: "Developer", icon: "fa-solid fa-terminal" },
   { id: "about", label: "About", icon: "fa-solid fa-circle-info" },
 ];
 
@@ -131,6 +136,10 @@ function summarizeConnection(c: SavedConnection): string {
 export default function SettingsView(props: Props) {
   const currentTheme = loadTheme();
   const prefs = loadPreferences();
+  const isPreviewBuild = createMemo(() => props.version?.includes("-preview") ?? false);
+  const visibleTabs = createMemo(() =>
+    TABS.filter((tab) => tab.id !== "developer" || isPreviewBuild()),
+  );
   const [activeTab, setActiveTab] = createSignal<Tab>("general");
   const [search, setSearch] = createSignal("");
   const [themeId, setThemeId] = createSignal(currentTheme.id);
@@ -170,6 +179,12 @@ export default function SettingsView(props: Props) {
   const [revealCurrentDb, setRevealCurrentDb] = createSignal(
     prefs.revealCurrentDatabaseInExplorer,
   );
+
+  createEffect(() => {
+    if (!isPreviewBuild() && activeTab() === "developer") {
+      setActiveTab("general");
+    }
+  });
 
   const [fontFamily, setFontFamily] = createSignal(prefs.editor.fontFamily);
   const [fontSize, setFontSize] = createSignal(prefs.editor.fontSize);
@@ -585,6 +600,7 @@ export default function SettingsView(props: Props) {
       render: () => (
         <RangeSetting
           title="History limit"
+          name="history-limit"
           description="Maximum number of queries to keep in history"
           value={maxHistory()}
           min={MIN_MAX_HISTORY}
@@ -641,6 +657,7 @@ export default function SettingsView(props: Props) {
       render: () => (
         <RangeSetting
           title="Font size"
+          name="editor-font-size"
           description="Editor font size in pixels"
           value={fontSize()}
           valueLabel={`${fontSize()}px`}
@@ -810,6 +827,7 @@ export default function SettingsView(props: Props) {
             <div class="w-[120px]">
               <Input
                 type="number"
+                name="format-max-line-length"
                 min="0"
                 value={String(formatMaxLineLength())}
                 onInput={(e) => {
@@ -843,6 +861,7 @@ export default function SettingsView(props: Props) {
             <div class="w-[120px]">
               <Input
                 type="number"
+                name="exec-max-rows"
                 min="0"
                 value={String(execMaxRows())}
                 onInput={(e) => {
@@ -876,6 +895,7 @@ export default function SettingsView(props: Props) {
             <div class="w-[120px]">
               <Input
                 type="number"
+                name="exec-timeout"
                 min="0"
                 max={String(MAX_EXEC_TIMEOUT_SECONDS)}
                 value={String(execTimeout())}
@@ -1026,6 +1046,7 @@ export default function SettingsView(props: Props) {
               <input
                 ref={importInputRef}
                 type="file"
+                name="settings-import"
                 accept=".json,application/json"
                 class="hidden"
                 onChange={handleImportFile}
@@ -1185,6 +1206,7 @@ export default function SettingsView(props: Props) {
                 <div class="relative flex-1">
                   <Input
                     type={showApiKey() ? "text" : "password"}
+                    name="gemini-api-key"
                     value={apiKey()}
                     onInput={(e) =>
                       setApiKey((e.target as HTMLInputElement).value)
@@ -1265,6 +1287,7 @@ export default function SettingsView(props: Props) {
                 <div class="relative flex-1">
                   <Input
                     type={showBraveKey() ? "text" : "password"}
+                    name="brave-api-key"
                     value={braveKey()}
                     onInput={(e) =>
                       setBraveKey((e.target as HTMLInputElement).value)
@@ -1467,6 +1490,37 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
+      id: "shortcuts-reference",
+      tab: "shortcuts",
+      title: "Keyboard shortcuts",
+      keywords:
+        "shortcuts keyboard hotkeys keys bindings f5 ctrl cmd execute save tab",
+      render: () => <ShortcutsReference isPreviewBuild={isPreviewBuild()} />,
+    },
+    {
+      id: "devtools-open",
+      tab: "developer",
+      title: "Developer tools",
+      keywords: "developer devtools debug inspect console webview",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4">
+            <SettingTitle
+              title="Developer tools"
+              description="Inspect the webview, console output, and network activity."
+            />
+            <button
+              type="button"
+              class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
+              onClick={() => void invoke("open_devtools")}
+            >
+              Open DevTools
+            </button>
+          </div>
+        </SettingsSection>
+      ),
+    },
+    {
       id: "about-app",
       tab: "about",
       title: "About SQL Query Studio",
@@ -1556,10 +1610,13 @@ export default function SettingsView(props: Props) {
   }
 
   const visibleSections = createMemo(() => {
+    const availableSections = isPreviewBuild()
+      ? sections
+      : sections.filter((s) => s.tab !== "developer");
     if (isSearching()) {
-      return sections.filter(sectionMatches);
+      return availableSections.filter(sectionMatches);
     }
-    return sections.filter((s) => s.tab === activeTab());
+    return availableSections.filter((s) => s.tab === activeTab());
   });
 
   const groupedSearchResults = createMemo(() => {
@@ -1585,6 +1642,7 @@ export default function SettingsView(props: Props) {
           />
           <Input
             type="search"
+            name="settings-search"
             value={search()}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             placeholder="Search settings…"
@@ -1593,7 +1651,7 @@ export default function SettingsView(props: Props) {
         </div>
       </div>
       <div class="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pb-4">
-        <For each={TABS}>
+        <For each={visibleTabs()}>
           {(tab) => (
             <button
               onClick={() => {

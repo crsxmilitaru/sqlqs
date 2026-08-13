@@ -19,6 +19,7 @@ import {
 import {
   AiService,
   getGeminiErrorExplanation,
+  labelForModelId,
   parseGeminiError,
   GEMINI_KEY_CHANGED_EVENT,
   type ChatAttachment,
@@ -590,11 +591,14 @@ export default function AIChatPanel(props: Props) {
   const [historyVisible, setHistoryVisible] = createSignal(false);
   const [historySearch, setHistorySearch] = createSignal("");
   const [historyFocusIndex, setHistoryFocusIndex] = createSignal(-1);
-  const [availableModels, setAvailableModels] = createSignal<
-    GeminiModelOption[]
-  >([]);
+  const cachedModels = AiService.getCachedModels();
+  const [availableModels, setAvailableModels] =
+    createSignal<GeminiModelOption[]>(cachedModels);
   const [selectedModel, setSelectedModel] = createSignal(
-    AiService.getModel() ?? "",
+    AiService.getModel() ??
+      cachedModels.find((m) => /flash-lite/.test(m.id))?.id ??
+      cachedModels[0]?.id ??
+      "",
   );
   const [thinkingLevel, setThinkingLevel] = createSignal<GeminiThinkingLevel>(
     AiService.getThinkingLevel(),
@@ -670,8 +674,11 @@ export default function AIChatPanel(props: Props) {
   };
 
   const selectedModelLabel = createMemo(() => {
-    const match = availableModels().find((m) => m.id === selectedModel());
-    return match?.label ?? selectedModel();
+    const id = selectedModel();
+    const match = availableModels().find((m) => m.id === id);
+    if (match) return match.label;
+    if (id) return labelForModelId(id);
+    return "Model";
   });
 
   const portalTarget = createMemo(() =>
@@ -735,6 +742,7 @@ export default function AIChatPanel(props: Props) {
     );
 
     requestAnimationFrame(() => {
+      if (document.activeElement?.closest(".cm-editor")) return;
       inputRef?.focus();
     });
   });
@@ -1833,6 +1841,7 @@ export default function AIChatPanel(props: Props) {
               </Show>
               <textarea
                 ref={inputRef}
+                name="chat-message"
                 value={input()}
                 onInput={(e) =>
                   setInput((e.target as HTMLTextAreaElement).value)
@@ -1850,6 +1859,7 @@ export default function AIChatPanel(props: Props) {
                   <input
                     ref={fileInputRef}
                     type="file"
+                    name="chat-attachment"
                     multiple
                     class="hidden"
                     onChange={handleFileChange}
@@ -1882,25 +1892,23 @@ export default function AIChatPanel(props: Props) {
                   </Tooltip>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
-                  <Show when={availableModels().length > 0}>
-                    <Tooltip content="Select AI model">
-                      <button
-                        ref={modelPickerButtonRef}
-                        onClick={openModelPicker}
-                        class={`btn btn-secondary btn-compact ${
-                          showModelPicker() ? "btn-toggled" : ""
-                        }`}
-                        disabled={isLoading()}
-                      >
-                        <i
-                          class={`fa-solid ${getModelIcon(selectedModel())} text-icon`}
-                        />
-                        <span class="truncate max-w-[120px]">
-                          {selectedModelLabel()}
-                        </span>
-                      </button>
-                    </Tooltip>
-                  </Show>
+                  <Tooltip content="Select AI model">
+                    <button
+                      ref={modelPickerButtonRef}
+                      onClick={openModelPicker}
+                      class={`btn btn-secondary btn-compact ${
+                        showModelPicker() ? "btn-toggled" : ""
+                      }`}
+                      disabled={isLoading() || availableModels().length === 0}
+                    >
+                      <i
+                        class={`fa-solid ${getModelIcon(selectedModel())} text-icon`}
+                      />
+                      <span class="truncate max-w-[120px]">
+                        {selectedModelLabel()}
+                      </span>
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
             </div>
@@ -1955,6 +1963,7 @@ export default function AIChatPanel(props: Props) {
                     />
                     <input
                       ref={historyInputRef}
+                      name="chat-history-search"
                       value={historySearch()}
                       onInput={(e) => {
                         setHistorySearch((e.target as HTMLInputElement).value);

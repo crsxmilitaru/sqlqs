@@ -92,6 +92,7 @@ export default function ColumnSelector(props: Props) {
           <input
             ref={searchInputRef}
             type="text"
+            name="column-search"
             value={search()}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             onKeyDown={handleSearchKeyDown}
