@@ -426,16 +426,27 @@ export default function QueryEditorPanel(props: Props) {
       },
     ];
 
-    if (props.onSave) {
-      items.push(
-        { id: "sep-tab-1", separator: true },
-        {
-          id: "save-as",
-          label: "Save As…",
-          icon: <i class="fa-solid fa-floppy-disk" />,
+    if (props.onSave || props.onSaveToFile) {
+      items.push({ id: "sep-tab-1", separator: true });
+      const sqlEmpty = !tab?.sql.trim();
+      if (props.onSave) {
+        items.push({
+          id: "save-sql",
+          label: "Save SQL",
+          icon: <IconSave />,
+          disabled: sqlEmpty,
           onClick: () => props.onSave!(tabId),
-        },
-      );
+        });
+      }
+      if (props.onSaveToFile) {
+        items.push({
+          id: "save-sql-file",
+          label: "Save SQL to file",
+          icon: <IconFloppy />,
+          disabled: sqlEmpty,
+          onClick: () => props.onSaveToFile!(tabId),
+        });
+      }
     }
 
     return items;

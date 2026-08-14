@@ -1,6 +1,10 @@
 import { createSignal, createEffect } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { getSavedQueriesDir, joinPath } from "../lib/path";
+import {
+  getSavedQueriesDir,
+  joinPath,
+  sanitizeSavedQueryFileName,
+} from "../lib/path";
 
 export interface SavedQuery {
   id: string;
@@ -66,9 +70,7 @@ export function useSavedQueries() {
       const documentsPath = await invoke<string>("get_documents_folder");
       const savedQueriesDir = getSavedQueriesDir(documentsPath);
 
-      const sanitizedTitle =
-        title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
-      const fileName = `${sanitizedTitle}.sql`;
+      const fileName = sanitizeSavedQueryFileName(title);
       const filePath = joinPath(savedQueriesDir, fileName);
 
       await invoke<string>("write_sql_file", { path: filePath, content: sql });
@@ -115,6 +117,51 @@ export function useSavedQueries() {
     }
   };
 
+  const renameQuery = async (
+    id: string,
+    newTitle: string,
+  ): Promise<SavedQuery | null> => {
+    const title = newTitle.trim();
+    if (!title) {
+      return null;
+    }
+
+    const query = savedQueries().find((q) => q.id === id);
+    if (!query) {
+      return null;
+    }
+
+    const fileName = sanitizeSavedQueryFileName(title);
+    const documentsPath = await invoke<string>("get_documents_folder");
+    const filePath = joinPath(getSavedQueriesDir(documentsPath), fileName);
+    const fileNameLower = fileName.toLowerCase();
+    const collision = savedQueries().some(
+      (q) =>
+        q.id !== id &&
+        (q.filePath === filePath || q.fileName.toLowerCase() === fileNameLower),
+    );
+    if (collision) {
+      throw new Error("A query with that name already exists.");
+    }
+
+    if (query.fileName !== fileName) {
+      await invoke<string>("rename_sql_file", {
+        from: query.filePath,
+        to: filePath,
+      });
+    }
+
+    const updated: SavedQuery = {
+      ...query,
+      title,
+      fileName,
+      filePath,
+    };
+
+    setSavedQueries((prev) => prev.map((q) => (q.id === id ? updated : q)));
+    return updated;
+  };
+
   const loadQueryContent = async (filePath: string): Promise<string | null> => {
     try {
       const result = await invoke<{ content: string }>("read_sql_file", {
@@ -131,6 +178,7 @@ export function useSavedQueries() {
     savedQueries,
     saveQuery,
     deleteQuery,
+    renameQuery,
     loadQueryContent,
   };
 }

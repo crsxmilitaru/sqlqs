@@ -24,6 +24,11 @@ export function getSavedQueriesDir(documentsPath: string): string {
   return joinPath(documentsPath, "SQL Query Studio", "Queries");
 }
 
+export function sanitizeSavedQueryFileName(title: string): string {
+  const sanitized = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
+  return `${sanitized}.sql`;
+}
+
 export function baseFileName(path: string): string {
   const lastSep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return lastSep >= 0 ? path.slice(lastSep + 1) : path;

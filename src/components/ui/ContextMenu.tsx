@@ -106,16 +106,18 @@ export default function ContextMenu(props: Props) {
       setActiveSubmenu(activeSubmenu() === item.id ? null : item.id);
       return;
     }
-    props.onClose();
+
+    let result: unknown;
     try {
-      const result = item.onClick?.();
-      if (result && typeof (result as Promise<void>).then === "function") {
-        (result as Promise<void>).catch((err) => {
-          toast.error(String(err));
-        });
-      }
+      result = item.onClick?.();
     } catch (err) {
       toast.error(String(err));
+    }
+    props.onClose();
+    if (result && typeof (result as Promise<void>).then === "function") {
+      (result as Promise<void>).catch((err) => {
+        toast.error(String(err));
+      });
     }
   }
 

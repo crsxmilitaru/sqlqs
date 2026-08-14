@@ -788,6 +788,102 @@ fn delete_sql_file(path: String) -> Result<(), String> {
         .map_err(|err| format!("Failed to delete SQL file '{}': {}", path, err))
 }
 
+fn saved_queries_dir() -> Result<PathBuf, String> {
+    let documents_dir =
+        dirs::document_dir().ok_or_else(|| "Cannot resolve Documents folder".to_string())?;
+    Ok(documents_dir.join("SQL Query Studio").join("Queries"))
+}
+
+fn is_valid_saved_query_file_name(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." {
+        return false;
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".sql") && lower.len() > 4
+}
+
+#[tauri::command]
+fn rename_sql_file(from: String, to: String) -> Result<String, String> {
+    let saved_queries_dir = saved_queries_dir()?;
+    if !saved_queries_dir.exists() {
+        return Err("Saved queries folder not found".to_string());
+    }
+
+    let canonical_root = saved_queries_dir.canonicalize().map_err(|err| {
+        format!(
+            "Failed to resolve saved queries directory '{}': {}",
+            saved_queries_dir.display(),
+            err
+        )
+    })?;
+
+    let from_path = PathBuf::from(&from);
+    if !from_path.exists() {
+        return Err("Saved query file not found".to_string());
+    }
+
+    let canonical_from = from_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve SQL file '{}': {}", from, err))?;
+
+    if !canonical_from.starts_with(&canonical_root) || !canonical_from.is_file() {
+        return Err("Only saved query files can be renamed".to_string());
+    }
+
+    let dest_name = PathBuf::from(&to)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_string())
+        .ok_or_else(|| "Invalid destination file name".to_string())?;
+
+    if !is_valid_saved_query_file_name(&dest_name) {
+        return Err("Invalid destination file name".to_string());
+    }
+
+    let dest = saved_queries_dir.join(&dest_name);
+    if dest.exists() {
+        if let Ok(canonical_dest) = dest.canonicalize() {
+            if canonical_dest != canonical_from {
+                return Err("A query with that name already exists".to_string());
+            }
+        }
+    }
+
+    let from_name = canonical_from.file_name().map(|name| name.to_os_string());
+    let dest_name_os = dest.file_name().map(|name| name.to_os_string());
+    let case_only_rename = from_name
+        .as_ref()
+        .zip(dest_name_os.as_ref())
+        .map(|(from_name, dest_name)| {
+            from_name != dest_name
+                && from_name.to_string_lossy().eq_ignore_ascii_case(&dest_name.to_string_lossy())
+        })
+        .unwrap_or(false);
+
+    if case_only_rename {
+        let tmp = saved_queries_dir.join(format!(".__rename_{}.sql", std::process::id()));
+        std::fs::rename(&canonical_from, &tmp).map_err(|err| {
+            format!("Failed to rename SQL file '{}': {}", from, err)
+        })?;
+        std::fs::rename(&tmp, &dest).map_err(|err| {
+            format!("Failed to rename SQL file '{}': {}", from, err)
+        })?;
+        return Ok(dest.to_string_lossy().to_string());
+    }
+
+    if dest.exists() {
+        return Ok(dest.to_string_lossy().to_string());
+    }
+
+    std::fs::rename(&canonical_from, &dest)
+        .map_err(|err| format!("Failed to rename SQL file '{}': {}", from, err))?;
+
+    Ok(dest.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
     let folder = PathBuf::from(&path);
@@ -2786,6 +2882,7 @@ pub fn run() {
             read_sql_file,
             write_sql_file,
             delete_sql_file,
+            rename_sql_file,
             get_documents_folder,
             pick_folder_dialog,
             open_folder,

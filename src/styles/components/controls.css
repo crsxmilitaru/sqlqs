@@ -46,18 +46,35 @@
     border-color: var(--color-accent-hover);
   }
 
+  .explorer-filter-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  .explorer-filter-icon {
+    position: absolute;
+    left: 6px;
+    font-size: 10px;
+    color: var(--color-text-muted);
+    opacity: 0.65;
+    pointer-events: none;
+  }
+
   .explorer-filter {
     background: transparent;
     border: none;
     border-bottom: 1px solid var(--color-overlay-xs);
     border-radius: 0;
-    padding: 4px;
+    padding: 4px 22px;
     font-size: var(--text-s);
     color: var(--color-text-muted);
     transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease,
-      color 0.2s ease;
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out);
   }
 
   .explorer-filter:hover {
@@ -71,8 +88,45 @@
     outline: none;
   }
 
+  .explorer-filter-wrap:focus-within .explorer-filter-icon {
+    color: var(--color-accent);
+    opacity: 1;
+  }
+
   .explorer-filter::placeholder {
     color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+  }
+
+  .explorer-filter-clear {
+    position: absolute;
+    right: 0;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    opacity: 0;
+    pointer-events: none;
+    cursor: pointer;
+    transition:
+      opacity var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
+  }
+
+  .explorer-filter-wrap.has-value .explorer-filter-clear {
+    opacity: 0.7;
+    pointer-events: auto;
+  }
+
+  .explorer-filter-wrap.has-value .explorer-filter-clear:hover {
+    opacity: 1;
+    color: var(--color-text);
+    background: var(--color-surface-hover);
   }
 
   .explorer-filter-nested {

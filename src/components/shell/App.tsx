@@ -216,7 +216,7 @@ export default function App() {
 
   const { executedQueries, addHistory, deleteHistory, clearHistory } =
     useHistory();
-  const { savedQueries, saveQuery, deleteQuery, loadQueryContent } =
+  const { savedQueries, saveQuery, deleteQuery, renameQuery, loadQueryContent } =
     useSavedQueries();
   const {
     appVersion,
@@ -803,16 +803,17 @@ export default function App() {
     updateTab(tabId, { savedSql: tab.sql });
   }
 
-  async function handleTabSaveToFile(tabId: string) {
-    const tab = tabs().find((t) => t.id === tabId);
-    if (!tab || !tab.sql.trim()) return;
+  async function saveSqlContentToFile(title: string, sql: string) {
+    if (!sql.trim()) {
+      return false;
+    }
 
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const lastFolder = localStorage.getItem(
         LAST_SQL_EXPORT_FOLDER_STORAGE_KEY,
       );
-      const fileName = getSqlFileName(tab.title);
+      const fileName = getSqlFileName(title);
       const filePath = await save({
         title: "Save SQL file",
         defaultPath: lastFolder ? joinPath(lastFolder, fileName) : fileName,
@@ -820,12 +821,12 @@ export default function App() {
       });
 
       if (!filePath) {
-        return;
+        return false;
       }
 
       await invoke<string>("write_sql_file", {
         path: filePath,
-        content: tab.sql,
+        content: sql,
       });
 
       const lastSep = Math.max(
@@ -839,13 +840,34 @@ export default function App() {
         );
       }
 
-      promoteTab(tabId);
-      updateTab(tabId, { savedSql: tab.sql });
       toast.success(`Saved to ${baseFileName(filePath)}`);
+      return true;
     } catch (error) {
       console.error("Failed to save SQL file:", error);
       toast.error(`Failed to save SQL file: ${String(error)}`);
+      return false;
     }
+  }
+
+  async function handleTabSaveToFile(tabId: string) {
+    const tab = tabs().find((t) => t.id === tabId);
+    if (!tab || !tab.sql.trim()) return;
+
+    if (!(await saveSqlContentToFile(tab.title, tab.sql))) {
+      return;
+    }
+
+    promoteTab(tabId);
+    updateTab(tabId, { savedSql: tab.sql });
+  }
+
+  async function handleSaveSavedQueryToFile(filePath: string, title: string) {
+    const content = await loadQueryContent(filePath);
+    if (!content) {
+      toast.error("Failed to load saved query.");
+      return;
+    }
+    await saveSqlContentToFile(title, content);
   }
 
   async function handleLoadSavedQuery(filePath: string, title: string) {
@@ -858,6 +880,37 @@ export default function App() {
   async function handleDeleteSavedQuery(id: string) {
     if (!(await deleteQuery(id))) {
       toast.error("Failed to delete saved query.");
+    }
+  }
+
+  async function handleRenameSavedQuery(id: string, title: string) {
+    const query = savedQueries().find((q) => q.id === id);
+    if (!query) {
+      return false;
+    }
+
+    try {
+      const updated = await renameQuery(id, title);
+      if (!updated) {
+        return false;
+      }
+
+      const oldSourceId = `saved:${query.filePath}`;
+      const nextSourceId = `saved:${updated.filePath}`;
+      for (const tab of tabs()) {
+        if (tab.sourceId !== oldSourceId) {
+          continue;
+        }
+        updateTab(tab.id, {
+          title: updated.title,
+          sourceId: nextSourceId,
+          userTitle: true,
+        });
+      }
+      return true;
+    } catch (err) {
+      toast.error(String(err));
+      return false;
     }
   }
 
@@ -1276,7 +1329,9 @@ export default function App() {
                     onClearHistory={clearHistory}
                     savedQueries={savedQueries()}
                     onDeleteSavedQuery={handleDeleteSavedQuery}
+                    onRenameSavedQuery={handleRenameSavedQuery}
                     onLoadSavedQuery={handleLoadSavedQuery}
+                    onSaveSavedQueryToFile={handleSaveSavedQueryToFile}
                     onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
                     onShowProperties={handleShowProperties}
                     onShowRename={handleShowRename}
