@@ -14,6 +14,7 @@ const STORAGE_KEY_EXEC_TIMEOUT_SECONDS = "sqlqs_exec_timeout_seconds";
 const STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE = "sqlqs_exec_confirm_destructive";
 const STORAGE_KEY_APP_DATE_FORMAT = "sqlqs_app_date_format";
 const STORAGE_KEY_RESULTS_DATE_FORMAT = "sqlqs_results_date_format";
+const STORAGE_KEY_RESULTS_SHOW_FILTERS = "sqlqs_results_show_filters";
 const STORAGE_KEY_FORMAT_INDENT_SIZE = "sqlqs_format_indent_size";
 const STORAGE_KEY_FORMAT_KEYWORD_CASE = "sqlqs_format_keyword_case";
 const STORAGE_KEY_FORMAT_MAX_LINE_LENGTH = "sqlqs_format_max_line_length";
@@ -81,6 +82,7 @@ export interface ExecutionPreferences {
   confirmDestructive: boolean;
   appDateFormat: DateFormat;
   resultsDateFormat: DateFormat;
+  resultsShowFilters: boolean;
 }
 
 export const DEFAULT_EXEC_MAX_ROWS = 0;
@@ -88,6 +90,7 @@ export const DEFAULT_EXEC_TIMEOUT_SECONDS = 0;
 export const MAX_EXEC_TIMEOUT_SECONDS = 3600;
 export const DEFAULT_DATE_FORMAT: DateFormat = "local";
 export const DEFAULT_RESULTS_DATE_FORMAT: DateFormat = "iso";
+export const DEFAULT_RESULTS_SHOW_FILTERS = true;
 
 export const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = [
   { value: "local", label: "Local Machine Format" },
@@ -279,6 +282,10 @@ function readExecutionPreferencesFromStorage(): ExecutionPreferences {
     ),
     appDateFormat: readAppDateFormatFromStorage(),
     resultsDateFormat: readResultsDateFormatFromStorage(),
+    resultsShowFilters: readBoolWithDefault(
+      STORAGE_KEY_RESULTS_SHOW_FILTERS,
+      DEFAULT_RESULTS_SHOW_FILTERS,
+    ),
   };
 }
 
@@ -376,6 +383,14 @@ export function saveResultsDateFormat(value: DateFormat) {
   setPreferences((prev) => ({
     ...prev,
     execution: { ...prev.execution, resultsDateFormat: value },
+  }));
+}
+
+export function saveResultsShowFilters(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_RESULTS_SHOW_FILTERS, String(value));
+  setPreferences((prev) => ({
+    ...prev,
+    execution: { ...prev.execution, resultsShowFilters: value },
   }));
 }
 

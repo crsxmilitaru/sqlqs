@@ -47,6 +47,12 @@ const loadAIChatPanel = () => import("../ai/AIChatPanel");
 const AIChatPanel = lazy(loadAIChatPanel);
 
 const DRAG_THRESHOLD = 5;
+const DEFAULT_EDITOR_HEIGHT = 300;
+const MIN_EDITOR_HEIGHT = 100;
+const MAX_EDITOR_HEIGHT = 800;
+const MIN_RESULTS_PANEL_HEIGHT = 200;
+const MIN_RESULTS_TABLE_PANEL_HEIGHT = 300;
+const EDITOR_RESULTS_RESIZER_HEIGHT = 8;
 
 function isTabDirty(tab: QueryTab): boolean {
   return tab.sql !== tab.savedSql;
@@ -538,8 +544,10 @@ export default function QueryEditorPanel(props: Props) {
 
   const pinnedCount = () => props.tabs.filter((t) => t.pinned).length;
 
-  const [editorHeight, setEditorHeight] = createSignal(300);
+  const [editorHeight, setEditorHeight] = createSignal(DEFAULT_EDITOR_HEIGHT);
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
+  const [resultsMaximized, setResultsMaximized] = createSignal(false);
+  let editorHeightBeforeMaximize = DEFAULT_EDITOR_HEIGHT;
   const [showStats, setShowStats] = createSignal(false);
   const [elapsedMs, setElapsedMs] = createSignal(0);
 
@@ -716,9 +724,31 @@ export default function QueryEditorPanel(props: Props) {
     return props.tabs[0].id === props.activeTabId;
   });
 
+  function restoreResultsSize() {
+    if (!resultsMaximized()) return;
+    setResultsMaximized(false);
+    setEditorHeight(editorHeightBeforeMaximize);
+  }
+
+  function maximizeResults() {
+    if (resultsMaximized()) return;
+    editorHeightBeforeMaximize = editorHeight();
+    setResultsCollapsed(false);
+    setResultsMaximized(true);
+  }
+
+  function toggleResultsMaximized() {
+    if (resultsMaximized()) {
+      restoreResultsSize();
+      return;
+    }
+    maximizeResults();
+  }
+
   createEffect(() => {
     const tab = activeTab();
     if (tab && !tab.result && !tab.error && !tab.isExecuting) {
+      restoreResultsSize();
       setResultsCollapsed(true);
     } else if (tab && (tab.result || tab.error)) {
       setResultsCollapsed(false);
@@ -733,6 +763,12 @@ export default function QueryEditorPanel(props: Props) {
     if (!tab.result || tab.result.result_sets.length === 0) return true;
     return false;
   });
+
+  const editorHasFixedHeight = () =>
+    !resultsMaximized() && !resultsCollapsed() && !isCompactResult();
+
+  const resultsPanelIsCompact = () =>
+    resultsCollapsed() || (isCompactResult() && !resultsMaximized());
 
   const currentResultMessage = createMemo(() => {
     const tab = activeTab();
@@ -1035,17 +1071,27 @@ export default function QueryEditorPanel(props: Props) {
 
   function handleEditorResizerDoubleClick(e: MouseEvent) {
     e.preventDefault();
-    setEditorHeight(300);
+    setEditorHeight(DEFAULT_EDITOR_HEIGHT);
   }
 
   function handleEditorResize(e: MouseEvent) {
     e.preventDefault();
     const startY = e.clientY;
     const startHeight = editorHeight();
+    const column = (e.currentTarget as HTMLElement).parentElement;
+    const minResultsHeight = isCompactResult()
+      ? MIN_RESULTS_PANEL_HEIGHT
+      : MIN_RESULTS_TABLE_PANEL_HEIGHT;
     const onMove = (ev: MouseEvent) => {
+      const maxFromPanel = column
+        ? column.clientHeight - minResultsHeight - EDITOR_RESULTS_RESIZER_HEIGHT
+        : MAX_EDITOR_HEIGHT;
       const newHeight = Math.max(
-        100,
-        Math.min(800, startHeight + ev.clientY - startY),
+        MIN_EDITOR_HEIGHT,
+        Math.min(
+          Math.min(MAX_EDITOR_HEIGHT, maxFromPanel),
+          startHeight + ev.clientY - startY,
+        ),
       );
       setEditorHeight(newHeight);
     };
@@ -1144,14 +1190,16 @@ export default function QueryEditorPanel(props: Props) {
           <div class="flex flex-col flex-1 min-w-0 min-h-0">
             <div
               class={`editor-island flex flex-col min-w-0 overflow-hidden ${
-                resultsCollapsed() || isCompactResult()
-                  ? "flex-1"
-                  : "flex-shrink-0"
+                resultsMaximized()
+                  ? "hidden"
+                  : editorHasFixedHeight()
+                    ? "flex-shrink-0"
+                    : "flex-1"
               }`}
               style={
-                resultsCollapsed() || isCompactResult()
-                  ? undefined
-                  : { height: `${editorHeight()}px` }
+                editorHasFixedHeight()
+                  ? { height: `${editorHeight()}px` }
+                  : undefined
               }
             >
               <div
@@ -1557,7 +1605,7 @@ export default function QueryEditorPanel(props: Props) {
               </div>
             </div>
 
-            {!resultsCollapsed() && !isCompactResult() && (
+            {editorHasFixedHeight() && (
               <div
                 class="resizer resizer-v"
                 onMouseDown={handleEditorResize}
@@ -1567,15 +1615,18 @@ export default function QueryEditorPanel(props: Props) {
 
             <div
               class={`results-island app-panel flex flex-col ${
-                resultsCollapsed() || isCompactResult()
+                resultsPanelIsCompact()
                   ? "flex-none mt-[var(--layout-gap)]"
                   : "flex-1"
               }`}
+              style={
+                resultsPanelIsCompact()
+                  ? undefined
+                  : { minHeight: `${MIN_RESULTS_TABLE_PANEL_HEIGHT}px` }
+              }
             >
-              <div class="flex items-center justify-between p-2.5 flex-shrink-0">
-                <div class="flex items-center gap-2">
-                  <span class="app-section-title">Results</span>
-                </div>
+              <div class="app-panel-header">
+                <span class="app-section-title">Results</span>
                 <div class="flex items-center gap-2">
                   <Show when={tab.result?.statistics}>
                     <button
@@ -1590,7 +1641,27 @@ export default function QueryEditorPanel(props: Props) {
                   </Show>
                   <button
                     type="button"
-                    onClick={() => setResultsCollapsed(!resultsCollapsed())}
+                    aria-label={
+                      resultsMaximized()
+                        ? "Restore results size"
+                        : "Maximize results"
+                    }
+                    onClick={toggleResultsMaximized}
+                    class="btn btn-secondary"
+                  >
+                    <i
+                      class={`fa-solid ${
+                        resultsMaximized() ? "fa-compress" : "fa-expand"
+                      }`}
+                    />
+                    <span>{resultsMaximized() ? "Restore" : "Maximize"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (resultsMaximized()) restoreResultsSize();
+                      setResultsCollapsed(!resultsCollapsed());
+                    }}
                     class="btn btn-secondary"
                   >
                     <i
@@ -1602,7 +1673,16 @@ export default function QueryEditorPanel(props: Props) {
               </div>
               {!resultsCollapsed() && (
                 <div
-                  class={isCompactResult() ? "min-h-[200px]" : "flex-1 min-h-0"}
+                  class={
+                    isCompactResult() && !resultsMaximized()
+                      ? undefined
+                      : "flex-1 min-h-0"
+                  }
+                  style={
+                    isCompactResult() && !resultsMaximized()
+                      ? { minHeight: `${MIN_RESULTS_PANEL_HEIGHT}px` }
+                      : undefined
+                  }
                 >
                   <ResultsGrid
                     result={tab.result}

@@ -213,7 +213,23 @@
 
   .results-set-grid.is-multiple {
     flex: 0 0 auto;
-    height: clamp(240px, 42vh, 380px);
+  }
+
+  .results-table-container.is-empty {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .results-empty-message {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-family: var(--font-sans);
+    font-size: var(--text-s);
+    font-weight: 500;
   }
 
   .results-set-expanded-header {

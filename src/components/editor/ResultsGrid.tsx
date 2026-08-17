@@ -50,7 +50,41 @@ export type ResultsSortConfig = {
 export interface ResultsTableViewState {
   sortConfig: ResultsSortConfig;
   filters: Record<number, string>;
-  showFilters: boolean;
+  showFilters?: boolean;
+  heightPx?: number;
+}
+
+const TABLE_LAYOUT = {
+  rowHeight: 30,
+  headerHeight: 32.5,
+  emptyHeight: 120,
+  minHeight: 120,
+  maxManualHeight: 800,
+  maxAutoMultipleHeight: 300,
+  minRowsForFilters: 5,
+} as const;
+
+function clampTableHeight(
+  height: number,
+  min = TABLE_LAYOUT.minHeight,
+  max = TABLE_LAYOUT.maxManualHeight,
+) {
+  return Math.max(min, Math.min(max, height));
+}
+
+function computeAutoTableHeight(
+  rowCount: number,
+  maxAutoHeight: number,
+  measuredHeaderHeight = 0,
+) {
+  const header =
+    measuredHeaderHeight > 0
+      ? measuredHeaderHeight
+      : TABLE_LAYOUT.headerHeight;
+  return Math.min(
+    maxAutoHeight,
+    header + (rowCount + 2) * TABLE_LAYOUT.rowHeight,
+  );
 }
 
 type ProcessedResultRow = {
@@ -58,7 +92,6 @@ type ProcessedResultRow = {
   originalIndex: number;
 };
 
-const AUTO_EXPAND_RESULT_SET_THRESHOLD = 3;
 const MAX_CHAT_RESULT_ROWS = 50;
 
 interface RowActionDialogState {
@@ -151,6 +184,7 @@ function VirtualGrid(props: {
   onEditRow?: (ri: number) => void;
   canEditRows?: boolean;
   selectedRowIndex: number | null;
+  isMultipleResultSets: boolean;
   renderHeaderActions?: (controls: JSX.Element) => JSX.Element;
   onSendToChat?: (markdown: string) => void;
 }) {
@@ -199,12 +233,13 @@ function VirtualGrid(props: {
     props.viewState ?? {
       sortConfig: null,
       filters: {},
-      showFilters: true,
     };
 
   const sortConfig = () => viewState().sortConfig;
   const filters = () => viewState().filters;
-  const showFilters = () => viewState().showFilters;
+  const defaultShowFilters = () =>
+    loadExecutionPreferences().resultsShowFilters;
+  const showFilters = () => viewState().showFilters ?? defaultShowFilters();
 
   const updateViewState = (
     updater: (prev: ResultsTableViewState) => ResultsTableViewState,
@@ -235,11 +270,15 @@ function VirtualGrid(props: {
   };
 
   const setShowFilters = (value: boolean | ((prev: boolean) => boolean)) => {
-    updateViewState((prev) => ({
-      ...prev,
-      showFilters:
-        typeof value === "function" ? value(prev.showFilters) : value,
-    }));
+    updateViewState((prev) => {
+      const current = prev.showFilters ?? defaultShowFilters();
+      const nextShowFilters =
+        typeof value === "function" ? value(current) : value;
+      return {
+        ...prev,
+        showFilters: nextShowFilters,
+      };
+    });
   };
 
   createEffect(() => {
@@ -327,6 +366,28 @@ function VirtualGrid(props: {
 
   const processedRowCount = () =>
     processedRows()?.length ?? props.resultSet.rows.length;
+  const hasNoResultRows = () => props.resultSet.rows.length === 0;
+  const isEmpty = () => processedRowCount() === 0;
+  const filtersAvailable = () =>
+    props.resultSet.rows.length >= TABLE_LAYOUT.minRowsForFilters;
+  const fillsPanel = () => !props.isMultipleResultSets;
+
+  const autoTableHeight = () =>
+    Math.max(
+      TABLE_LAYOUT.minHeight,
+      computeAutoTableHeight(
+        props.resultSet.rows.length,
+        TABLE_LAYOUT.maxAutoMultipleHeight,
+        headerHeight(),
+      ),
+    );
+
+  const resolvedTableHeight = () => {
+    if (hasNoResultRows()) return TABLE_LAYOUT.emptyHeight;
+    const explicit = viewState().heightPx;
+    if (explicit != null) return explicit;
+    return autoTableHeight();
+  };
 
   const getRawProcessedRow = (index: number): ProcessedResultRow => {
     const row = props.resultSet.rows[index];
@@ -470,7 +531,7 @@ function VirtualGrid(props: {
     setExportMenuPos({ x: rect.left, y: rect.bottom + 4 });
   };
 
-  const rowHeight = 28;
+  const rowHeight = TABLE_LAYOUT.rowHeight;
   const buffer = 6;
   const charWidth = 9;
   const cellPadding = 24;
@@ -553,27 +614,75 @@ function VirtualGrid(props: {
     });
   };
 
-  onMount(() => {
-    if (!containerRef) return;
-    const observer = new ResizeObserver((entries) => {
-      if (entries[0]) setContainerHeight(entries[0].contentRect.height);
+  const resetTableHeight = () => {
+    updateViewState((prev) => {
+      const next = { ...prev };
+      delete next.heightPx;
+      return next;
     });
-    observer.observe(containerRef);
-    setContainerHeight(containerRef.clientHeight);
-    onCleanup(() => observer.disconnect());
-  });
+  };
+
+  const startTableHeightResize = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    const startY = e.clientY;
+    const startHeight = resolvedTableHeight();
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: PointerEvent) => {
+      const next = clampTableHeight(startHeight + (ev.clientY - startY));
+      updateViewState((prev) => ({ ...prev, heightPx: next }));
+    };
+    const onUp = () => {
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+  };
+
+  const handleTableHeightResizerDoubleClick = (e: MouseEvent) => {
+    e.preventDefault();
+    resetTableHeight();
+  };
+
+  const tableContainerStyle = () =>
+    fillsPanel() ? undefined : { height: `${resolvedTableHeight()}px` };
 
   onMount(() => {
-    if (!headerRef) return;
-    const observer = new ResizeObserver((entries) => {
-      if (entries[0]) setHeaderHeight(entries[0].contentRect.height);
+    if (!containerRef) return;
+
+    const containerObserver = new ResizeObserver((entries) => {
+      if (entries[0]) setContainerHeight(entries[0].contentRect.height);
     });
-    observer.observe(headerRef);
-    setHeaderHeight(headerRef.clientHeight);
-    onCleanup(() => observer.disconnect());
+    containerObserver.observe(containerRef);
+    setContainerHeight(containerRef.clientHeight);
+
+    let headerObserver: ResizeObserver | undefined;
+    if (headerRef) {
+      headerObserver = new ResizeObserver((entries) => {
+        if (entries[0]) setHeaderHeight(entries[0].contentRect.height);
+      });
+      headerObserver.observe(headerRef);
+      setHeaderHeight(headerRef.clientHeight);
+    }
+
+    onCleanup(() => {
+      containerObserver.disconnect();
+      headerObserver?.disconnect();
+    });
   });
 
   const handleSort = (colIndex: number) => {
+    if (hasNoResultRows()) return;
     setSortConfig((prev) => {
       if (prev?.colIndex === colIndex) {
         if (prev.direction === "asc") return { colIndex, direction: "desc" };
@@ -743,6 +852,20 @@ function VirtualGrid(props: {
     if (!menu) return [];
     const idx = menu.colIndex;
     const col = props.resultSet.columns[idx];
+
+    if (hasNoResultRows()) {
+      return [
+        {
+          id: "copy-col-name",
+          label: "Copy Column Name",
+          icon: <i class="fa-solid fa-copy" />,
+          onClick: () => {
+            navigator.clipboard.writeText(col.name);
+          },
+        },
+      ];
+    }
+
     const isCurrentSort = sortConfig()?.colIndex === idx;
     const currentSortDir = sortConfig()?.direction;
 
@@ -936,13 +1059,22 @@ function VirtualGrid(props: {
   );
 
   return (
-    <div class="flex flex-col h-full min-h-0 gap-2">
+    <div
+      class={`flex flex-col min-h-0 gap-2 ${
+        fillsPanel() ? "flex-1 h-full" : "flex-none"
+      }`}
+    >
       {props.renderHeaderActions
         ? props.renderHeaderActions(controls)
         : controls}
       <div
         ref={containerRef}
-        class="results-table-container overflow-auto rounded-lg border border-border/20 flex-1 min-h-0"
+        class={`results-table-container overflow-auto rounded-lg border border-border/20 ${
+          fillsPanel() ? "flex-1 min-h-0" : "flex-none"
+        } ${isEmpty() ? "flex flex-col" : ""} ${
+          hasNoResultRows() ? "is-empty" : ""
+        }`}
+        style={tableContainerStyle()}
         onScroll={handleScroll}
       >
         <table
@@ -963,23 +1095,27 @@ function VirtualGrid(props: {
             <tr>
               <th class="text-center px-0 bg-surface-table border-b border-r border-border/40 align-top py-1.5">
                 <div class="flex flex-col items-center justify-center h-full min-h-[24px]">
-                  <Tooltip content="Toggle filters" placement="bottom">
-                    <button
-                      type="button"
-                      aria-label={
-                        showFilters() ? "Hide column filters" : "Show column filters"
-                      }
-                      onClick={() => setShowFilters(!showFilters())}
-                      class={`p-1 rounded hover:bg-surface-hover transition-colors ${
-                        Object.values(filters()).some((v) => v.trim())
-                          ? "text-accent"
-                          : "text-text-muted/60"
-                      }`}
-                    >
-                      <i class="fa-solid fa-filter text-[10px]" />
-                    </button>
-                  </Tooltip>
-                  <Show when={showFilters()}>
+                  <Show when={filtersAvailable()}>
+                    <Tooltip content="Toggle filters" placement="bottom">
+                      <button
+                        type="button"
+                        aria-label={
+                          showFilters()
+                            ? "Hide column filters"
+                            : "Show column filters"
+                        }
+                        onClick={() => setShowFilters(!showFilters())}
+                        class={`p-1 rounded transition-colors cursor-pointer hover:bg-surface-hover ${
+                          Object.values(filters()).some((v) => v.trim())
+                            ? "text-accent"
+                            : "text-text-muted/60"
+                        }`}
+                      >
+                        <i class="fa-solid fa-filter text-[10px]" />
+                      </button>
+                    </Tooltip>
+                  </Show>
+                  <Show when={showFilters() && filtersAvailable()}>
                     <div class="mt-2 text-[10px] text-text-muted/40 font-normal">
                       #
                     </div>
@@ -1002,34 +1138,49 @@ function VirtualGrid(props: {
                         });
                       }}
                     >
-                      <button
-                        type="button"
-                        aria-label={`Sort by ${col.name}`}
-                        class="flex w-full items-center justify-between gap-3 cursor-pointer select-none border-0 bg-transparent p-0 text-left text-inherit hover:text-text transition-colors"
-                        onClick={() => handleSort(i)}
+                      <Show
+                        when={!hasNoResultRows()}
+                        fallback={
+                          <div class="flex w-full items-center justify-between gap-3 select-none p-0 text-left text-inherit opacity-60">
+                            <span class="truncate">{col.name}</span>
+                            <div class="flex items-center gap-2">
+                              <span class="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
+                                {col.type_name}
+                              </span>
+                              <i class="fa-solid fa-sort text-text-muted/20 text-[10px] w-2 flex justify-center" />
+                            </div>
+                          </div>
+                        }
                       >
-                        <span class="truncate">{col.name}</span>
-                        <div class="flex items-center gap-2">
-                          <span class="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
-                            {col.type_name}
-                          </span>
-                          <Show
-                            when={sortConfig()?.colIndex === i}
-                            fallback={
-                              <i class="fa-solid fa-sort text-text-muted/20 hover:text-text-muted/50 text-[10px] w-2 flex justify-center" />
-                            }
-                          >
-                            <i
-                              class={`fa-solid ${
-                                sortConfig()!.direction === "asc"
-                                  ? "fa-sort-up mt-1"
-                                  : "fa-sort-down mb-1"
-                              } text-accent text-[10px] w-2 flex justify-center`}
-                            />
-                          </Show>
-                        </div>
-                      </button>
-                      <Show when={showFilters()}>
+                        <button
+                          type="button"
+                          aria-label={`Sort by ${col.name}`}
+                          class="flex w-full items-center justify-between gap-3 cursor-pointer select-none border-0 bg-transparent p-0 text-left text-inherit hover:text-text transition-colors"
+                          onClick={() => handleSort(i)}
+                        >
+                          <span class="truncate">{col.name}</span>
+                          <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-text-muted/30 font-normal uppercase tracking-wider shrink-0">
+                              {col.type_name}
+                            </span>
+                            <Show
+                              when={sortConfig()?.colIndex === i}
+                              fallback={
+                                <i class="fa-solid fa-sort text-text-muted/20 hover:text-text-muted/50 text-[10px] w-2 flex justify-center" />
+                              }
+                            >
+                              <i
+                                class={`fa-solid ${
+                                  sortConfig()!.direction === "asc"
+                                    ? "fa-sort-up mt-1"
+                                    : "fa-sort-down mb-1"
+                                } text-accent text-[10px] w-2 flex justify-center`}
+                              />
+                            </Show>
+                          </div>
+                        </button>
+                      </Show>
+                      <Show when={showFilters() && filtersAvailable()}>
                         <div class="mt-1.5 mb-0.5">
                           <input
                             type="text"
@@ -1063,103 +1214,117 @@ function VirtualGrid(props: {
               <th class="bg-surface-table border-b border-border/40" />
             </tr>
           </thead>
-          <tbody>
-            <tr style={{ height: `${startIndex() * rowHeight}px` }}>
-              <td
-                colSpan={visibleColIndices().length + 2}
-                style={{ padding: "0", border: "0", background: "transparent" }}
-              />
-            </tr>
-            <For each={visibleRows()}>
-              {({ row, originalIndex }, i) => {
-                const visualIndex = () => startIndex() + i();
-                return (
-                  <tr
-                    class={
-                      originalIndex === props.selectedRowIndex ? "selected" : ""
-                    }
-                    style={{ height: `${rowHeight}px` }}
-                    onContextMenu={(e) => {
-                      const td = (e.target as HTMLElement).closest("td");
-                      const colAttr = td?.getAttribute("data-col-index");
-                      const colIndex =
-                        colAttr != null && colAttr !== ""
-                          ? Number(colAttr)
-                          : null;
-                      props.onContextMenu(
-                        e,
-                        originalIndex,
-                        Number.isFinite(colIndex) ? colIndex : null,
-                      );
-                    }}
-                  >
-                    <td class="text-center px-0 text-text-muted/60 border-r border-r-border/10">
-                      {visualIndex() + 1}
-                    </td>
-                    <For each={visibleColIndices()}>
-                      {(ci) => {
-                        const cell = row[ci];
-                        const col = props.resultSet.columns[ci];
-                        const formattedValue = formatSqlDateValue(
-                          cell,
-                          col.type_name,
-                          dateFormat(),
-                        );
-
-                        return (
-                          <td
-                            data-col-index={ci}
-                            title={formattedValue}
-                            class={`results-value-cell border-r border-r-border/5 ${
-                              props.canEditRows ? "is-editable" : ""
-                            }`}
-                          >
-                            <span class="results-value-text">
-                              {cell != null ? (
-                                formattedValue
-                              ) : (
-                                <span class="text-text-muted/40 italic">
-                                  NULL
-                                </span>
-                              )}
-                            </span>
-                            <Show when={props.canEditRows}>
-                              <button
-                                type="button"
-                                class="results-cell-edit-btn"
-                                aria-label={`Edit ${col.name}`}
-                                title={`Edit ${col.name}`}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  props.onEditRow?.(originalIndex);
-                                }}
-                              >
-                                <i class="fa-solid fa-pen" />
-                              </button>
-                            </Show>
-                          </td>
+          <Show when={!isEmpty()}>
+            <tbody>
+              <tr style={{ height: `${startIndex() * rowHeight}px` }}>
+                <td
+                  colSpan={visibleColIndices().length + 2}
+                  style={{ padding: "0", border: "0", background: "transparent" }}
+                />
+              </tr>
+              <For each={visibleRows()}>
+                {({ row, originalIndex }, i) => {
+                  const visualIndex = () => startIndex() + i();
+                  return (
+                    <tr
+                      class={
+                        originalIndex === props.selectedRowIndex ? "selected" : ""
+                      }
+                      style={{ height: `${rowHeight}px` }}
+                      onContextMenu={(e) => {
+                        const td = (e.target as HTMLElement).closest("td");
+                        const colAttr = td?.getAttribute("data-col-index");
+                        const colIndex =
+                          colAttr != null && colAttr !== ""
+                            ? Number(colAttr)
+                            : null;
+                        props.onContextMenu(
+                          e,
+                          originalIndex,
+                          Number.isFinite(colIndex) ? colIndex : null,
                         );
                       }}
-                    </For>
-                    <td />
-                  </tr>
-                );
-              }}
-            </For>
-            <tr
-              style={{
-                height: `${Math.max(0, (processedRowCount() - endIndex()) * rowHeight)}px`,
-              }}
-            >
-              <td
-                colSpan={visibleColIndices().length + 2}
-                style={{ padding: "0", border: "0", background: "transparent" }}
-              />
-            </tr>
-          </tbody>
+                    >
+                      <td class="text-center px-0 text-text-muted/60 border-r border-r-border/10">
+                        {visualIndex() + 1}
+                      </td>
+                      <For each={visibleColIndices()}>
+                        {(ci) => {
+                          const cell = row[ci];
+                          const col = props.resultSet.columns[ci];
+                          const formattedValue = formatSqlDateValue(
+                            cell,
+                            col.type_name,
+                            dateFormat(),
+                          );
+
+                          return (
+                            <td
+                              data-col-index={ci}
+                              title={formattedValue}
+                              class={`results-value-cell border-r border-r-border/5 ${
+                                props.canEditRows ? "is-editable" : ""
+                              }`}
+                            >
+                              <span class="results-value-text">
+                                {cell != null ? (
+                                  formattedValue
+                                ) : (
+                                  <span class="text-text-muted/40 italic">
+                                    NULL
+                                  </span>
+                                )}
+                              </span>
+                              <Show when={props.canEditRows}>
+                                <button
+                                  type="button"
+                                  class="results-cell-edit-btn"
+                                  aria-label={`Edit ${col.name}`}
+                                  title={`Edit ${col.name}`}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    props.onEditRow?.(originalIndex);
+                                  }}
+                                >
+                                  <i class="fa-solid fa-pen" />
+                                </button>
+                              </Show>
+                            </td>
+                          );
+                        }}
+                      </For>
+                      <td />
+                    </tr>
+                  );
+                }}
+              </For>
+              <tr
+                style={{
+                  height: `${Math.max(0, (processedRowCount() - endIndex()) * rowHeight)}px`,
+                }}
+              >
+                <td
+                  colSpan={visibleColIndices().length + 2}
+                  style={{ padding: "0", border: "0", background: "transparent" }}
+                />
+              </tr>
+            </tbody>
+          </Show>
         </table>
+        <Show when={isEmpty()}>
+          <div class="results-empty-message flex-1 min-h-0">
+            {hasNoResultRows() ? "No results" : "No matching rows"}
+          </div>
+        </Show>
       </div>
+      <Show when={props.isMultipleResultSets && !hasNoResultRows()}>
+        <div
+          class="resizer resizer-v flex-none"
+          onPointerDown={startTableHeightResize}
+          onDblClick={handleTableHeightResizerDoubleClick}
+        />
+      </Show>
       <Show when={headerContextMenu()}>
         {(menu) => (
           <ContextMenu
@@ -1203,14 +1368,8 @@ export default function ResultsGrid(props: Props) {
     const result = props.result;
     if (result !== previousResult) {
       previousResult = result;
-      const count = result?.result_sets.length ?? 0;
       setExpandedResultSetIndices(
-        new Set(
-          Array.from(
-            { length: Math.min(count, AUTO_EXPAND_RESULT_SET_THRESHOLD) },
-            (_value, index) => index,
-          ),
-        ),
+        new Set(result?.result_sets.map((_, index) => index) ?? []),
       );
     }
   });
@@ -1455,9 +1614,16 @@ export default function ResultsGrid(props: Props) {
                     }`}
                   >
                     {renderTruncatedNotice(rs, rsi)}
-                    <div class="flex-1 min-h-0">
+                    <div
+                      class={
+                        hasMultipleResultSets()
+                          ? "flex-none"
+                          : "flex flex-col flex-1 min-h-0"
+                      }
+                    >
                       <VirtualGrid
                         resultSet={rs}
+                        isMultipleResultSets={hasMultipleResultSets()}
                         viewState={props.tableViewStates[rsi]}
                         onViewStateChange={(state) =>
                           props.onTableViewStateChange(rsi, state)

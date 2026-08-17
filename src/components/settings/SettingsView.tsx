@@ -35,6 +35,7 @@ import {
   saveExecMaxRows,
   saveExecTimeoutSeconds,
   saveResultsDateFormat,
+  saveResultsShowFilters,
   saveFormatIndentSize,
   saveFormatKeywordCase,
   saveFormatMaxLineLength,
@@ -98,6 +99,7 @@ type Tab =
   | "general"
   | "editor"
   | "execution"
+  | "results"
   | "connections"
   | "appearance"
   | "ai"
@@ -110,11 +112,12 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "fa-solid fa-gear" },
   { id: "editor", label: "Editor", icon: "fa-solid fa-code" },
   { id: "execution", label: "Execution", icon: "fa-solid fa-bolt" },
+  { id: "results", label: "Results", icon: "fa-solid fa-table" },
   { id: "connections", label: "Connections", icon: "fa-solid fa-plug" },
   { id: "appearance", label: "Appearance", icon: "fa-solid fa-palette" },
   { id: "ai", label: "AI", icon: "fa-solid fa-wand-magic-sparkles" },
-  { id: "updates", label: "Updates", icon: "fa-solid fa-arrows-rotate" },
   { id: "shortcuts", label: "Shortcuts", icon: "fa-solid fa-keyboard" },
+  { id: "updates", label: "Updates", icon: "fa-solid fa-arrows-rotate" },
   { id: "developer", label: "Developer", icon: "fa-solid fa-terminal" },
   { id: "about", label: "About", icon: "fa-solid fa-circle-info" },
 ];
@@ -212,6 +215,9 @@ export default function SettingsView(props: Props) {
     createSignal<DateFormat>(
       prefs.execution.resultsDateFormat || DEFAULT_RESULTS_DATE_FORMAT,
     );
+  const [resultsShowFilters, setResultsShowFiltersSignal] = createSignal(
+    prefs.execution.resultsShowFilters,
+  );
 
   const [formatIndentSize, setFormatIndentSize] = createSignal(
     prefs.format.indentSize,
@@ -845,10 +851,10 @@ export default function SettingsView(props: Props) {
     },
     {
       id: "exec-max-rows",
-      tab: "execution",
+      tab: "results",
       title: "Result row limit",
       keywords:
-        "execution row limit max rows truncate result set query select top",
+        "results row limit max rows truncate result set query select top",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between mb-1">
@@ -951,10 +957,10 @@ export default function SettingsView(props: Props) {
     },
     {
       id: "results-date-format",
-      tab: "execution",
+      tab: "results",
       title: "Results date & time format",
       keywords:
-        "execution results grid date time format local utc region locale cell",
+        "results grid date time format local utc region locale cell",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between">
@@ -982,6 +988,25 @@ export default function SettingsView(props: Props) {
             </div>
           </div>
         </div>
+      ),
+    },
+    {
+      id: "results-show-filters",
+      tab: "results",
+      title: "Show column filters by default",
+      keywords:
+        "results grid column filters filter row default show hide",
+      render: () => (
+        <ToggleSetting
+          title="Show column filters by default"
+          description="Show filter inputs under column headers result tables with 5 or more rows. You can still toggle filters per table."
+          checked={resultsShowFilters()}
+          onToggle={() => {
+            const next = !resultsShowFilters();
+            setResultsShowFiltersSignal(next);
+            saveResultsShowFilters(next);
+          }}
+        />
       ),
     },
     {
