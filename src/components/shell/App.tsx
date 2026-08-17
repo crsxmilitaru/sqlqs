@@ -200,6 +200,8 @@ export default function App() {
     duplicateTab,
     togglePin,
     promoteTab,
+    reopenClosedTab,
+    canReopenClosedTab,
   } = useTabs();
 
   const {
@@ -1364,6 +1366,8 @@ export default function App() {
                 onTabDuplicate={duplicateTab}
                 onTabTogglePin={togglePin}
                 onTabPromote={promoteTab}
+                onTabReopen={reopenClosedTab}
+                canReopenClosedTab={canReopenClosedTab}
                 onOpenSqlFile={handleOpenSqlFile}
                 onExecute={handleExecute}
                 onCancelQuery={handleCancelQuery}

@@ -38,6 +38,7 @@ import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { AiService } from "../../lib/ai";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { loadPreferences } from "../../lib/settings";
+import { getModifierKeyLabel } from "../../lib/platform";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
 
@@ -106,6 +107,8 @@ interface Props {
   onTabDuplicate: (id: string) => string;
   onTabTogglePin: (id: string) => void;
   onTabPromote: (id: string) => void;
+  onTabReopen: () => string;
+  canReopenClosedTab: () => boolean;
   onOpenSqlFile?: () => void;
   onExecute: (id: string, customSql?: string) => void;
   onCancelQuery?: (id: string) => void;
@@ -139,6 +142,11 @@ export default function QueryEditorPanel(props: Props) {
     x: number;
     y: number;
     tabId: string;
+  } | null>(null);
+  const [tabBarContextMenu, setTabBarContextMenu] = createSignal<{
+    visible: boolean;
+    x: number;
+    y: number;
   } | null>(null);
   let renameInputRef: HTMLInputElement | undefined;
   let tabBarRef: HTMLDivElement | undefined;
@@ -199,6 +207,16 @@ export default function QueryEditorPanel(props: Props) {
     cleanupEditorResizeListeners?.();
   });
 
+  function handleTabReopen() {
+    const id = props.onTabReopen();
+    if (!id) return;
+    requestAnimationFrame(() => {
+      if (tabBarRef) {
+        tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+      }
+    });
+  }
+
   function setTabBarRef(el: HTMLDivElement) {
     cleanupTabBarWheelListener?.();
     tabBarRef = el;
@@ -232,11 +250,22 @@ export default function QueryEditorPanel(props: Props) {
   function handleTabContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
     e.stopPropagation();
+    setTabBarContextMenu(null);
     setTabContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
       tabId,
+    });
+  }
+
+  function handleTabBarContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    setTabContextMenu(null);
+    setTabBarContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
     });
   }
 
@@ -378,11 +407,13 @@ export default function QueryEditorPanel(props: Props) {
 
   const getTabContextMenuItems = (tabId: string): ContextMenuItem[] => {
     const tab = props.tabs.find((t) => t.id === tabId);
+    const mod = getModifierKeyLabel();
     const items: ContextMenuItem[] = [
       {
         id: "close",
-        label: "Close",
+        label: "Close Tab",
         icon: <i class="fa-solid fa-xmark" />,
+        shortcut: `${mod}+W`,
         onClick: () => requestSingleTabClose(tabId),
       },
       {
@@ -447,6 +478,59 @@ export default function QueryEditorPanel(props: Props) {
           onClick: () => props.onSaveToFile!(tabId),
         });
       }
+    }
+
+    return items;
+  };
+
+  const getTabBarContextMenuItems = (): ContextMenuItem[] => {
+    const mod = getModifierKeyLabel();
+    const hasClosableTabs = props.tabs.some((t) => !t.pinned);
+
+    const items: ContextMenuItem[] = [
+      {
+        id: "new",
+        label: "New Query",
+        icon: <i class="fa-solid fa-plus" />,
+        shortcut: `${mod}+T`,
+        onClick: () => {
+          props.onTabAdd();
+          requestAnimationFrame(() => {
+            if (tabBarRef) {
+              tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+            }
+          });
+        },
+      },
+      {
+        id: "reopen-closed",
+        label: "Reopen Closed Tab",
+        icon: <i class="fa-solid fa-rotate-left" />,
+        shortcut: `${mod}+Shift+T`,
+        disabled: !props.canReopenClosedTab(),
+        onClick: () => handleTabReopen(),
+      },
+    ];
+
+    if (props.onOpenSqlFile) {
+      items.push({
+        id: "open-file",
+        label: "Open File",
+        icon: <i class="fa-regular fa-folder" />,
+        shortcut: `${mod}+O`,
+        onClick: () => props.onOpenSqlFile!(),
+      });
+    }
+
+    if (props.tabs.length > 0) {
+      items.push({ id: "sep-close", separator: true });
+      items.push({
+        id: "close-all",
+        label: "Close All",
+        icon: <i class="fa-solid fa-trash" />,
+        disabled: !hasClosableTabs,
+        onClick: () => requestCloseAll(),
+      });
     }
 
     return items;
@@ -1012,6 +1096,14 @@ export default function QueryEditorPanel(props: Props) {
           }
         }
 
+        if (e.shiftKey && e.key.toLowerCase() === "t") {
+          e.preventDefault();
+          if (props.canReopenClosedTab()) {
+            handleTabReopen();
+          }
+          return;
+        }
+
         if (e.key === "PageDown") {
           e.preventDefault();
           const currentTabs = props.tabs;
@@ -1062,7 +1154,10 @@ export default function QueryEditorPanel(props: Props) {
                   : { height: `${editorHeight()}px` }
               }
             >
-              <div class="flex items-stretch justify-between flex-shrink-0 min-w-0 bg-transparent h-9">
+              <div
+                class="flex items-stretch justify-between flex-shrink-0 min-w-0 bg-transparent h-9"
+                onContextMenu={handleTabBarContextMenu}
+              >
                 <div class="flex items-stretch min-w-0 flex-shrink overflow-hidden h-full">
                   {props.tabs.length > 0 && (
                     <>
@@ -1557,6 +1652,16 @@ export default function QueryEditorPanel(props: Props) {
                   <i class="fa-solid fa-plus" />
                   <span class="empty-state-btn-label">New File</span>
                 </button>
+                <Show when={props.canReopenClosedTab()}>
+                  <button
+                    type="button"
+                    onClick={() => handleTabReopen()}
+                    class="btn btn-secondary empty-state-btn"
+                  >
+                    <i class="fa-solid fa-rotate-left" />
+                    <span class="empty-state-btn-label">Reopen Closed Tab</span>
+                  </button>
+                </Show>
               </div>
               <Show when={(props.executedQueries ?? []).length > 0}>
                 <div class="mt-6 w-full max-w-[320px]">
@@ -1661,6 +1766,15 @@ export default function QueryEditorPanel(props: Props) {
           x={tabContextMenu()!.x}
           y={tabContextMenu()!.y}
           onClose={() => setTabContextMenu(null)}
+        />
+      )}
+
+      {tabBarContextMenu()?.visible && (
+        <ContextMenu
+          items={getTabBarContextMenuItems()}
+          x={tabBarContextMenu()!.x}
+          y={tabBarContextMenu()!.y}
+          onClose={() => setTabBarContextMenu(null)}
         />
       )}
 

@@ -48,6 +48,7 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
       shortcuts: [
         { label: "New tab", keys: [`${mod}+T`] },
         { label: "Close tab", keys: [`${mod}+W`] },
+        { label: "Reopen closed tab", keys: [`${mod}+Shift+T`] },
         { label: "Switch to tab 1–9", keys: [`${mod}+1 … ${mod}+9`] },
         { label: "Next tab", keys: [`${mod}+Page Down`] },
         { label: "Previous tab", keys: [`${mod}+Page Up`] },

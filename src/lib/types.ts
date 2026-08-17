@@ -208,6 +208,18 @@ export interface QueryTabUpdateOptions {
   historyLabel?: string;
 }
 
+export interface ClosedTab {
+  title: string;
+  sql: string;
+  savedSql: string;
+  history?: QueryTabHistoryEntry[];
+  userTitle?: boolean;
+  sourceId?: string;
+  pinned?: boolean;
+  temporary?: boolean;
+  index: number;
+}
+
 export interface ExecutedQuery {
   sql: string;
   title: string;

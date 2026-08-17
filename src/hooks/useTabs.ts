@@ -8,6 +8,7 @@ import {
 } from "../lib/settings";
 import { generateTabTitle } from "../lib/sql";
 import type {
+  ClosedTab,
   QueryTab,
   QueryTabHistoryEntry,
   QueryTabHistoryEntryType,
@@ -15,6 +16,7 @@ import type {
 } from "../lib/types";
 
 let tabCounter = 1;
+const MAX_CLOSED_TABS = 20;
 const MAX_TAB_HISTORY_ITEMS = 25;
 const MAX_TAB_HISTORY_SQL_CHARS = 120_000;
 const MAX_TAB_HISTORY_TOTAL_CHARS = 600_000;
@@ -153,6 +155,20 @@ function trimPersistedTabsHistory(tabs: SavedTab[]): SavedTab[] {
   });
 }
 
+function createClosedTabSnapshot(tab: QueryTab, index: number): ClosedTab {
+  return {
+    title: tab.title,
+    sql: tab.sql,
+    savedSql: tab.savedSql,
+    history: trimHistory(tab.history),
+    userTitle: tab.userTitle,
+    sourceId: tab.sourceId,
+    pinned: tab.pinned,
+    temporary: tab.temporary,
+    index,
+  };
+}
+
 function createTab(
   sql = "",
   temporary?: boolean,
@@ -193,7 +209,20 @@ export function useTabs() {
   const tabs = () => tabsStore;
 
   const [activeTabId, setActiveTabId] = createSignal(tabsStore[0]?.id ?? "");
+  const [closedTabsStack, setClosedTabsStack] = createSignal<ClosedTab[]>([]);
   const historyTimers = new Map<string, number>();
+
+  function pushClosedTabs(tabsToClose: { tab: QueryTab; index: number }[]) {
+    if (tabsToClose.length === 0) return;
+    setClosedTabsStack((prev) => {
+      const next = [...prev, ...tabsToClose.map(({ tab, index }) =>
+        createClosedTabSnapshot(tab, index),
+      )];
+      return next.length > MAX_CLOSED_TABS
+        ? next.slice(next.length - MAX_CLOSED_TABS)
+        : next;
+    });
+  }
 
   function clearHistoryTimer(tabId: string) {
     const timer = historyTimers.get(tabId);
@@ -327,6 +356,9 @@ export function useTabs() {
   const closeTab = (tabId: string) => {
     clearHistoryTimer(tabId);
     const current = unwrap(tabsStore);
+    const index = current.findIndex((t) => t.id === tabId);
+    if (index === -1) return;
+    pushClosedTabs([{ tab: current[index], index }]);
     const next = current.filter((t) => t.id !== tabId);
     setTabsStore(next);
     if (next.length === 0) {
@@ -339,6 +371,11 @@ export function useTabs() {
 
   const closeAllTabs = () => {
     const current = unwrap(tabsStore);
+    pushClosedTabs(
+      current
+        .map((tab, index) => ({ tab, index }))
+        .filter(({ tab }) => !tab.pinned),
+    );
     const pinned = current.filter((t) => t.pinned);
     clearHistoryTimers(current.filter((t) => !t.pinned).map((t) => t.id));
     setTabsStore(pinned);
@@ -351,12 +388,63 @@ export function useTabs() {
 
   const closeOtherTabs = (tabId: string) => {
     const current = unwrap(tabsStore);
+    pushClosedTabs(
+      current
+        .map((tab, index) => ({ tab, index }))
+        .filter(({ tab }) => tab.id !== tabId && !tab.pinned),
+    );
     clearHistoryTimers(
       current.filter((t) => t.id !== tabId && !t.pinned).map((t) => t.id),
     );
     setTabsStore(current.filter((t) => t.id === tabId || t.pinned));
     setActiveTabId(tabId);
   };
+
+  const reopenClosedTab = () => {
+    const stack = closedTabsStack();
+    if (stack.length === 0) return "";
+    const closed = stack[stack.length - 1];
+    setClosedTabsStack(stack.slice(0, -1));
+
+    const current = unwrap(tabsStore);
+    let temporary = closed.temporary;
+    if (temporary && current.some((t) => t.temporary)) {
+      temporary = undefined;
+    }
+
+    const tab = createTab(closed.sql, temporary);
+    tab.title = closed.title;
+    tab.savedSql = normalizeSql(closed.savedSql);
+    tab.history = closed.history;
+    tab.userTitle = closed.userTitle;
+    tab.sourceId = closed.sourceId;
+    tab.pinned = closed.pinned;
+
+    setTabsStore(
+      produce((draft) => {
+        if (closed.pinned) {
+          const lastPinnedIndex = draft.reduce(
+            (acc, t, i) => (t.pinned ? i : acc),
+            -1,
+          );
+          const insertIndex = Math.min(closed.index, lastPinnedIndex + 1);
+          draft.splice(insertIndex, 0, tab);
+          return;
+        }
+
+        const pinnedCount = draft.filter((t) => t.pinned).length;
+        const insertIndex = Math.min(
+          Math.max(closed.index, pinnedCount),
+          draft.length,
+        );
+        draft.splice(insertIndex, 0, tab);
+      }),
+    );
+    setActiveTabId(tab.id);
+    return tab.id;
+  };
+
+  const canReopenClosedTab = () => closedTabsStack().length > 0;
 
   const updateTab = (
     tabId: string,
@@ -509,5 +597,7 @@ export function useTabs() {
     duplicateTab,
     togglePin,
     promoteTab,
+    reopenClosedTab,
+    canReopenClosedTab,
   };
 }

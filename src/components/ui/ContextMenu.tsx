@@ -149,9 +149,9 @@ export default function ContextMenu(props: Props) {
             {item.icon}
           </span>
         )}
-        <span class="flex-1">{item.label}</span>
+        <span class="flex-1 whitespace-nowrap">{item.label}</span>
         {item.shortcut && (
-          <span class="text-text-muted text-3xs ml-4">{item.shortcut}</span>
+          <span class="text-text-muted text-3xs ml-4 whitespace-nowrap">{item.shortcut}</span>
         )}
         {item.children && !isSubmenuItem && (
           <Icon name="chevron-right" class="text-icon-xs text-text-muted" />
