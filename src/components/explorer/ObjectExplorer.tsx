@@ -43,7 +43,7 @@ export interface ObjectExplorerHandle {
 }
 
 interface Props {
-  onRef?: (handle: ObjectExplorerHandle) => void;
+  onRef?: (handle: ObjectExplorerHandle | null) => void;
   databases: string[];
   onRefreshDatabases?: () => void | Promise<void>;
   onSelect: (
@@ -798,9 +798,8 @@ function DatabaseNode(props: {
   const isOpen = () => props.isExpanded(props.db);
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col" ref={props.onRowRef}>
       <div
-        ref={props.onRowRef}
         class={`tree-node ${props.isCurrent() ? "is-current" : ""} ${props.isMenuActive(`db:${props.db}`) ? "is-active" : ""}`}
         style={{ "--depth": "0" }}
         onClick={props.onToggle}
@@ -922,6 +921,9 @@ export default function ObjectExplorer(props: Props) {
       refreshDatabasesAndObjects,
     });
   });
+  onCleanup(() => {
+    props.onRef?.(null);
+  });
 
   const [expanded, setExpanded] = createSignal<Set<string>>(
     initExpandedSections(),
@@ -951,7 +953,9 @@ export default function ObjectExplorer(props: Props) {
     createSignal<ResizableSection | null>(null);
   const [containerHeight, setContainerHeight] = createSignal(0);
   let containerRef: HTMLDivElement | undefined;
-  const dbRowRefs = new Map<string, HTMLDivElement>();
+  let databasesScrollRef: HTMLDivElement | undefined;
+  const dbNodeRefs = new Map<string, HTMLDivElement>();
+  let revealScrollToken = 0;
 
   const [confirm, setConfirm] = createSignal<{
     title: string;
@@ -1328,6 +1332,37 @@ export default function ObjectExplorer(props: Props) {
     }
   }
 
+  function scrollDatabaseNodeIntoView(db: string) {
+    const node = dbNodeRefs.get(db);
+    const scroller = databasesScrollRef;
+    if (!node || !scroller) return;
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const nodeTop = nodeRect.top - scrollerRect.top + scroller.scrollTop;
+    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const next = Math.max(0, Math.min(nodeTop - 8, maxScroll));
+    if (Math.abs(next - scroller.scrollTop) < 2) return;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+      .matches
+      ? "auto"
+      : "smooth";
+    scroller.scrollTo({ top: next, behavior });
+  }
+
+  function queueRevealScroll(db: string, waitMs: number, token: number) {
+    const run = () => {
+      if (token !== revealScrollToken) return;
+      if (untrack(() => props.currentDatabase) !== db) return;
+      scrollDatabaseNodeIntoView(db);
+    };
+    if (waitMs <= 0) {
+      requestAnimationFrame(() => requestAnimationFrame(run));
+      return;
+    }
+    window.setTimeout(run, waitMs);
+  }
+
   createEffect(
     on(
       () => [props.currentDatabase, props.databases] as const,
@@ -1351,22 +1386,20 @@ export default function ObjectExplorer(props: Props) {
           );
         });
 
-        void loadTables(db);
-
-        const scroll = () =>
-          dbRowRefs.get(db)?.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-          });
-
-        if (needsTransition) {
-          setTimeout(scroll, 320);
-        } else {
-          requestAnimationFrame(scroll);
-        }
+        revealScrollToken += 1;
+        const token = revealScrollToken;
+        const waitMs = needsTransition ? ACCORDION_MS + 50 : 0;
+        queueRevealScroll(db, waitMs, token);
+        void loadTables(db).then(() => {
+          queueRevealScroll(db, 0, token);
+        });
       },
     ),
   );
+
+  onCleanup(() => {
+    revealScrollToken += 1;
+  });
 
   function toggle(nodeId: string) {
     const next = new Set(expanded());
@@ -1379,6 +1412,14 @@ export default function ObjectExplorer(props: Props) {
     if ((ROOT_SECTIONS as readonly string[]).includes(nodeId)) {
       persistCollapsedSections(next);
     }
+  }
+
+  function collapseAllDatabases() {
+    const next = new Set<string>();
+    for (const id of ROOT_SECTIONS) {
+      if (expanded().has(id)) next.add(id);
+    }
+    setExpanded(next);
   }
 
   function handleDbClick(db: string) {
@@ -1442,6 +1483,12 @@ export default function ObjectExplorer(props: Props) {
             label: "Refresh All",
             icon: <i class="fa-solid fa-rotate" />,
             onClick: () => void refreshDatabasesAndObjects(),
+          },
+          {
+            id: "collapse-databases",
+            label: "Collapse All",
+            icon: <i class="fa-solid fa-down-left-and-up-right-to-center" />,
+            onClick: () => collapseAllDatabases(),
           },
         ];
       case "QUERIES_FOLDER":
@@ -1688,14 +1735,22 @@ export default function ObjectExplorer(props: Props) {
               openSectionHeaderContextMenu("root:databases", e)
             }
             actions={
-              props.onRefreshDatabases && (
+              <>
+                {props.onRefreshDatabases && (
+                  <SectionAction
+                    tooltip="Refresh"
+                    onClick={() => void refreshDatabasesAndObjects()}
+                  >
+                    <i class="fa-solid fa-rotate text-s" />
+                  </SectionAction>
+                )}
                 <SectionAction
-                  tooltip="Refresh"
-                  onClick={() => void refreshDatabasesAndObjects()}
+                  tooltip="Collapse all"
+                  onClick={() => collapseAllDatabases()}
                 >
-                  <i class="fa-solid fa-rotate text-s" />
+                  <i class="fa-solid fa-down-left-and-up-right-to-center text-s" />
                 </SectionAction>
-              )
+              </>
             }
           />
 
@@ -1711,7 +1766,7 @@ export default function ObjectExplorer(props: Props) {
                   onChange={(v) => updateFilter("root:databases", v)}
                 />
               </div>
-              <div class="flex-1 explorer-scroll">
+              <div class="flex-1 explorer-scroll" ref={databasesScrollRef}>
                 <Show
                   when={filteredDatabases().length > 0}
                   fallback={
@@ -1734,8 +1789,8 @@ export default function ObjectExplorer(props: Props) {
                           handleContextMenu(e, db, "", "", "DATABASE")
                         }
                         onRetry={() => void loadTables(db, true)}
-                        onRowRef={(el) => dbRowRefs.set(db, el)}
-                        onRowCleanup={() => dbRowRefs.delete(db)}
+                        onRowRef={(el) => dbNodeRefs.set(db, el)}
+                        onRowCleanup={() => dbNodeRefs.delete(db)}
                         filterValue={(folderId) => folderFilters[folderId] || ""}
                         onFilter={updateFilter}
                         onFolderContextMenu={(e, groupKey) =>

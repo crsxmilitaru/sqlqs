@@ -50,6 +50,7 @@ export default [
       "no-console": "off",
       "no-undef": "error",
       "no-empty": "off",
+      "no-unassigned-vars": "off",
       "solid/no-innerhtml": "off",
       "solid/reactivity": "off",
       "solid/components-return-once": "off",

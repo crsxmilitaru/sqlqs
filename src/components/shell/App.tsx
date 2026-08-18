@@ -411,7 +411,7 @@ export default function App() {
       const input = getTextEditableTarget(e.target);
 
       let selectionText = "";
-      let hasSelection = false;
+      let hasSelection: boolean;
       let selectionStart = 0;
       let selectionEnd = 0;
 
@@ -1304,14 +1304,13 @@ export default function App() {
           />
         ) : (
           <>
-            {isSidebarOpen() && (
+            {connected() && isSidebarOpen() && (
               <>
                 <div
                   style={{ width: `${explorerWidth()}px` }}
                   class="app-sidebar-surface flex-shrink-0 overflow-hidden relative z-10"
                 >
-                  {connected() && (
-                    <ObjectExplorer
+                  <ObjectExplorer
                     onRef={(handle) => (explorerRef = handle)}
                     databases={databases()}
                     onRefreshDatabases={refreshDatabases}
@@ -1342,8 +1341,7 @@ export default function App() {
                     onShowBackupRestore={(database) =>
                       setBackupRestoreDatabase(database)
                     }
-                    />
-                  )}
+                  />
                 </div>
                 <div
                   class="resizer resizer-h"

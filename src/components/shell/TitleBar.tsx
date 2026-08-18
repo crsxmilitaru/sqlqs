@@ -192,7 +192,7 @@ export default function TitleBar(props: Props) {
           class="flex items-center h-full px-3 gap-1.5 flex-shrink-0"
           style={{
             width:
-              props.sidebarVisible
+              props.sidebarVisible && props.connected
                 ? `${(props.sidebarWidth ?? 325) + 1}px`
                 : "auto",
           }}
@@ -244,18 +244,22 @@ export default function TitleBar(props: Props) {
               {props.onToggleSidebar && (
                 <Tooltip
                   content={
-                    (props.sidebarVisible ?? true)
-                      ? "Hide Sidebar"
-                      : "Show Sidebar"
+                    !props.connected
+                      ? "Sidebar • Connect to a server"
+                      : (props.sidebarVisible ?? true)
+                        ? "Hide Sidebar"
+                        : "Show Sidebar"
                   }
                   placement="bottom"
                 >
                   <button
                     onClick={props.onToggleSidebar}
-                    disabled={props.dialogOpen ?? false}
+                    disabled={(props.dialogOpen ?? false) || !props.connected}
                     class={`control-icon-btn titlebar-icon-btn ${
-                      (props.sidebarVisible ?? true) ? "" : "is-active"
-                      }`}
+                      props.connected && !(props.sidebarVisible ?? true)
+                        ? "is-active"
+                        : ""
+                    }`}
                   >
                     <i class="fa-solid fa-table-columns text-m" />
                   </button>

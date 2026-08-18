@@ -1622,7 +1622,7 @@ export default function QueryEditorPanel(props: Props) {
               style={
                 resultsPanelIsCompact()
                   ? undefined
-                  : { minHeight: `${MIN_RESULTS_TABLE_PANEL_HEIGHT}px` }
+                  : { "min-height": `${MIN_RESULTS_TABLE_PANEL_HEIGHT}px` }
               }
             >
               <div class="app-panel-header">
@@ -1680,7 +1680,7 @@ export default function QueryEditorPanel(props: Props) {
                   }
                   style={
                     isCompactResult() && !resultsMaximized()
-                      ? { minHeight: `${MIN_RESULTS_PANEL_HEIGHT}px` }
+                      ? { "min-height": `${MIN_RESULTS_PANEL_HEIGHT}px` }
                       : undefined
                   }
                 >

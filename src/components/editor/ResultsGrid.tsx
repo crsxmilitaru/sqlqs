@@ -561,13 +561,6 @@ function VirtualGrid(props: {
     const maxRowNumber = Math.max(processedRowCount(), 1);
     return Math.max(36, String(maxRowNumber).length * charWidth + 18);
   });
-  const tableWidth = createMemo(() => {
-    const dataColsWidth = visibleColIndices().reduce(
-      (sum, i) => sum + colWidths()[i],
-      0,
-    );
-    return rowNumberColWidth() + dataColsWidth + minColWidth;
-  });
 
   let dragRef: { colIndex: number; startX: number; startWidth: number } | null =
     null;
@@ -728,8 +721,6 @@ function VirtualGrid(props: {
     );
 
   const visibleRows = () => getProcessedRowsForRange(startIndex(), endIndex());
-  const bodyHeight = () => processedRowCount() * rowHeight;
-  const bodyOffset = () => startIndex() * rowHeight;
 
   let pendingScrollTop = 0;
   let scrollFrame: number | null = null;
