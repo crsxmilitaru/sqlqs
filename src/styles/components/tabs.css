@@ -25,7 +25,7 @@
     border-bottom-right-radius: 0;
     border: none;
     background-color: transparent;
-    line-height: 1;
+    line-height: 1.35;
     overflow: hidden;
     transition:
       background-color 0.16s ease,
@@ -50,8 +50,36 @@
     color: var(--color-text);
   }
 
+  .tab-title {
+    line-height: 1.4;
+    padding: 1px 0 3px;
+  }
+
   .tab.temporary .tab-title {
     font-style: italic;
+    padding-right: 2px;
+  }
+
+  .tab.renaming {
+    max-width: clamp(200px, 28vw, 320px);
+    overflow: visible;
+  }
+
+  .tab-rename-input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 1px 6px 2px;
+    font: inherit;
+    font-style: normal;
+    line-height: 1.4;
+    color: var(--color-text);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
   }
 
   .tab-animate-in {

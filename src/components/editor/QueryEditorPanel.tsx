@@ -436,6 +436,14 @@ export default function QueryEditorPanel(props: Props) {
       },
       { id: "sep-actions", separator: true },
       {
+        id: "rename",
+        label: "Rename",
+        icon: <i class="fa-solid fa-i-cursor" />,
+        onClick: () => {
+          if (tab) handleStartRename(tab);
+        },
+      },
+      {
         id: "duplicate",
         label: "Duplicate Tab",
         icon: <i class="fa-solid fa-clone" />,
@@ -1257,7 +1265,7 @@ export default function QueryEditorPanel(props: Props) {
                                       props.onTabChange(tab.id);
                                     }
                                   }}
-                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""}`}
+                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""} ${renamingTabId() === tab.id ? "renaming" : ""}`}
                                   onClick={() => {
                                     if (justDraggedRef) return;
                                     props.onTabChange(tab.id);
@@ -1298,7 +1306,7 @@ export default function QueryEditorPanel(props: Props) {
                                         onKeyDown={(e) =>
                                           handleRenameKeyDown(e, tab.id)
                                         }
-                                        class="bg-transparent border-none outline-none text-s w-full min-w-0"
+                                        class="tab-rename-input"
                                         onClick={(e) => e.stopPropagation()}
                                       />
                                     ) : (
