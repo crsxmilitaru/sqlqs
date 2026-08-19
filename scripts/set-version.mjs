@@ -47,8 +47,8 @@ const cargo = replaceRequired(
 const lock = replaceRequired(
   "src-tauri/Cargo.lock",
   readFileSync("src-tauri/Cargo.lock", "utf8"),
-  /name = "sqlqs"\nversion = ".*"/,
-  `name = "sqlqs"\nversion = "${version}"`,
+  /(name = "sqlqs"\r?\nversion = ")[^"]*(")/,
+  `$1${version}$2`,
 );
 
 writeJson("package.json", pkg);
