@@ -84,6 +84,7 @@ import {
   ThemeCard,
   ToggleSetting,
 } from "./SettingsComponents";
+import ReleaseChangelog from "./ReleaseChangelog";
 
 interface Props {
   onClose: () => void;
@@ -1554,6 +1555,14 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
+      id: "updates-changelog",
+      tab: "updates",
+      title: "Changelog",
+      keywords:
+        "changelog release notes history versions whats new github preview stable",
+      render: () => <ReleaseChangelog currentVersion={props.version} />,
+    },
+    {
       id: "shortcuts-reference",
       tab: "shortcuts",
       title: "Keyboard shortcuts",
@@ -1579,6 +1588,29 @@ export default function SettingsView(props: Props) {
               onClick={() => void invoke("open_devtools")}
             >
               Open DevTools
+            </button>
+          </div>
+        </SettingsSection>
+      ),
+    },
+    {
+      id: "devtools-reload",
+      tab: "developer",
+      title: "Refresh",
+      keywords: "developer refresh reload restart webview",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4">
+            <SettingTitle
+              title="Refresh"
+              description="Reload the webview without restarting the app process."
+            />
+            <button
+              type="button"
+              class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
+              onClick={() => void invoke("reload_webview")}
+            >
+              Refresh
             </button>
           </div>
         </SettingsSection>

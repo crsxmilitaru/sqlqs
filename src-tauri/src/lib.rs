@@ -94,23 +94,21 @@ struct UpdateMetadata {
     raw_json: serde_json::Value,
 }
 
-fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64, u64)> {
+fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64)> {
     let version = tag.strip_prefix('v').unwrap_or(tag);
     let (base, preview_suffix) = version.split_once("-preview")?;
     if !preview_suffix.is_empty() && !preview_suffix.starts_with('.') {
         return None;
     }
 
-    let (preview_build, preview_attempt) = if preview_suffix.is_empty() {
-        (0, 0)
+    let preview_build = if preview_suffix.is_empty() {
+        0
     } else {
-        let mut parts = preview_suffix.trim_start_matches('.').split('.');
-        let build = parts.next()?.parse().ok()?;
-        let attempt = parts.next().map_or(Some(0), |part| part.parse().ok())?;
-        if parts.next().is_some() {
+        let rest = preview_suffix.trim_start_matches('.');
+        if rest.is_empty() || rest.contains('.') {
             return None;
         }
-        (build, attempt)
+        rest.parse().ok()?
     };
 
     let mut parts = base.split('.');
@@ -120,7 +118,7 @@ fn parse_preview_tag(tag: &str) -> Option<(u64, u64, u64, u64, u64)> {
     if parts.next().is_some() {
         return None;
     }
-    Some((major, minor, patch, preview_build, preview_attempt))
+    Some((major, minor, patch, preview_build))
 }
 
 fn current_build_commit() -> Option<&'static str> {
@@ -2192,6 +2190,15 @@ fn open_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn reload_webview(window: tauri::WebviewWindow) -> Result<(), String> {
+    if !preview_build_enabled() {
+        return Ok(());
+    }
+
+    window.reload().map_err(|e| e.to_string())
+}
+
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 fn set_mica_theme(_window: tauri::WebviewWindow, _dark: bool) -> Result<(), String> {
@@ -2896,6 +2903,7 @@ pub fn run() {
             log_window,
             is_preview_build,
             open_devtools,
+            reload_webview,
             store_api_key,
             load_api_key,
             store_brave_search_key,

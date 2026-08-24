@@ -283,4 +283,110 @@
     color: var(--color-accent);
   }
 
+  .settings-changelog {
+    display: flex;
+    flex-direction: column;
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .settings-changelog-item {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .settings-changelog-item:last-child {
+    border-bottom: none;
+  }
+
+  .settings-changelog-item.current {
+    background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  }
+
+  .settings-changelog-item>summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .settings-changelog-item>summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .settings-changelog-item>summary:hover {
+    background: var(--color-surface-hover);
+  }
+
+  .settings-changelog-chevron {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--color-text-muted);
+    transition: transform var(--duration-fast) ease;
+  }
+
+  .settings-changelog-item[open] .settings-changelog-chevron {
+    transform: rotate(90deg);
+  }
+
+  .settings-changelog-version {
+    font-size: var(--text-m);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+  }
+
+  .settings-changelog-date {
+    margin-left: auto;
+    font-size: var(--text-s);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .settings-changelog-open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .settings-changelog-open:hover {
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  }
+
+  .settings-changelog-body {
+    padding: 0 12px 12px 32px;
+  }
+
+  .settings-changelog-body ul {
+    list-style: disc;
+    padding-left: 1.1rem;
+    font-size: var(--text-s);
+    line-height: 1.55;
+    color: var(--color-text-muted);
+  }
+
+  .settings-changelog-body li+li {
+    margin-top: 4px;
+  }
+
+  .settings-changelog-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 8px 0 4px;
+  }
 }

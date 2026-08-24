@@ -1,12 +1,14 @@
-import { Show, For } from "solid-js";
+import { Show, For, createSignal, createMemo } from "solid-js";
 import type { JSX } from "solid-js";
 import type { ThemeOption } from "../../lib/theme";
 import type { SavedConnection } from "../../lib/types";
 import {
   getAppShortcutCategories,
+  type ShortcutCategory,
   type ShortcutDefinition,
 } from "../../lib/shortcuts";
 import { Icon } from "../ui/Icons";
+import Input from "../ui/Input";
 
 export function SettingsSection(props: { children: JSX.Element }) {
   return <div class="settings-section">{props.children}</div>;
@@ -297,23 +299,83 @@ function ShortcutRow(props: { shortcut: ShortcutDefinition }) {
   );
 }
 
+function shortcutMatches(
+  category: ShortcutCategory,
+  shortcut: ShortcutDefinition,
+  tokens: string[],
+): boolean {
+  const haystack =
+    `${category.title} ${shortcut.label} ${shortcut.keys.join(" ")}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
 export function ShortcutsReference(props: { isPreviewBuild: boolean }) {
+  const [query, setQuery] = createSignal("");
   const categories = () => getAppShortcutCategories(props.isPreviewBuild);
+
+  const searchTokens = createMemo(() =>
+    query().toLowerCase().split(/\s+/).filter(Boolean),
+  );
+
+  const filteredCategories = createMemo(() => {
+    const tokens = searchTokens();
+    if (tokens.length === 0) return categories();
+
+    return categories()
+      .map((category) => ({
+        ...category,
+        shortcuts: category.shortcuts.filter((shortcut) =>
+          shortcutMatches(category, shortcut, tokens),
+        ),
+      }))
+      .filter((category) => category.shortcuts.length > 0);
+  });
 
   return (
     <div class="space-y-5">
-      <For each={categories()}>
-        {(category) => (
+      <div class="relative">
+        <Icon name="magnifying-glass" class="settings-search-icon" />
+        <Input
+          type="search"
+          name="shortcuts-search"
+          value={query()}
+          onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && query()) {
+              e.preventDefault();
+              setQuery("");
+            }
+          }}
+          placeholder="Search shortcuts…"
+          class="pl-8"
+          spellcheck={false}
+          autocomplete="off"
+          aria-label="Search shortcuts"
+        />
+      </div>
+      <Show
+        when={filteredCategories().length > 0}
+        fallback={
           <SettingsSection>
-            <h4 class="text-m font-medium text-text mb-3">{category.title}</h4>
-            <div class="space-y-2">
-              <For each={category.shortcuts}>
-                {(shortcut) => <ShortcutRow shortcut={shortcut} />}
-              </For>
-            </div>
+            <p class="text-m text-text-muted text-center py-4">
+              No shortcuts match your search.
+            </p>
           </SettingsSection>
-        )}
-      </For>
+        }
+      >
+        <For each={filteredCategories()}>
+          {(category) => (
+            <SettingsSection>
+              <h4 class="text-m font-medium text-text mb-3">{category.title}</h4>
+              <div class="space-y-2">
+                <For each={category.shortcuts}>
+                  {(shortcut) => <ShortcutRow shortcut={shortcut} />}
+                </For>
+              </div>
+            </SettingsSection>
+          )}
+        </For>
+      </Show>
     </div>
   );
 }
