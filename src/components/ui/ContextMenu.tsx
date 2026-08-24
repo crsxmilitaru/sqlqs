@@ -30,52 +30,126 @@ interface Props {
   onClose: () => void;
 }
 
+const VIEWPORT_PAD = 8;
+
+function viewportSize() {
+  return {
+    width: window.visualViewport?.width ?? window.innerWidth,
+    height: window.visualViewport?.height ?? window.innerHeight,
+  };
+}
+
+function clampToViewport(x: number, y: number, width: number, height: number) {
+  const { width: vw, height: vh } = viewportSize();
+  const maxX = Math.max(VIEWPORT_PAD, vw - width - VIEWPORT_PAD);
+  const maxY = Math.max(VIEWPORT_PAD, vh - height - VIEWPORT_PAD);
+  return {
+    x: Math.min(Math.max(VIEWPORT_PAD, x), maxX),
+    y: Math.min(Math.max(VIEWPORT_PAD, y), maxY),
+  };
+}
+
+function ContextSubmenu(props: {
+  items: ContextMenuItem[];
+  renderItem: (item: ContextMenuItem, isSubmenuItem: boolean) => JSX.Element;
+}) {
+  let submenuRef: HTMLDivElement | undefined;
+  const [style, setStyle] = createSignal<JSX.CSSProperties>({
+    top: "-8px",
+    left: "100%",
+    visibility: "hidden",
+  });
+
+  function fit() {
+    const el = submenuRef;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+
+    const { width: vw, height: vh } = viewportSize();
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    const parentRect = parent.getBoundingClientRect();
+    const spaceRight = vw - parentRect.right - VIEWPORT_PAD;
+    const spaceLeft = parentRect.left - VIEWPORT_PAD;
+    const openLeft = width > spaceRight && spaceLeft > spaceRight;
+
+    let top = -8;
+    if (parentRect.top + top + height > vh - VIEWPORT_PAD) {
+      top = vh - VIEWPORT_PAD - height - parentRect.top;
+    }
+    if (parentRect.top + top < VIEWPORT_PAD) {
+      top = VIEWPORT_PAD - parentRect.top;
+    }
+
+    setStyle({
+      top: `${top}px`,
+      left: openLeft ? "auto" : "100%",
+      right: openLeft ? "100%" : "auto",
+      "margin-left": openLeft ? "0" : "-4px",
+      "margin-right": openLeft ? "-4px" : "0",
+      visibility: "visible",
+    });
+  }
+
+  onMount(() => {
+    const frame = requestAnimationFrame(fit);
+    window.addEventListener("resize", fit);
+    onCleanup(() => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", fit);
+    });
+  });
+
+  return (
+    <div
+      ref={submenuRef}
+      class="popup-menu absolute rounded-lg animate-popover-in"
+      style={style()}
+    >
+      <For each={props.items}>
+        {(child) =>
+          child.separator ? (
+            <div class="my-1.5 h-px bg-border/50 mx-2" />
+          ) : (
+            props.renderItem(child, true)
+          )
+        }
+      </For>
+    </div>
+  );
+}
+
 export default function ContextMenu(props: Props) {
   let menuRef: HTMLDivElement | undefined;
   const [position, setPosition] = createSignal({ x: props.x, y: props.y });
+  const [placed, setPlaced] = createSignal(false);
   const [activeSubmenu, setActiveSubmenu] = createSignal<string | null>(null);
 
-  onMount(() => {
-    if (menuRef) {
-      const rect = menuRef.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let newX = props.x;
-      let newY = props.y;
-
-      if (props.x + rect.width > viewportWidth) {
-        newX = viewportWidth - rect.width - 8;
-      }
-      if (props.y + rect.height > viewportHeight) {
-        newY = viewportHeight - rect.height - 8;
-      }
-
-      setPosition({ x: Math.max(8, newX), y: Math.max(8, newY) });
-    }
-  });
+  function reposition() {
+    if (!menuRef) return;
+    setPosition(
+      clampToViewport(props.x, props.y, menuRef.offsetWidth, menuRef.offsetHeight),
+    );
+    setPlaced(true);
+  }
 
   createEffect(() => {
     const x = props.x;
     const y = props.y;
+    const frame = requestAnimationFrame(() => {
+      if (!menuRef) return;
+      setPosition(
+        clampToViewport(x, y, menuRef.offsetWidth, menuRef.offsetHeight),
+      );
+      setPlaced(true);
+    });
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
 
-    if (menuRef) {
-      const rect = menuRef.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let newX = x;
-      let newY = y;
-
-      if (x + rect.width > viewportWidth) {
-        newX = viewportWidth - rect.width - 8;
-      }
-      if (y + rect.height > viewportHeight) {
-        newY = viewportHeight - rect.height - 8;
-      }
-
-      setPosition({ x: Math.max(8, newX), y: Math.max(8, newY) });
-    }
+  createEffect(() => {
+    const handleResize = () => reposition();
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
   createEffect(() => {
@@ -164,8 +238,13 @@ export default function ContextMenu(props: Props) {
     <Portal>
       <div
         ref={menuRef}
-        class="popup-menu fixed rounded-lg animate-popover-in"
-        style={{ left: `${position().x}px`, top: `${position().y}px` }}
+        class="popup-menu fixed rounded-lg"
+        classList={{ "animate-popover-in": placed() }}
+        style={{
+          left: `${position().x}px`,
+          top: `${position().y}px`,
+          visibility: placed() ? "visible" : "hidden",
+        }}
       >
         <For each={props.items}>
           {(item) => {
@@ -178,11 +257,7 @@ export default function ContextMenu(props: Props) {
                 {renderItem(item)}
 
                 <Show when={item.children && activeSubmenu() === item.id}>
-                  <div class="popup-menu absolute left-full -top-2 -ml-1 rounded-lg animate-popover-in">
-                    <For each={item.children}>
-                      {(child) => renderItem(child, true)}
-                    </For>
-                  </div>
+                  <ContextSubmenu items={item.children!} renderItem={renderItem} />
                 </Show>
               </div>
             );

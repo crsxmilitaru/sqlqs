@@ -149,6 +149,29 @@ function pickPreferredModel(models: GeminiModelOption[]): GeminiModelOption | un
   return models.find((m) => /flash-lite/.test(m.id)) ?? models[0];
 }
 
+const FLASH_LITE_FALLBACK_MODEL = "gemini-3.5-flash-lite";
+const MAX_TAB_TITLE_SQL_CHARS = 2000;
+
+function sanitizeGeneratedTabTitle(text: string): string {
+  const cleaned = text
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.]+$/g, "");
+  if (!cleaned) return "";
+  if (cleaned.length > 80) return cleaned.slice(0, 77) + "...";
+  return cleaned;
+}
+
+async function resolveFlashLiteModelId(): Promise<string> {
+  let models = AiService.getCachedModels();
+  if (!models.some((model) => /flash-lite/.test(model.id))) {
+    models = await AiService.listAvailableModels();
+  }
+  return models.find((model) => /flash-lite/.test(model.id))?.id
+    ?? FLASH_LITE_FALLBACK_MODEL;
+}
+
 function usesThinkingLevel(modelId: string): boolean {
   return /^gemini-(?!2\.5-)\d/.test(modelId);
 }
@@ -219,7 +242,6 @@ interface ChatAttachmentBase {
 
 export interface ChatImageAttachment extends ChatAttachmentBase {
   kind: "image";
-  // Absent after a reload — only metadata is persisted in localStorage.
   dataUrl?: string;
 }
 
@@ -503,7 +525,6 @@ export const AiService = {
   },
 
   async getApiKey(): Promise<string | null> {
-    // Migrate from localStorage if present (pre-keyring versions)
     const legacy = localStorage.getItem("sqlqs_gemini_api_key");
     if (legacy) {
       await invoke("store_api_key", { key: legacy });
@@ -587,8 +608,43 @@ export const AiService = {
     throw new Error("No Gemini text models are available for this API key.");
   },
 
+  async generateTabTitle(sql: string): Promise<string> {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) return "";
+
+    const snippet = sql.trim().slice(0, MAX_TAB_TITLE_SQL_CHARS);
+    if (!snippet) return "";
+
+    try {
+      const { GoogleGenAI, ThinkingLevel } = await loadGenAI();
+      const genAI = new GoogleGenAI({ apiKey });
+      const modelId = await resolveFlashLiteModelId();
+      const thinkingConfig = usesThinkingLevel(modelId)
+        ? {
+          includeThoughts: false,
+          thinkingLevel: canUseMinimalThinking(modelId)
+            ? ThinkingLevel.MINIMAL
+            : ThinkingLevel.LOW,
+        }
+        : undefined;
+
+      const response = await genAI.models.generateContent({
+        model: modelId,
+        contents: `Name this SQL for an editor tab. Reply with only a short title of 3 to 8 words. No quotes, no punctuation, no explanation.\n\n\`\`\`sql\n${snippet}\n\`\`\``,
+        config: {
+          temperature: 0.2,
+          maxOutputTokens: 48,
+          thinkingConfig,
+        },
+      });
+
+      return sanitizeGeneratedTabTitle(response.text ?? "");
+    } catch {
+      return "";
+    }
+  },
+
   buildSystemPrompt(database?: string): string {
-    // Sanitize database name to prevent prompt injection via crafted DB names
     const dbName = database
       ? database.replace(/[\r\n]/g, "").slice(0, 128)
       : "unknown";

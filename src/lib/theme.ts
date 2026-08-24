@@ -11,6 +11,10 @@ import midnight from "../themes/midnight.json";
 import dracula from "../themes/dracula.json";
 import light from "../themes/light.json";
 import softLight from "../themes/soft-light.json";
+import {
+  TAB_GROUP_COLORS,
+  TAB_GROUP_COLOR_VARS,
+} from "./tab-groups";
 
 export type ThemeMode = "light" | "dark";
 
@@ -21,6 +25,7 @@ export interface ThemeOption {
   colors: {
     [key: string]: string;
   };
+  tabColors: string[];
 }
 
 export interface ThemeSelection {
@@ -96,6 +101,17 @@ export function registerCustomThemes(customThemes: ThemeOption[]) {
   for (const t of customThemes) {
     customThemesRegistry.set(t.id, t);
   }
+}
+
+export function resolveTabColors(
+  theme?: Pick<ThemeOption, "tabColors" | "mode"> | null,
+): string[] {
+  if (Array.isArray(theme?.tabColors) && theme.tabColors.length > 0) {
+    return [...theme.tabColors];
+  }
+  const fallback =
+    THEMES.find((item) => item.mode === (theme?.mode ?? "dark")) ?? THEMES[0];
+  return [...fallback.tabColors];
 }
 
 function resolveTheme(themeId: string): ThemeOption {
@@ -218,6 +234,20 @@ async function syncWindowTheme(windowTheme: WindowTheme) {
   void applyNativeWindowTheme(windowTheme);
 }
 
+function applyTabColors(theme: ThemeOption, root: HTMLElement) {
+  for (const color of TAB_GROUP_COLORS) {
+    root.style.removeProperty(TAB_GROUP_COLOR_VARS[color]);
+  }
+
+  const tabColors = resolveTabColors(theme);
+  TAB_GROUP_COLORS.forEach((color, index) => {
+    const value = tabColors[index];
+    if (value) {
+      root.style.setProperty(TAB_GROUP_COLOR_VARS[color], value);
+    }
+  });
+}
+
 export function applyTheme(themeId: string) {
   const theme = resolveTheme(themeId);
 
@@ -231,6 +261,8 @@ export function applyTheme(themeId: string) {
   for (const [key, value] of Object.entries(theme.colors)) {
     root.style.setProperty(key, value);
   }
+
+  applyTabColors(theme, root);
 
   const windowTheme = resolveWindowTheme(theme);
   root.dataset.themeMode = windowTheme;

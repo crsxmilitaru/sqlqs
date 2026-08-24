@@ -1,6 +1,7 @@
 import { createSignal, onMount, For } from "solid-js";
 import {
   EDITABLE_THEME_COLOR_FIELDS,
+  resolveTabColors,
   type ThemeMode,
   type ThemeOption,
 } from "../../lib/theme";
@@ -14,6 +15,7 @@ interface Props {
   onSave: (theme: ThemeOption) => void | Promise<void>;
   editTheme?: ThemeOption;
   activeThemeColors?: Record<string, string>;
+  activeThemeTabColors: string[];
   activeThemeMode?: ThemeMode;
 }
 
@@ -54,6 +56,7 @@ export default function ThemeDialog(props: Props) {
   const [name, setName] = createSignal("");
   const [mode, setMode] = createSignal<ThemeMode>("dark");
   const [colors, setColors] = createSignal<Record<string, string>>({});
+  const [tabColors, setTabColors] = createSignal<string[]>([]);
   const [error, setError] = createSignal("");
   const [visible, setVisible] = createSignal(false);
 
@@ -64,8 +67,15 @@ export default function ThemeDialog(props: Props) {
       setName(props.editTheme.name);
       setMode(props.editTheme.mode || "dark");
       setColors({ ...props.editTheme.colors });
+      setTabColors(resolveTabColors(props.editTheme));
     } else {
       setMode(props.activeThemeMode ?? "dark");
+      setTabColors(
+        resolveTabColors({
+          tabColors: props.activeThemeTabColors,
+          mode: props.activeThemeMode,
+        }),
+      );
       const initialColors: Record<string, string> = {};
       for (const field of EDITABLE_THEME_COLOR_FIELDS) {
         initialColors[field.key] = props.activeThemeColors?.[field.key] || "#000000";
@@ -91,6 +101,7 @@ export default function ThemeDialog(props: Props) {
       name: trimmedName,
       mode: mode(),
       colors: { ...colors() },
+      tabColors: [...tabColors()],
     };
 
     props.onSave(newTheme);

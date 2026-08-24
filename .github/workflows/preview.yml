@@ -41,14 +41,37 @@ jobs:
             exit 1
           fi
 
-          TAG_NAME="v$VERSION.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          PREV_TAG="$(
+          PREVIEW_TAGS="$(
             gh api --paginate "repos/$REPOSITORY/releases" \
-              --jq '.[] | select(.prerelease == true and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$"))) | .tag_name' \
-              | sort -V \
-              | tail -n 1 \
+              --jq '.[] | select(.prerelease == true) | .tag_name' \
               || true
           )"
+
+          NEXT_NUMBER=1
+          PREV_TAG=""
+          while IFS= read -r EXISTING_TAG; do
+            [ -z "$EXISTING_TAG" ] && continue
+            SUFFIX="${EXISTING_TAG#v${VERSION}.}"
+            if [[ "$SUFFIX" == "$EXISTING_TAG" ]] || [[ ! "$SUFFIX" =~ ^[0-9]+$ ]]; then
+              continue
+            fi
+            if [ "$SUFFIX" -ge "$NEXT_NUMBER" ]; then
+              NEXT_NUMBER=$((SUFFIX + 1))
+              PREV_TAG="$EXISTING_TAG"
+            fi
+          done <<< "$PREVIEW_TAGS"
+
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG="$(
+              printf '%s\n' "$PREVIEW_TAGS" \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-preview(\.[0-9]+){0,2}$' \
+                | sort -V \
+                | tail -n 1 \
+                || true
+            )"
+          fi
+
+          TAG_NAME="v$VERSION.$NEXT_NUMBER"
           if [ -n "$PREV_TAG" ]; then
             CHANGELOG="$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
           else
@@ -58,8 +81,8 @@ jobs:
             CHANGELOG="- Routine update"
           fi
 
-          git tag -f "$TAG_NAME" "$GITHUB_SHA"
-          git push origin "refs/tags/$TAG_NAME" --force
+          git tag "$TAG_NAME" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG_NAME"
 
           echo "release-version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release-tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
@@ -178,7 +201,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
+          releaseName: "SQL Query Studio ${{ env.RELEASE_TAG }}"
           releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
           prerelease: true
@@ -195,49 +218,9 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: "SQL Query Studio Preview ${{ env.RELEASE_VERSION }}"
+          releaseName: "SQL Query Studio ${{ env.RELEASE_TAG }}"
           releaseBody: "${{ steps.changelog.outputs.changelog }}"
           releaseDraft: false
           prerelease: true
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
           includeUpdaterJson: true
-
-  cleanup:
-    name: Remove old preview releases
-    needs:
-      - prepare
-      - preview
-    runs-on: ubuntu-latest
-    if: ${{ success() }}
-    steps:
-      - name: Delete superseded preview releases and tags
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
-          CURRENT_TAG: ${{ needs.prepare.outputs.release-tag }}
-        run: |
-          set -euo pipefail
-
-          while IFS=$'\t' read -r RELEASE_ID RELEASE_TAG; do
-            if [ -z "${RELEASE_ID:-}" ] || [ -z "${RELEASE_TAG:-}" ] || [ "$RELEASE_TAG" = "$CURRENT_TAG" ]; then
-              continue
-            fi
-            echo "Deleting superseded preview release $RELEASE_TAG"
-            gh api -X DELETE "repos/$REPOSITORY/releases/$RELEASE_ID"
-          done < <(
-            gh api --paginate "repos/$REPOSITORY/releases" \
-              --jq '.[] | select(.prerelease == true and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$"))) | [.id, .tag_name] | @tsv'
-          )
-
-          while read -r REF; do
-            if [ -z "${REF:-}" ] || [ "$REF" = "refs/tags/$CURRENT_TAG" ]; then
-              continue
-            fi
-            TAG_NAME="${REF#refs/tags/}"
-            echo "Deleting superseded preview tag $TAG_NAME"
-            gh api -X DELETE "repos/$REPOSITORY/git/$REF" || true
-          done < <(
-            gh api --paginate "repos/$REPOSITORY/git/matching-refs/tags/v" \
-              --jq '.[] | select(.ref | test("^refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+-preview(\\.[0-9]+){0,2}$")) | .ref'
-          )

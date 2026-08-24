@@ -189,6 +189,7 @@ function findRiskySchemaChanges(sql: string): RiskySchemaChange[] {
 export default function App() {
   const {
     tabs,
+    groups,
     activeTabId,
     setActiveTabId,
     addTab,
@@ -196,12 +197,21 @@ export default function App() {
     closeAllTabs,
     closeOtherTabs,
     updateTab,
-    reorderTabs,
+    moveTab,
     duplicateTab,
     togglePin,
     promoteTab,
     reopenClosedTab,
     canReopenClosedTab,
+    createGroup,
+    addTabsToGroup,
+    removeTabsFromGroup,
+    renameGroup,
+    setGroupColor,
+    toggleGroupCollapsed,
+    ungroupGroup,
+    closeGroup,
+    requestAutoTabTitle,
   } = useTabs();
 
   const {
@@ -471,9 +481,7 @@ export default function App() {
               input.setSelectionRange(nextCursor, nextCursor);
               input.dispatchEvent(new Event("input", { bubbles: true }));
               input.focus();
-            } catch {
-              // Ignore clipboard read errors
-            }
+            } catch { /* empty */ }
           }
         });
 
@@ -593,6 +601,9 @@ export default function App() {
       }
       updateTab(tabId, updates);
       addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
+      if (!tab.userTitle) {
+        requestAutoTabTitle(tabId, sqlToExecute);
+      }
       const changedDatabaseCatalog = changesDatabaseCatalog(sqlToExecute);
       const changedSchema = isLikelySchemaChangingSql(sqlToExecute);
       if (changedDatabaseCatalog) {
@@ -713,6 +724,7 @@ export default function App() {
     sourceId,
     preserveTitle,
     temporary,
+    switchDatabase = true,
   }: {
     sql: string;
     execute?: boolean;
@@ -721,14 +733,77 @@ export default function App() {
     sourceId?: string;
     preserveTitle?: boolean;
     temporary?: boolean;
-  }) {
-    if (database && database !== currentDatabase()) {
+    switchDatabase?: boolean;
+  }): string {
+    if (switchDatabase && database && database !== currentDatabase()) {
       void handleDatabaseChange(database);
     }
 
     const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
     if (execute) {
       setTimeout(() => handleExecute(tabId, sql), 0);
+    }
+    return tabId;
+  }
+
+  function handleTabAdd(sql?: string, title?: string, groupId?: string) {
+    return addTab(
+      sql ?? "",
+      title,
+      undefined,
+      undefined,
+      groupId ? { groupId } : undefined,
+    );
+  }
+
+  async function handleOpenQueryGroup(
+    items: {
+      sql?: string;
+      title?: string;
+      database?: string;
+      sourceId?: string;
+      savedQueryFilePath?: string;
+      schema?: string;
+      name?: string;
+    }[],
+    groupName?: string,
+  ) {
+    const tabIds: string[] = [];
+    let targetDatabase: string | undefined;
+    for (const item of items) {
+      let sql = item.sql ?? "";
+      if (item.savedQueryFilePath) {
+        const content = await loadQueryContent(item.savedQueryFilePath);
+        if (content) sql = content;
+      } else if (
+        !sql &&
+        item.database &&
+        item.schema &&
+        item.name
+      ) {
+        sql = `SELECT TOP 100 * FROM [${item.database}].[${item.schema}].[${item.name}]`;
+      }
+      if (!sql.trim()) continue;
+      if (targetDatabase === undefined && item.database) {
+        targetDatabase = item.database;
+      }
+      const tabId = handleOpenQueryTab({
+        sql,
+        title: item.title,
+        database: item.database,
+        sourceId: item.sourceId,
+        preserveTitle: Boolean(item.title),
+        temporary: false,
+        switchDatabase: false,
+      });
+      if (tabId) tabIds.push(tabId);
+    }
+    if (targetDatabase && targetDatabase !== currentDatabase()) {
+      await handleDatabaseChange(targetDatabase);
+    }
+    if (tabIds.length >= 2) {
+      createGroup(tabIds, groupName);
+      setActiveTabId(tabIds[0]);
     }
   }
 
@@ -1051,9 +1126,6 @@ export default function App() {
 
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // Fallback when the editor is unfocused. SqlEditor's F5 keymap runs first
-      // and preventDefault()s; this listener must stay in the bubble phase so
-      // defaultPrevented is visible and F5 is not executed twice.
       if (event.defaultPrevented) return;
 
       if (
@@ -1332,6 +1404,7 @@ export default function App() {
                     onDeleteSavedQuery={handleDeleteSavedQuery}
                     onRenameSavedQuery={handleRenameSavedQuery}
                     onLoadSavedQuery={handleLoadSavedQuery}
+                    onOpenGroup={handleOpenQueryGroup}
                     onSaveSavedQueryToFile={handleSaveSavedQueryToFile}
                     onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
                     onShowProperties={handleShowProperties}
@@ -1353,19 +1426,28 @@ export default function App() {
             <main class="flex-1 flex flex-col overflow-hidden relative transition-colors duration-[var(--duration-slow)]">
               <QueryEditorPanel
                 tabs={tabs()}
+                groups={groups()}
                 activeTabId={activeTabId()}
                 onTabChange={setActiveTabId}
-                onTabAdd={addTab}
+                onTabAdd={handleTabAdd}
                 onTabClose={closeTab}
                 onTabCloseOthers={closeOtherTabs}
                 onTabCloseAll={closeAllTabs}
                 onTabUpdate={updateTab}
-                onTabReorder={reorderTabs}
+                onTabMove={moveTab}
                 onTabDuplicate={duplicateTab}
                 onTabTogglePin={togglePin}
                 onTabPromote={promoteTab}
                 onTabReopen={reopenClosedTab}
                 canReopenClosedTab={canReopenClosedTab}
+                onTabCreateGroup={createGroup}
+                onTabAddToGroup={addTabsToGroup}
+                onTabRemoveFromGroup={removeTabsFromGroup}
+                onGroupRename={renameGroup}
+                onGroupSetColor={setGroupColor}
+                onGroupToggleCollapsed={toggleGroupCollapsed}
+                onGroupUngroup={ungroupGroup}
+                onGroupClose={closeGroup}
                 onOpenSqlFile={handleOpenSqlFile}
                 onExecute={handleExecute}
                 onCancelQuery={handleCancelQuery}

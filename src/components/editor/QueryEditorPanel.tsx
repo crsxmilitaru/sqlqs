@@ -14,6 +14,8 @@ import type {
   ExecutedQuery,
   QueryTab,
   QueryTabUpdateOptions,
+  TabGroup,
+  TabGroupColor,
 } from "../../lib/types";
 import type { ApplyMode, PendingChatMessage } from "../ai/AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
@@ -38,15 +40,14 @@ import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { AiService } from "../../lib/ai";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { loadPreferences } from "../../lib/settings";
-import { getModifierKeyLabel } from "../../lib/platform";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
+import EditorTabBar from "./EditorTabBar";
 
 const SqlEditor = lazy(() => import("./SqlEditor"));
 const loadAIChatPanel = () => import("../ai/AIChatPanel");
 const AIChatPanel = lazy(loadAIChatPanel);
 
-const DRAG_THRESHOLD = 5;
 const DEFAULT_EDITOR_HEIGHT = 300;
 const MIN_EDITOR_HEIGHT = 100;
 const MAX_EDITOR_HEIGHT = 800;
@@ -98,9 +99,10 @@ function shouldIgnoreTabShortcutTarget(target: EventTarget | null): boolean {
 
 interface Props {
   tabs: QueryTab[];
+  groups: TabGroup[];
   activeTabId: string;
   onTabChange: (id: string) => void;
-  onTabAdd: (sql?: string, title?: string) => string;
+  onTabAdd: (sql?: string, title?: string, groupId?: string) => string;
   onTabClose: (id: string) => void;
   onTabCloseOthers: (id: string) => void;
   onTabCloseAll: () => void;
@@ -109,12 +111,25 @@ interface Props {
     updates: Partial<QueryTab>,
     options?: QueryTabUpdateOptions,
   ) => void;
-  onTabReorder: (fromIndex: number, toIndex: number) => void;
+  onTabMove: (
+    fromIndex: number,
+    toIndex: number,
+    groupId?: string | null,
+    options?: { moveGroupId?: string },
+  ) => void;
   onTabDuplicate: (id: string) => string;
   onTabTogglePin: (id: string) => void;
   onTabPromote: (id: string) => void;
   onTabReopen: () => string;
   canReopenClosedTab: () => boolean;
+  onTabCreateGroup: (tabIds: string[], name?: string) => string;
+  onTabAddToGroup: (groupId: string, tabIds: string[]) => void;
+  onTabRemoveFromGroup: (tabIds: string[]) => void;
+  onGroupRename: (groupId: string, name: string) => void;
+  onGroupSetColor: (groupId: string, color: TabGroupColor) => void;
+  onGroupToggleCollapsed: (groupId: string) => void;
+  onGroupUngroup: (groupId: string) => void;
+  onGroupClose: (groupId: string) => void;
   onOpenSqlFile?: () => void;
   onExecute: (id: string, customSql?: string) => void;
   onCancelQuery?: (id: string) => void;
@@ -137,79 +152,24 @@ export default function QueryEditorPanel(props: Props) {
   const hasDatabaseSelected = () => Boolean(props.currentDatabase);
 
   const [confirmClose, setConfirmClose] = createSignal<{
-    type: "single" | "others" | "all";
+    type: "single" | "others" | "all" | "group" | "multiple";
     tabId?: string;
+    groupId?: string;
+    tabIds?: string[];
   } | null>(null);
 
-  const [renamingTabId, setRenamingTabId] = createSignal<string | null>(null);
-  const [renameValue, setRenameValue] = createSignal("");
-  const [tabContextMenu, setTabContextMenu] = createSignal<{
-    visible: boolean;
-    x: number;
-    y: number;
-    tabId: string;
-  } | null>(null);
-  const [tabBarContextMenu, setTabBarContextMenu] = createSignal<{
-    visible: boolean;
-    x: number;
-    y: number;
-  } | null>(null);
-  let renameInputRef: HTMLInputElement | undefined;
+  const [tabBarRenaming, setTabBarRenaming] = createSignal(false);
   let tabBarRef: HTMLDivElement | undefined;
   let savedTabBarScrollLeft = 0;
   let cleanupTabBarWheelListener: (() => void) | undefined;
-  let cleanupDragListeners: (() => void) | undefined;
   let cleanupEditorResizeListeners: (() => void) | undefined;
   let pendingEditorFocusFrame: number | undefined;
-
-  const [dragTabId, setDragTabId] = createSignal<string | null>(null);
-  const [dropIndex, setDropIndex] = createSignal<number | null>(null);
-  let dragRef: {
-    tabId: string;
-    fromIndex: number;
-    startX: number;
-    active: boolean;
-  } | null = null;
-  let justDraggedRef = false;
-
-  function handleStartRename(tab: QueryTab) {
-    setRenamingTabId(tab.id);
-    setRenameValue(tab.title);
-  }
-
-  function handleRename(tabId: string) {
-    if (renameValue().trim()) {
-      props.onTabUpdate(tabId, {
-        title: renameValue().trim(),
-        userTitle: true,
-      });
-    }
-    setRenamingTabId(null);
-    setRenameValue("");
-  }
-
-  function handleRenameKeyDown(e: KeyboardEvent, tabId: string) {
-    if (e.key === "Enter") {
-      handleRename(tabId);
-    } else if (e.key === "Escape") {
-      setRenamingTabId(null);
-      setRenameValue("");
-    }
-  }
-
-  createEffect(() => {
-    if (renamingTabId() && renameInputRef) {
-      renameInputRef.focus();
-      renameInputRef.select();
-    }
-  });
 
   onCleanup(() => {
     if (pendingEditorFocusFrame !== undefined) {
       cancelAnimationFrame(pendingEditorFocusFrame);
     }
     cleanupTabBarWheelListener?.();
-    cleanupDragListeners?.();
     cleanupEditorResizeListeners?.();
   });
 
@@ -253,27 +213,49 @@ export default function QueryEditorPanel(props: Props) {
     };
   }
 
-  function handleTabContextMenu(e: MouseEvent, tabId: string) {
-    e.preventDefault();
-    e.stopPropagation();
-    setTabBarContextMenu(null);
-    setTabContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-      tabId,
+  function handleTabRowDoubleClick(e: MouseEvent) {
+    if (
+      (e.target as Element).closest(
+        ".tab, .tab-group-header, .tab-group, button, input, .ui-divider",
+      )
+    ) {
+      return;
+    }
+    props.onTabAdd();
+    requestAnimationFrame(() => {
+      if (tabBarRef) {
+        tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+      }
     });
   }
 
-  function handleTabBarContextMenu(e: MouseEvent) {
-    e.preventDefault();
-    setTabContextMenu(null);
-    setTabBarContextMenu({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-    });
+  function requestCloseGroup(groupId: string) {
+    const members = props.tabs.filter((tab) => tab.groupId === groupId);
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = members.some((tab) => isTabDirty(tab));
+    if (!shouldConfirm || !hasDirty) {
+      props.onGroupClose(groupId);
+      return;
+    }
+    setConfirmClose({ type: "group", groupId });
   }
+
+  function requestCloseTabs(tabIds: string[]) {
+    const targets = props.tabs.filter((tab) => tabIds.includes(tab.id));
+    const shouldConfirm = loadPreferences().confirmCloseUnsaved;
+    const hasDirty = targets.some(
+      (tab) => !tab.temporary && isTabDirty(tab),
+    );
+    if (!shouldConfirm || !hasDirty) {
+      for (const tab of targets) {
+        props.onTabClose(tab.id);
+      }
+      return;
+    }
+    setConfirmClose({ type: "multiple", tabIds });
+  }
+
+  const pinnedCount = () => props.tabs.filter((t) => t.pinned).length;
 
   function requestSingleTabClose(tabId: string) {
     const tab = props.tabs.find((t) => t.id === tabId);
@@ -312,245 +294,6 @@ export default function QueryEditorPanel(props: Props) {
     }
     setConfirmClose({ type: "all" });
   }
-
-  function computeDropIndex(
-    clientX: number,
-    draggedTabId: string,
-  ): number | null {
-    if (!tabBarRef) return null;
-
-    const tabElements =
-      tabBarRef.querySelectorAll<HTMLElement>("[data-tab-index]");
-    const currentTabs = props.tabs;
-    const draggedTab = currentTabs.find((t) => t.id === draggedTabId);
-    if (!draggedTab) return null;
-
-    let result = currentTabs.length;
-    for (const el of tabElements) {
-      const idx = Number(el.dataset.tabIndex);
-      const targetTab = currentTabs[idx];
-      if (!targetTab) continue;
-
-      if (!!draggedTab.pinned !== !!targetTab.pinned) continue;
-
-      const rect = el.getBoundingClientRect();
-      const midpoint = rect.left + rect.width / 2;
-      if (clientX < midpoint) {
-        result = idx;
-        break;
-      }
-    }
-
-    return result;
-  }
-
-  function handleTabPointerDown(e: PointerEvent, tabId: string, index: number) {
-    if (e.button !== 0) return;
-    if ((e.target as Element).closest("button, input")) return;
-
-    dragRef = {
-      tabId,
-      fromIndex: index,
-      startX: e.clientX,
-      active: false,
-    };
-
-    const onPointerMove = (ev: PointerEvent) => {
-      const drag = dragRef;
-      if (!drag) return;
-
-      if (!drag.active) {
-        if (Math.abs(ev.clientX - drag.startX) < DRAG_THRESHOLD) return;
-        drag.active = true;
-        setDragTabId(drag.tabId);
-        document.body.style.cursor = "grabbing";
-      }
-
-      const newDropIndex = computeDropIndex(ev.clientX, drag.tabId);
-      setDropIndex(newDropIndex);
-    };
-
-    const onPointerUp = () => {
-      cleanupDragListeners?.();
-      document.body.style.cursor = "";
-
-      const drag = dragRef;
-      if (drag?.active) {
-        justDraggedRef = true;
-        requestAnimationFrame(() => {
-          justDraggedRef = false;
-        });
-
-        const currentDropIndex = dropIndex();
-        if (
-          currentDropIndex !== null &&
-          drag.fromIndex !== currentDropIndex &&
-          drag.fromIndex !== currentDropIndex - 1
-        ) {
-          const adjusted =
-            currentDropIndex > drag.fromIndex
-              ? currentDropIndex - 1
-              : currentDropIndex;
-          props.onTabReorder(drag.fromIndex, adjusted);
-        }
-        setDropIndex(null);
-      }
-
-      dragRef = null;
-      setDragTabId(null);
-    };
-
-    cleanupDragListeners?.();
-    document.addEventListener("pointermove", onPointerMove);
-    document.addEventListener("pointerup", onPointerUp);
-    cleanupDragListeners = () => {
-      document.removeEventListener("pointermove", onPointerMove);
-      document.removeEventListener("pointerup", onPointerUp);
-      document.body.style.cursor = "";
-      cleanupDragListeners = undefined;
-    };
-  }
-
-  const getTabContextMenuItems = (tabId: string): ContextMenuItem[] => {
-    const tab = props.tabs.find((t) => t.id === tabId);
-    const mod = getModifierKeyLabel();
-    const items: ContextMenuItem[] = [
-      {
-        id: "close",
-        label: "Close Tab",
-        icon: <i class="fa-solid fa-xmark" />,
-        shortcut: `${mod}+W`,
-        onClick: () => requestSingleTabClose(tabId),
-      },
-      {
-        id: "close-others",
-        label: "Close Others",
-        icon: <i class="fa-solid fa-rectangle-xmark" />,
-        onClick: () => requestCloseOthers(tabId),
-      },
-      {
-        id: "close-all",
-        label: "Close All",
-        icon: <i class="fa-solid fa-trash" />,
-        onClick: () => requestCloseAll(),
-      },
-      { id: "sep-actions", separator: true },
-      {
-        id: "rename",
-        label: "Rename",
-        icon: <i class="fa-solid fa-i-cursor" />,
-        onClick: () => {
-          if (tab) handleStartRename(tab);
-        },
-      },
-      {
-        id: "duplicate",
-        label: "Duplicate Tab",
-        icon: <i class="fa-solid fa-clone" />,
-        onClick: () => {
-          const newId = props.onTabDuplicate(tabId);
-          if (newId) {
-            requestAnimationFrame(() => {
-              if (tabBarRef) {
-                tabBarRef.scrollLeft = tabBarRef.scrollWidth;
-              }
-            });
-          }
-        },
-      },
-      {
-        id: "pin",
-        label: tab?.pinned ? "Unpin Tab" : "Pin Tab",
-        icon: (
-          <i
-            class="fa-solid fa-thumbtack"
-            style={tab?.pinned ? { opacity: 0.5 } : undefined}
-          />
-        ),
-        onClick: () => props.onTabTogglePin(tabId),
-      },
-    ];
-
-    if (props.onSave || props.onSaveToFile) {
-      items.push({ id: "sep-tab-1", separator: true });
-      const sqlEmpty = !tab?.sql.trim();
-      if (props.onSave) {
-        items.push({
-          id: "save-sql",
-          label: "Save SQL",
-          icon: <IconSave />,
-          disabled: sqlEmpty,
-          onClick: () => props.onSave!(tabId),
-        });
-      }
-      if (props.onSaveToFile) {
-        items.push({
-          id: "save-sql-file",
-          label: "Save SQL to file",
-          icon: <IconFloppy />,
-          disabled: sqlEmpty,
-          onClick: () => props.onSaveToFile!(tabId),
-        });
-      }
-    }
-
-    return items;
-  };
-
-  const getTabBarContextMenuItems = (): ContextMenuItem[] => {
-    const mod = getModifierKeyLabel();
-    const hasClosableTabs = props.tabs.some((t) => !t.pinned);
-
-    const items: ContextMenuItem[] = [
-      {
-        id: "new",
-        label: "New Query",
-        icon: <i class="fa-solid fa-plus" />,
-        shortcut: `${mod}+T`,
-        onClick: () => {
-          props.onTabAdd();
-          requestAnimationFrame(() => {
-            if (tabBarRef) {
-              tabBarRef.scrollLeft = tabBarRef.scrollWidth;
-            }
-          });
-        },
-      },
-      {
-        id: "reopen-closed",
-        label: "Reopen Closed Tab",
-        icon: <i class="fa-solid fa-rotate-left" />,
-        shortcut: `${mod}+Shift+T`,
-        disabled: !props.canReopenClosedTab(),
-        onClick: () => handleTabReopen(),
-      },
-    ];
-
-    if (props.onOpenSqlFile) {
-      items.push({
-        id: "open-file",
-        label: "Open File",
-        icon: <i class="fa-regular fa-folder" />,
-        shortcut: `${mod}+O`,
-        onClick: () => props.onOpenSqlFile!(),
-      });
-    }
-
-    if (props.tabs.length > 0) {
-      items.push({ id: "sep-close", separator: true });
-      items.push({
-        id: "close-all",
-        label: "Close All",
-        icon: <i class="fa-solid fa-trash" />,
-        disabled: !hasClosableTabs,
-        onClick: () => requestCloseAll(),
-      });
-    }
-
-    return items;
-  };
-
-  const pinnedCount = () => props.tabs.filter((t) => t.pinned).length;
 
   const [editorHeight, setEditorHeight] = createSignal(DEFAULT_EDITOR_HEIGHT);
   const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
@@ -694,7 +437,7 @@ export default function QueryEditorPanel(props: Props) {
         props.dialogOpen ||
         !hasDatabaseSelected() ||
         !activeTab() ||
-        renamingTabId();
+        tabBarRenaming();
       if (shouldSkipFocus) return;
       editorRef?.focus();
     });
@@ -1121,72 +864,82 @@ export default function QueryEditorPanel(props: Props) {
       if (e.defaultPrevented || shouldIgnoreTabShortcutTarget(e.target)) return;
 
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-      if (isCtrlOrMeta && !e.altKey) {
-        if (!e.shiftKey) {
-          if (e.key.toLowerCase() === "t") {
-            e.preventDefault();
-            props.onTabAdd();
-            requestAnimationFrame(() => {
-              if (tabBarRef) {
-                tabBarRef.scrollLeft = tabBarRef.scrollWidth;
-              }
-            });
-            return;
-          }
-          if (e.key.toLowerCase() === "w") {
-            e.preventDefault();
-            if (props.activeTabId) {
-              requestSingleTabClose(props.activeTabId);
-            }
-            return;
-          }
-          if (e.key >= "1" && e.key <= "9") {
-            const index = parseInt(e.key, 10) - 1;
-            if (index < props.tabs.length) {
-              e.preventDefault();
-              props.onTabChange(props.tabs[index].id);
-            }
-            return;
-          }
-        }
+      if (!isCtrlOrMeta || e.altKey) return;
 
-        if (e.shiftKey && e.key.toLowerCase() === "t") {
-          e.preventDefault();
-          if (props.canReopenClosedTab()) {
-            handleTabReopen();
-          }
-          return;
-        }
+      const collapsedIds = new Set(
+        props.groups
+          .filter((group) => group.collapsed)
+          .map((group) => group.id),
+      );
+      const visible = props.tabs.filter(
+        (tab) => !tab.groupId || !collapsedIds.has(tab.groupId),
+      );
 
-        if (e.key === "PageDown") {
+      if (!e.shiftKey) {
+        if (e.key.toLowerCase() === "t") {
           e.preventDefault();
-          const currentTabs = props.tabs;
-          const activeId = props.activeTabId;
-          const index = currentTabs.findIndex((t) => t.id === activeId);
-          if (index !== -1 && currentTabs.length > 1) {
-            const nextIndex = (index + 1) % currentTabs.length;
-            props.onTabChange(currentTabs[nextIndex].id);
+          props.onTabAdd();
+          requestAnimationFrame(() => {
+            if (tabBarRef) {
+              tabBarRef.scrollLeft = tabBarRef.scrollWidth;
+            }
+          });
+          return;
+        }
+        if (e.key.toLowerCase() === "w") {
+          e.preventDefault();
+          if (props.activeTabId) {
+            requestSingleTabClose(props.activeTabId);
           }
           return;
         }
-        if (e.key === "PageUp") {
-          e.preventDefault();
-          const currentTabs = props.tabs;
-          const activeId = props.activeTabId;
-          const index = currentTabs.findIndex((t) => t.id === activeId);
-          if (index !== -1 && currentTabs.length > 1) {
-            const prevIndex = (index - 1 + currentTabs.length) % currentTabs.length;
-            props.onTabChange(currentTabs[prevIndex].id);
+        if (e.key >= "1" && e.key <= "9") {
+          const index = parseInt(e.key, 10) - 1;
+          if (index < visible.length) {
+            e.preventDefault();
+            props.onTabChange(visible[index].id);
           }
           return;
+        }
+      }
+
+      if (e.shiftKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (props.canReopenClosedTab()) {
+          handleTabReopen();
+        }
+        return;
+      }
+
+      if (e.key === "PageDown") {
+        e.preventDefault();
+        if (visible.length === 0) return;
+        const index = visible.findIndex((tab) => tab.id === props.activeTabId);
+        const nextIndex = index === -1 ? 0 : (index + 1) % visible.length;
+        const nextId = visible[nextIndex].id;
+        if (nextId !== props.activeTabId) {
+          props.onTabChange(nextId);
+        }
+        return;
+      }
+
+      if (e.key === "PageUp") {
+        e.preventDefault();
+        if (visible.length === 0) return;
+        const index = visible.findIndex((tab) => tab.id === props.activeTabId);
+        const nextIndex =
+          index === -1
+            ? visible.length - 1
+            : (index - 1 + visible.length) % visible.length;
+        const nextId = visible[nextIndex].id;
+        if (nextId !== props.activeTabId) {
+          props.onTabChange(nextId);
         }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
-    onCleanup(() => {
-      window.removeEventListener("keydown", onKeyDown);
-    });
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   return (
@@ -1212,148 +965,48 @@ export default function QueryEditorPanel(props: Props) {
             >
               <div
                 class="flex items-stretch justify-between flex-shrink-0 min-w-0 bg-transparent h-9"
-                onContextMenu={handleTabBarContextMenu}
+                onDblClick={handleTabRowDoubleClick}
               >
                 <div class="flex items-stretch min-w-0 flex-shrink overflow-hidden h-full">
                   {props.tabs.length > 0 && (
                     <>
-                      <div
-                        ref={setTabBarRef}
-                        on:mousedown={(e: MouseEvent) => {
-                          if (e.button === 1) e.preventDefault();
-                        }}
-                        role="tablist"
-                        class="flex overflow-x-auto overflow-y-hidden tab-bar min-w-0 h-full"
-                      >
-                        <For each={props.tabs}>
-                          {(tab, index) => {
-                            const isActive = () => tab.id === props.activeTabId;
-                            const isDragging = () => tab.id === dragTabId();
-                            const isModified = () => tab.sql !== tab.savedSql;
-                            const showDropBefore = () =>
-                              dropIndex() === index();
-                            const showDropAfter = () =>
-                              dropIndex() === index() + 1 &&
-                              index() === props.tabs.length - 1;
-                            const showPinDivider = () =>
-                              tab.pinned &&
-                              index() === pinnedCount() - 1 &&
-                              pinnedCount() < props.tabs.length;
-
-                            return (
-                              <div class="flex items-center flex-shrink-0">
-                                {showDropBefore() && (
-                                  <div class="tab-drop-indicator" />
-                                )}
-                                <div
-                                  data-tab-index={index()}
-                                  onPointerDown={(e) =>
-                                    handleTabPointerDown(e, tab.id, index())
-                                  }
-                                  role="tab"
-                                  tabIndex={0}
-                                  aria-selected={isActive()}
-                                  onKeyDown={(e) => {
-                                    if (
-                                      (e.target as Element).closest(
-                                        "input, button",
-                                      )
-                                    )
-                                      return;
-                                    if (e.key === "Enter" || e.key === " ") {
-                                      e.preventDefault();
-                                      props.onTabChange(tab.id);
-                                    }
-                                  }}
-                  class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""} ${renamingTabId() === tab.id ? "renaming" : ""}`}
-                                  onClick={() => {
-                                    if (justDraggedRef) return;
-                                    props.onTabChange(tab.id);
-                                  }}
-                                  onDblClick={() => {
-                                    if (tab.temporary) {
-                                      props.onTabPromote(tab.id);
-                                      return;
-                                    }
-                                    handleStartRename(tab);
-                                  }}
-                                  on:mousedown={(e: MouseEvent) => {
-                                    if (e.button === 1) {
-                                      e.preventDefault();
-                                      requestSingleTabClose(tab.id);
-                                    }
-                                  }}
-                                  onContextMenu={(e) =>
-                                    handleTabContextMenu(e, tab.id)
-                                  }
-                                >
-                                  {tab.pinned && (
-                                    <i class="fa-solid fa-thumbtack text-[9px] text-text-muted pin-icon" />
-                                  )}
-                                  <div class="flex-1 min-w-0 mr-2">
-                                    {renamingTabId() === tab.id ? (
-                                      <input
-                                        ref={renameInputRef}
-                                        type="text"
-                                        name="tab-title"
-                                        autocomplete="off"
-                                        aria-label="Rename tab"
-                                        value={renameValue()}
-                                        onInput={(e) =>
-                                          setRenameValue(e.currentTarget.value)
-                                        }
-                                        onBlur={() => handleRename(tab.id)}
-                                        onKeyDown={(e) =>
-                                          handleRenameKeyDown(e, tab.id)
-                                        }
-                                        class="tab-rename-input"
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                    ) : (
-                                      <span
-                                        class="tab-title truncate block"
-                                        data-text={tab.title}
-                                      >
-                                        {tab.title}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div class="flex items-center justify-center w-5 h-5 flex-shrink-0 relative">
-                                    {tab.isExecuting && (
-                                      <span class="animate-pulse text-warning text-s absolute">
-                                        &#9679;
-                                      </span>
-                                    )}
-                                    {isModified() && !tab.isExecuting && (
-                                      <span
-                                        class="modified-dot absolute"
-                                        title="Unsaved changes"
-                                      />
-                                    )}
-                                    <button
-                                      type="button"
-                                      aria-label={`Close ${tab.title}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        requestSingleTabClose(tab.id);
-                                      }}
-                                      class={`tab-close-btn relative flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive() ? "active" : ""}`}
-                                    >
-                                      <i class="fa-solid fa-xmark text-s" />
-                                    </button>
-                                  </div>
-                                </div>
-                                {showDropAfter() && (
-                                  <div class="tab-drop-indicator" />
-                                )}
-                                {showPinDivider() && (
-                                  <div class="pin-divider" />
-                                )}
-                              </div>
-                            );
-                          }}
-                        </For>
-                      </div>
+                      <EditorTabBar
+                        tabs={props.tabs}
+                        groups={props.groups}
+                        activeTabId={props.activeTabId}
+                        pinnedCount={pinnedCount()}
+                        onTabChange={props.onTabChange}
+                        onTabClose={props.onTabClose}
+                        onTabCloseOthers={props.onTabCloseOthers}
+                        onTabCloseAll={props.onTabCloseAll}
+                        onTabUpdate={props.onTabUpdate}
+                        onTabMove={props.onTabMove}
+                        onTabDuplicate={props.onTabDuplicate}
+                        onTabTogglePin={props.onTabTogglePin}
+                        onTabPromote={props.onTabPromote}
+                        onTabReopen={props.onTabReopen}
+                        canReopenClosedTab={props.canReopenClosedTab}
+                        onTabAdd={props.onTabAdd}
+                        onOpenSqlFile={props.onOpenSqlFile}
+                        onTabCreateGroup={props.onTabCreateGroup}
+                        onTabAddToGroup={props.onTabAddToGroup}
+                        onTabRemoveFromGroup={props.onTabRemoveFromGroup}
+                        onGroupRename={props.onGroupRename}
+                        onGroupSetColor={props.onGroupSetColor}
+                        onGroupToggleCollapsed={props.onGroupToggleCollapsed}
+                        onGroupUngroup={props.onGroupUngroup}
+                        onGroupClose={props.onGroupClose}
+                        onSave={props.onSave}
+                        onSaveToFile={props.onSaveToFile}
+                        requestSingleTabClose={requestSingleTabClose}
+                        requestCloseOthers={requestCloseOthers}
+                        requestCloseAll={requestCloseAll}
+                        requestCloseGroup={requestCloseGroup}
+                        requestCloseTabs={requestCloseTabs}
+                        isTabDirty={isTabDirty}
+                        setTabBarRef={setTabBarRef}
+                        onRenamingChange={setTabBarRenaming}
+                      />
                       <div class="ui-divider mx-1.5 self-center" />
                     </>
                   )}
@@ -1848,24 +1501,6 @@ export default function QueryEditorPanel(props: Props) {
         />
       )}
 
-      {tabContextMenu()?.visible && (
-        <ContextMenu
-          items={getTabContextMenuItems(tabContextMenu()!.tabId)}
-          x={tabContextMenu()!.x}
-          y={tabContextMenu()!.y}
-          onClose={() => setTabContextMenu(null)}
-        />
-      )}
-
-      {tabBarContextMenu()?.visible && (
-        <ContextMenu
-          items={getTabBarContextMenuItems()}
-          x={tabBarContextMenu()!.x}
-          y={tabBarContextMenu()!.y}
-          onClose={() => setTabBarContextMenu(null)}
-        />
-      )}
-
       {confirmClose() && (
         <ConfirmDialog
           title={
@@ -1873,14 +1508,22 @@ export default function QueryEditorPanel(props: Props) {
               ? "Close Tab"
               : confirmClose()!.type === "others"
                 ? "Close Other Tabs"
-                : "Close All Tabs"
+                : confirmClose()!.type === "group"
+                  ? "Close Group"
+                  : confirmClose()!.type === "multiple"
+                    ? "Close Tabs"
+                    : "Close All Tabs"
           }
           message={
             confirmClose()!.type === "single"
               ? "Are you sure you want to close this tab? Any unsaved changes will be lost."
               : confirmClose()!.type === "others"
                 ? "Are you sure you want to close all other tabs? Any unsaved changes will be lost."
-                : "Are you sure you want to close all tabs? Any unsaved changes will be lost."
+                : confirmClose()!.type === "group"
+                  ? "Are you sure you want to close this group? Any unsaved changes will be lost."
+                  : confirmClose()!.type === "multiple"
+                    ? "Are you sure you want to close the selected tabs? Any unsaved changes will be lost."
+                    : "Are you sure you want to close all tabs? Any unsaved changes will be lost."
           }
           confirmLabel={
             confirmClose()!.type === "single" ? "Close" : "Close All"
@@ -1894,6 +1537,12 @@ export default function QueryEditorPanel(props: Props) {
               props.onTabCloseOthers(cc.tabId);
             } else if (cc.type === "all") {
               props.onTabCloseAll();
+            } else if (cc.type === "group" && cc.groupId) {
+              props.onGroupClose(cc.groupId);
+            } else if (cc.type === "multiple" && cc.tabIds) {
+              for (const tabId of cc.tabIds) {
+                props.onTabClose(tabId);
+              }
             }
             setConfirmClose(null);
           }}

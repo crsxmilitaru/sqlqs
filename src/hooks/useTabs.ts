@@ -3,25 +3,34 @@ import { createStore, produce, unwrap } from "solid-js/store";
 import {
   loadPreferences,
   loadSavedTabs,
+  loadTabGroups,
   saveTabs,
+  saveTabGroups,
   type SavedTab,
 } from "../lib/settings";
-import { generateTabTitle } from "../lib/sql";
+import { generateTabTitle, resolveAutoTabTitle } from "../lib/sql";
+import { defaultGroupName, nextGroupColor } from "../lib/tab-groups";
+import { toast } from "../components/ui/Toaster";
 import type {
   ClosedTab,
   QueryTab,
   QueryTabHistoryEntry,
   QueryTabHistoryEntryType,
   QueryTabUpdateOptions,
+  TabGroup,
+  TabGroupColor,
 } from "../lib/types";
 
 let tabCounter = 1;
+let groupCounter = 1;
 const MAX_CLOSED_TABS = 20;
 const MAX_TAB_HISTORY_ITEMS = 25;
 const MAX_TAB_HISTORY_SQL_CHARS = 120_000;
 const MAX_TAB_HISTORY_TOTAL_CHARS = 600_000;
 const MAX_PERSISTED_TAB_HISTORY_TOTAL_CHARS = 1_000_000;
 const TAB_HISTORY_IDLE_DELAY_MS = 3_000;
+const AI_TITLE_DEBOUNCE_MS = 1_000;
+let didNotifyTabGroupPersistError = false;
 
 class QueryResultSnapshot {
   readonly __sqlqsQueryResultSnapshot = true;
@@ -155,7 +164,11 @@ function trimPersistedTabsHistory(tabs: SavedTab[]): SavedTab[] {
   });
 }
 
-function createClosedTabSnapshot(tab: QueryTab, index: number): ClosedTab {
+function createClosedTabSnapshot(
+  tab: QueryTab,
+  index: number,
+  group?: TabGroup,
+): ClosedTab {
   return {
     title: tab.title,
     sql: tab.sql,
@@ -165,8 +178,124 @@ function createClosedTabSnapshot(tab: QueryTab, index: number): ClosedTab {
     sourceId: tab.sourceId,
     pinned: tab.pinned,
     temporary: tab.temporary,
+    groupId: tab.groupId,
+    group: group ? { ...group } : undefined,
     index,
   };
+}
+
+function createGroupId() {
+  return `group-${groupCounter++}`;
+}
+
+function normalizeTabOrder(
+  tabs: QueryTab[],
+  groups: TabGroup[],
+): { tabs: QueryTab[]; groups: TabGroup[] } {
+  for (const tab of tabs) {
+    if (tab.pinned) {
+      tab.groupId = undefined;
+    }
+  }
+
+  const activeGroupIds = new Set<string>();
+  for (const tab of tabs) {
+    if (tab.groupId && !tab.pinned) {
+      activeGroupIds.add(tab.groupId);
+    }
+  }
+
+  const nextGroups = groups.filter((group) => activeGroupIds.has(group.id));
+  const originalIndex = new Map(tabs.map((tab, index) => [tab.id, index]));
+
+  const pinned = tabs.filter((tab) => tab.pinned);
+  const unpinned = tabs.filter((tab) => !tab.pinned);
+
+  const groupOrder: string[] = [];
+  const groupMembers = new Map<string, QueryTab[]>();
+  const ungrouped: QueryTab[] = [];
+
+  for (const tab of unpinned) {
+    if (tab.groupId && activeGroupIds.has(tab.groupId)) {
+      if (!groupMembers.has(tab.groupId)) {
+        groupOrder.push(tab.groupId);
+        groupMembers.set(tab.groupId, []);
+      }
+      groupMembers.get(tab.groupId)!.push(tab);
+    } else {
+      tab.groupId = undefined;
+      ungrouped.push(tab);
+    }
+  }
+
+  type Segment =
+    | { kind: "group"; groupId: string; position: number }
+    | { kind: "tab"; tab: QueryTab; position: number };
+
+  const segments: Segment[] = [];
+
+  for (const groupId of groupOrder) {
+    const members = groupMembers.get(groupId) ?? [];
+    if (members.length === 0) continue;
+    const position = Math.min(
+      ...members.map((member) => originalIndex.get(member.id) ?? 0),
+    );
+    segments.push({ kind: "group", groupId, position });
+  }
+
+  for (const tab of ungrouped) {
+    segments.push({
+      kind: "tab",
+      tab,
+      position: originalIndex.get(tab.id) ?? 0,
+    });
+  }
+
+  segments.sort((a, b) => a.position - b.position);
+
+  const nextTabs: QueryTab[] = [...pinned];
+  for (const segment of segments) {
+    if (segment.kind === "group") {
+      nextTabs.push(...(groupMembers.get(segment.groupId) ?? []));
+      continue;
+    }
+    nextTabs.push(segment.tab);
+  }
+
+  return { tabs: nextTabs, groups: nextGroups };
+}
+
+function commitNormalized(
+  setTabsStore: (tabs: QueryTab[]) => void,
+  setGroupsStore: (groups: TabGroup[]) => void,
+  tabs: QueryTab[],
+  groups: TabGroup[],
+) {
+  const normalized = normalizeTabOrder(
+    tabs.map((tab) => ({ ...tab })),
+    [...groups],
+  );
+  setTabsStore(normalized.tabs);
+  setGroupsStore(normalized.groups);
+}
+
+function collapsedGroupIds(groups: TabGroup[]): Set<string> {
+  return new Set(
+    groups.filter((group) => group.collapsed).map((group) => group.id),
+  );
+}
+
+function isTabVisible(tab: QueryTab, collapsedIds: Set<string>): boolean {
+  return !tab.groupId || !collapsedIds.has(tab.groupId);
+}
+
+function firstVisibleTabId(tabs: QueryTab[], groups: TabGroup[]): string {
+  const collapsedIds = collapsedGroupIds(groups);
+  return (
+    tabs.find((tab) => isTabVisible(tab, collapsedIds))?.id ??
+    tabs[0]?.id ??
+    ""
+  );
 }
 
 function createTab(
@@ -186,20 +315,39 @@ function createTab(
 }
 
 export function useTabs() {
+  const initialGroups: TabGroup[] = (() => {
+    const prefs = loadPreferences();
+    if (!prefs.persistTabs) return [];
+    try {
+      return loadTabGroups();
+    } catch {
+      return [];
+    }
+  })();
+
   const initialTabs: QueryTab[] = (() => {
     const prefs = loadPreferences();
     if (!prefs.persistTabs) return [];
     try {
       const saved = loadSavedTabs();
-      return saved.map((s) => {
+      const tabs = saved.map((s) => {
         const tab = createTab(s.sql);
         tab.title = s.title;
         tab.userTitle = s.userTitle;
         tab.sourceId = s.sourceId;
         tab.pinned = s.pinned;
+        tab.groupId = s.groupId;
         tab.history = trimHistory(s.history);
         return tab;
       });
+      const normalized = normalizeTabOrder(tabs, initialGroups);
+      for (const group of normalized.groups) {
+        const match = /^group-(\d+)$/.exec(group.id);
+        if (match) {
+          groupCounter = Math.max(groupCounter, Number(match[1]) + 1);
+        }
+      }
+      return normalized.tabs;
     } catch {
       return [];
     }
@@ -208,16 +356,71 @@ export function useTabs() {
   const [tabsStore, setTabsStore] = createStore<QueryTab[]>(initialTabs);
   const tabs = () => tabsStore;
 
-  const [activeTabId, setActiveTabId] = createSignal(tabsStore[0]?.id ?? "");
+  const [groupsStore, setGroupsStore] = createStore<TabGroup[]>(
+    initialGroups.length > 0
+      ? normalizeTabOrder(initialTabs, initialGroups).groups
+      : [],
+  );
+  const groups = () => groupsStore;
+  const getTabGroup = (tab: QueryTab) =>
+    tab.groupId
+      ? unwrap(groupsStore).find((group) => group.id === tab.groupId)
+      : undefined;
+
+  const [activeTabId, setActiveTabId] = createSignal(
+    firstVisibleTabId(tabsStore, groupsStore),
+  );
+  const autoTitleRequests = new Map<
+    string,
+    { generation: number; sql: string }
+  >();
+
+  const requestAutoTabTitle = (tabId: string, sql: string) => {
+    const normalized = normalizeSql(sql).trim();
+    if (!normalized || loadPreferences().tabAutoNaming !== "ai") return;
+
+    const existing = autoTitleRequests.get(tabId);
+    if (existing?.sql === normalized) return;
+
+    const generation = (existing?.generation ?? 0) + 1;
+    autoTitleRequests.set(tabId, { generation, sql: normalized });
+
+    void resolveAutoTabTitle(normalized).then((aiTitle) => {
+      const pending = autoTitleRequests.get(tabId);
+      if (
+        !pending ||
+        pending.generation !== generation ||
+        pending.sql !== normalized
+      ) {
+        return;
+      }
+      if (!aiTitle) return;
+      setTabsStore(
+        produce((draft) => {
+          const current = draft.find((item) => item.id === tabId);
+          if (!current || current.userTitle) return;
+          if (normalizeSql(current.sql).trim() !== normalized) return;
+          current.title = aiTitle;
+        }),
+      );
+    });
+  };
+
   const [closedTabsStack, setClosedTabsStack] = createSignal<ClosedTab[]>([]);
   const historyTimers = new Map<string, number>();
+  const titleTimers = new Map<string, number>();
 
-  function pushClosedTabs(tabsToClose: { tab: QueryTab; index: number }[]) {
+  function pushClosedTabs(
+    tabsToClose: { tab: QueryTab; index: number; group?: TabGroup }[],
+  ) {
     if (tabsToClose.length === 0) return;
     setClosedTabsStack((prev) => {
-      const next = [...prev, ...tabsToClose.map(({ tab, index }) =>
-        createClosedTabSnapshot(tab, index),
-      )];
+      const next = [
+        ...prev,
+        ...tabsToClose.map(({ tab, index, group }) =>
+          createClosedTabSnapshot(tab, index, group),
+        ),
+      ];
       return next.length > MAX_CLOSED_TABS
         ? next.slice(next.length - MAX_CLOSED_TABS)
         : next;
@@ -231,16 +434,30 @@ export function useTabs() {
     historyTimers.delete(tabId);
   }
 
+  function clearTitleTimer(tabId: string) {
+    const timer = titleTimers.get(tabId);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    titleTimers.delete(tabId);
+  }
+
   function clearHistoryTimers(tabIds?: string[]) {
     if (!tabIds) {
       for (const timer of historyTimers.values()) {
         window.clearTimeout(timer);
       }
       historyTimers.clear();
+      for (const timer of titleTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      titleTimers.clear();
       return;
     }
 
-    tabIds.forEach(clearHistoryTimer);
+    tabIds.forEach((id) => {
+      clearHistoryTimer(id);
+      clearTitleTimer(id);
+    });
   }
 
   function scheduleHistorySnapshot(tabId: string) {
@@ -264,6 +481,18 @@ export function useTabs() {
     historyTimers.set(tabId, timer);
   }
 
+  function scheduleAutoTabTitle(tabId: string) {
+    if (loadPreferences().tabAutoNaming !== "ai") return;
+    clearTitleTimer(tabId);
+    const timer = window.setTimeout(() => {
+      titleTimers.delete(tabId);
+      const tab = unwrap(tabsStore).find((item) => item.id === tabId);
+      if (!tab || tab.userTitle) return;
+      requestAutoTabTitle(tabId, tab.sql);
+    }, AI_TITLE_DEBOUNCE_MS);
+    titleTimers.set(tabId, timer);
+  }
+
   onCleanup(() => clearHistoryTimers());
 
   createEffect(() => {
@@ -273,6 +502,7 @@ export function useTabs() {
       userTitle: t.userTitle,
       sourceId: t.sourceId,
       pinned: t.pinned,
+      groupId: t.groupId,
       temporary: t.temporary,
       history: trimHistory(t.history),
     }));
@@ -287,9 +517,26 @@ export function useTabs() {
         userTitle: t.userTitle,
         sourceId: t.sourceId,
         pinned: t.pinned,
+        groupId: t.groupId,
       }));
 
     saveTabs(trimPersistedTabsHistory(persistedTabs));
+    const groupsSaved = saveTabGroups(
+      groupsStore.map((group) => ({
+        id: group.id,
+        name: group.name,
+        color: group.color,
+        collapsed: group.collapsed || undefined,
+      })),
+    );
+    if (!groupsSaved && !didNotifyTabGroupPersistError) {
+      didNotifyTabGroupPersistError = true;
+      toast.error(
+        "Failed to save tab groups. They will not persist after restart.",
+      );
+    } else if (groupsSaved) {
+      didNotifyTabGroupPersistError = false;
+    }
   });
 
   const addTab = (
@@ -297,13 +544,16 @@ export function useTabs() {
     title?: string,
     sourceId?: string,
     userTitle?: boolean,
-    options?: { temporary?: boolean },
+    options?: { temporary?: boolean; groupId?: string },
   ) => {
     const current = unwrap(tabsStore);
 
     if (sourceId) {
       const existing = current.find((t) => t.sourceId === sourceId);
       if (existing) {
+        if (options?.temporary === false && existing.temporary) {
+          promoteTab(existing.id);
+        }
         setActiveTabId(existing.id);
         return existing.id;
       }
@@ -313,6 +563,10 @@ export function useTabs() {
     const temporary = options?.temporary ?? isTemporarySource(sourceId);
     const previewTab = temporary ? current.find((t) => t.temporary) : undefined;
     const tab = createTab(normalizedSql, temporary, previewTab?.id);
+    const targetGroupId = options?.groupId;
+    if (targetGroupId && groupsStore.some((group) => group.id === targetGroupId)) {
+      tab.groupId = targetGroupId;
+    }
 
     if (previewTab) {
       clearHistoryTimer(previewTab.id);
@@ -338,6 +592,17 @@ export function useTabs() {
     setTabsStore(
       produce((draft) => {
         if (!previewTab) {
+          if (tab.groupId) {
+            const lastMemberIndex = draft.reduce(
+              (acc, currentTab, index) =>
+                currentTab.groupId === tab.groupId ? index : acc,
+              -1,
+            );
+            if (lastMemberIndex >= 0) {
+              draft.splice(lastMemberIndex + 1, 0, tab);
+              return;
+            }
+          }
           draft.push(tab);
           return;
         }
@@ -349,18 +614,29 @@ export function useTabs() {
         }
       }),
     );
+    if (tab.groupId) {
+      commitNormalized(setTabsStore, setGroupsStore, unwrap(tabsStore), [
+        ...unwrap(groupsStore),
+      ]);
+    }
     setActiveTabId(tab.id);
+    if (!trimmedTitle && normalizedSql && !tab.userTitle) {
+      requestAutoTabTitle(tab.id, normalizedSql);
+    }
     return tab.id;
   };
 
   const closeTab = (tabId: string) => {
     clearHistoryTimer(tabId);
+    clearTitleTimer(tabId);
     const current = unwrap(tabsStore);
     const index = current.findIndex((t) => t.id === tabId);
     if (index === -1) return;
-    pushClosedTabs([{ tab: current[index], index }]);
+    const closedTab = current[index];
+    pushClosedTabs([{ tab: closedTab, index, group: getTabGroup(closedTab) }]);
     const next = current.filter((t) => t.id !== tabId);
-    setTabsStore(next);
+    const nextGroups = unwrap(groupsStore);
+    commitNormalized(setTabsStore, setGroupsStore, next, nextGroups);
     if (next.length === 0) {
       setActiveTabId("");
     } else if (activeTabId() === tabId) {
@@ -373,12 +649,13 @@ export function useTabs() {
     const current = unwrap(tabsStore);
     pushClosedTabs(
       current
-        .map((tab, index) => ({ tab, index }))
+        .map((tab, index) => ({ tab, index, group: getTabGroup(tab) }))
         .filter(({ tab }) => !tab.pinned),
     );
     const pinned = current.filter((t) => t.pinned);
     clearHistoryTimers(current.filter((t) => !t.pinned).map((t) => t.id));
-    setTabsStore(pinned);
+    const nextGroups = pinned.length > 0 ? unwrap(groupsStore) : [];
+    commitNormalized(setTabsStore, setGroupsStore, pinned, nextGroups);
     if (pinned.length > 0) {
       setActiveTabId(pinned[0].id);
     } else {
@@ -390,13 +667,14 @@ export function useTabs() {
     const current = unwrap(tabsStore);
     pushClosedTabs(
       current
-        .map((tab, index) => ({ tab, index }))
+        .map((tab, index) => ({ tab, index, group: getTabGroup(tab) }))
         .filter(({ tab }) => tab.id !== tabId && !tab.pinned),
     );
     clearHistoryTimers(
       current.filter((t) => t.id !== tabId && !t.pinned).map((t) => t.id),
     );
-    setTabsStore(current.filter((t) => t.id === tabId || t.pinned));
+    const next = current.filter((t) => t.id === tabId || t.pinned);
+    commitNormalized(setTabsStore, setGroupsStore, next, unwrap(groupsStore));
     setActiveTabId(tabId);
   };
 
@@ -419,6 +697,16 @@ export function useTabs() {
     tab.userTitle = closed.userTitle;
     tab.sourceId = closed.sourceId;
     tab.pinned = closed.pinned;
+    tab.groupId = closed.groupId;
+    const currentGroups = unwrap(groupsStore);
+    const restoredGroup = closed.group;
+    let nextGroups = currentGroups;
+    if (
+      restoredGroup &&
+      !currentGroups.some((group) => group.id === restoredGroup.id)
+    ) {
+      nextGroups = [...currentGroups, { ...restoredGroup }];
+    }
 
     setTabsStore(
       produce((draft) => {
@@ -440,6 +728,7 @@ export function useTabs() {
         draft.splice(insertIndex, 0, tab);
       }),
     );
+    commitNormalized(setTabsStore, setGroupsStore, unwrap(tabsStore), nextGroups);
     setActiveTabId(tab.id);
     return tab.id;
   };
@@ -514,6 +803,10 @@ export function useTabs() {
           if (wasTemporary && tab.sql !== originalSql) {
             tab.temporary = undefined;
           }
+          if (didChangeSql && !tab.userTitle) {
+            const generatedTitle = generateTabTitle(tab.sql);
+            if (generatedTitle) tab.title = generatedTitle;
+          }
         }
 
         if (typeof updates.savedSql === "string") {
@@ -524,6 +817,9 @@ export function useTabs() {
 
     if (didChangeSql && historyMode === "idle") {
       scheduleHistorySnapshot(tabId);
+    }
+    if (didChangeSql) {
+      scheduleAutoTabTitle(tabId);
     }
   };
 
@@ -539,12 +835,47 @@ export function useTabs() {
   };
 
   const reorderTabs = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    const current = unwrap(tabsStore);
-    const next = [...current];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    setTabsStore(next);
+    moveTab(fromIndex, toIndex);
+  };
+
+  const moveTab = (
+    fromIndex: number,
+    toIndex: number,
+    groupId?: string | null,
+    options?: { moveGroupId?: string },
+  ) => {
+    if (fromIndex === toIndex && groupId === undefined && !options?.moveGroupId) {
+      return;
+    }
+
+    let current = [...unwrap(tabsStore)];
+    const currentGroups = [...unwrap(groupsStore)];
+
+    if (options?.moveGroupId) {
+      const moving = current.filter((tab) => tab.groupId === options.moveGroupId);
+      current = current.filter((tab) => tab.groupId !== options.moveGroupId);
+      const adjustedTo =
+        toIndex > fromIndex ? toIndex - moving.length : toIndex;
+      current.splice(Math.max(0, adjustedTo), 0, ...moving);
+      commitNormalized(setTabsStore, setGroupsStore, current, currentGroups);
+      return;
+    }
+
+    if (fromIndex < 0 || fromIndex >= current.length) return;
+    const [moved] = current.splice(fromIndex, 1);
+    if (!moved) return;
+
+    if (groupId !== undefined && !moved.pinned) {
+      moved.groupId = groupId || undefined;
+    }
+
+    let insertAt = toIndex;
+    if (fromIndex < toIndex) {
+      insertAt = toIndex - 1;
+    }
+    insertAt = Math.max(0, Math.min(insertAt, current.length));
+    current.splice(insertAt, 0, moved);
+    commitNormalized(setTabsStore, setGroupsStore, current, currentGroups);
   };
 
   const duplicateTab = (tabId: string) => {
@@ -575,17 +906,197 @@ export function useTabs() {
       ...tab,
       pinned: newPinned || undefined,
       temporary: undefined,
+      groupId: undefined,
     };
     const lastPinnedIndex = next.reduce(
       (acc, t, i) => (t.pinned ? i : acc),
       -1,
     );
     next.splice(lastPinnedIndex + 1, 0, updatedTab);
-    setTabsStore(next);
+    commitNormalized(setTabsStore, setGroupsStore, next, unwrap(groupsStore));
+  };
+
+  const createGroup = (
+    tabIds: string[],
+    name?: string,
+    color?: TabGroupColor,
+  ) => {
+    const current = unwrap(tabsStore);
+    const currentGroups = unwrap(groupsStore);
+    const validIds = tabIds.filter((id) => {
+      const tab = current.find((item) => item.id === id);
+      return tab && !tab.pinned;
+    });
+    if (validIds.length === 0) return "";
+
+    const groupId = createGroupId();
+    const groupColor =
+      color ?? nextGroupColor(currentGroups.map((group) => group.color));
+    const groupName =
+      name?.trim() || defaultGroupName(currentGroups.length + 1);
+
+    const nextTabs = current.map((tab) =>
+      validIds.includes(tab.id) ? { ...tab, groupId } : tab,
+    );
+    const nextGroups = [
+      ...currentGroups,
+      { id: groupId, name: groupName, color: groupColor },
+    ];
+    commitNormalized(setTabsStore, setGroupsStore, nextTabs, nextGroups);
+    return groupId;
+  };
+
+  const addTabsToGroup = (groupId: string, tabIds: string[]) => {
+    const current = unwrap(tabsStore);
+    if (!groupsStore.some((group) => group.id === groupId)) return;
+    const nextTabs = current.map((tab) => {
+      if (tabIds.includes(tab.id) && !tab.pinned) {
+        return { ...tab, groupId };
+      }
+      return tab;
+    });
+    commitNormalized(setTabsStore, setGroupsStore, nextTabs, [
+      ...unwrap(groupsStore),
+    ]);
+  };
+
+  const removeTabsFromGroup = (tabIds: string[]) => {
+    const current = unwrap(tabsStore);
+    const nextTabs = current.map((tab) =>
+      tabIds.includes(tab.id) ? { ...tab, groupId: undefined } : tab,
+    );
+    commitNormalized(setTabsStore, setGroupsStore, nextTabs, [
+      ...unwrap(groupsStore),
+    ]);
+  };
+
+  const renameGroup = (groupId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setGroupsStore(
+      produce((draft) => {
+        const group = draft.find((item) => item.id === groupId);
+        if (group) group.name = trimmed;
+      }),
+    );
+  };
+
+  const setGroupColor = (groupId: string, color: TabGroupColor) => {
+    setGroupsStore(
+      produce((draft) => {
+        const group = draft.find((item) => item.id === groupId);
+        if (group) group.color = color;
+      }),
+    );
+  };
+
+  const toggleGroupCollapsed = (groupId: string) => {
+    const current = unwrap(tabsStore);
+    const group = groupsStore.find((item) => item.id === groupId);
+    if (!group) return;
+
+    const willCollapse = !group.collapsed;
+    const memberIds = new Set(
+      current.filter((tab) => tab.groupId === groupId).map((tab) => tab.id),
+    );
+
+    if (willCollapse) {
+      if (memberIds.has(activeTabId())) {
+        const collapsedIds = collapsedGroupIds(unwrap(groupsStore));
+        const activeIndex = current.findIndex(
+          (tab) => tab.id === activeTabId(),
+        );
+        let fallbackId = "";
+        for (let index = activeIndex - 1; index >= 0; index -= 1) {
+          if (
+            !memberIds.has(current[index].id) &&
+            isTabVisible(current[index], collapsedIds)
+          ) {
+            fallbackId = current[index].id;
+            break;
+          }
+        }
+        if (!fallbackId) {
+          for (let index = activeIndex + 1; index < current.length; index += 1) {
+            if (
+              !memberIds.has(current[index].id) &&
+              isTabVisible(current[index], collapsedIds)
+            ) {
+              fallbackId = current[index].id;
+              break;
+            }
+          }
+        }
+        if (fallbackId) {
+          setActiveTabId(fallbackId);
+        }
+      }
+    } else {
+      const active = current.find((tab) => tab.id === activeTabId());
+      if (active?.groupId && active.groupId !== groupId) {
+        const firstMember = current.find((tab) => tab.groupId === groupId);
+        if (firstMember) setActiveTabId(firstMember.id);
+      }
+    }
+
+    setGroupsStore(
+      produce((draft) => {
+        if (willCollapse) {
+          const item = draft.find((entry) => entry.id === groupId);
+          if (item) item.collapsed = true;
+          return;
+        }
+        for (const item of draft) {
+          item.collapsed = item.id !== groupId;
+        }
+      }),
+    );
+  };
+
+  const ungroupGroup = (groupId: string) => {
+    const current = unwrap(tabsStore);
+    const nextTabs = current.map((tab) =>
+      tab.groupId === groupId ? { ...tab, groupId: undefined } : tab,
+    );
+    const nextGroups = unwrap(groupsStore).filter(
+      (group) => group.id !== groupId,
+    );
+    commitNormalized(setTabsStore, setGroupsStore, nextTabs, nextGroups);
+  };
+
+  const closeGroup = (groupId: string) => {
+    const current = unwrap(tabsStore);
+    const members = current.filter((tab) => tab.groupId === groupId);
+    if (members.length === 0) return;
+    const group = unwrap(groupsStore).find((item) => item.id === groupId);
+    pushClosedTabs(
+      members.map((tab) => ({ tab, index: current.indexOf(tab), group })),
+    );
+    clearHistoryTimers(members.map((tab) => tab.id));
+    const nextTabs = current.filter((tab) => tab.groupId !== groupId);
+    const nextGroups = unwrap(groupsStore).filter(
+      (group) => group.id !== groupId,
+    );
+    if (members.some((tab) => tab.id === activeTabId())) {
+      const remaining = nextTabs;
+      if (remaining.length === 0) {
+        setActiveTabId("");
+      } else {
+        const closedIndex = current.findIndex(
+          (tab) => tab.id === activeTabId(),
+        );
+        const fallback =
+          remaining[Math.min(closedIndex, remaining.length - 1)] ??
+          remaining[remaining.length - 1];
+        setActiveTabId(fallback.id);
+      }
+    }
+    commitNormalized(setTabsStore, setGroupsStore, nextTabs, nextGroups);
   };
 
   return {
     tabs,
+    groups,
     activeTabId,
     setActiveTabId,
     addTab,
@@ -594,10 +1105,20 @@ export function useTabs() {
     closeOtherTabs,
     updateTab,
     reorderTabs,
+    moveTab,
     duplicateTab,
     togglePin,
     promoteTab,
     reopenClosedTab,
     canReopenClosedTab,
+    createGroup,
+    addTabsToGroup,
+    removeTabsFromGroup,
+    renameGroup,
+    setGroupColor,
+    toggleGroupCollapsed,
+    ungroupGroup,
+    closeGroup,
+    requestAutoTabTitle,
   };
 }

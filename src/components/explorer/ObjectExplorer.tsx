@@ -62,6 +62,18 @@ interface Props {
   onDeleteSavedQuery?: (id: string) => void;
   onRenameSavedQuery?: (id: string, title: string) => Promise<boolean> | boolean;
   onLoadSavedQuery?: (filePath: string, title: string) => void;
+  onOpenGroup?: (
+    items: {
+      sql?: string;
+      title?: string;
+      database?: string;
+      sourceId?: string;
+      savedQueryFilePath?: string;
+      schema?: string;
+      name?: string;
+    }[],
+    groupName?: string,
+  ) => void | Promise<void>;
   onSaveSavedQueryToFile?: (filePath: string, title: string) => void;
   onOpenSavedQueriesFolder?: () => void;
   onShowProperties?: (
@@ -665,13 +677,16 @@ function ObjectRow(props: {
   iconName: string;
   canDblClick: boolean;
   isMenuActive: boolean;
+  isSelected?: boolean;
+  onClick?: (e: MouseEvent) => void;
   onDblClick?: () => void;
   onContextMenu: (e: MouseEvent) => void;
 }) {
   return (
     <div
-      class={`tree-node ${props.isMenuActive ? "is-active" : ""}`}
+      class={`tree-node ${props.isMenuActive ? "is-active" : ""} ${props.isSelected ? "is-selected" : ""}`}
       style={{ "--depth": "2" }}
+      onClick={props.onClick}
       onDblClick={props.canDblClick ? props.onDblClick : undefined}
       onContextMenu={props.onContextMenu}
     >
@@ -693,6 +708,12 @@ function ObjectGroupFolder(props: {
   onFilter: (value: string) => void;
   onFolderContextMenu: (e: MouseEvent) => void;
   onObjectContextMenu: (e: MouseEvent, object: DatabaseObject) => void;
+  onObjectClick?: (
+    e: MouseEvent,
+    object: DatabaseObject,
+    objectType: ObjectGroup["objectType"],
+  ) => void;
+  isObjectSelected?: (object: DatabaseObject) => boolean;
   onTableDblClick: (schema: string, name: string) => void;
 }) {
   const folderId = `${props.database}:${props.group.key}`;
@@ -746,6 +767,10 @@ function ObjectGroupFolder(props: {
               isMenuActive={props.isMenuActive(
                 `obj:${props.database}:${object.schema_name}:${object.name}`,
               )}
+              isSelected={props.isObjectSelected?.(object)}
+              onClick={(e) =>
+                props.onObjectClick?.(e, object, props.group.objectType)
+              }
               onDblClick={() =>
                 props.onTableDblClick(object.schema_name, object.name)
               }
@@ -780,6 +805,12 @@ function DatabaseNode(props: {
     object: DatabaseObject,
     objectType: ObjectGroup["objectType"],
   ) => void;
+  onObjectClick?: (
+    e: MouseEvent,
+    object: DatabaseObject,
+    objectType: ObjectGroup["objectType"],
+  ) => void;
+  isObjectSelected?: (database: string, object: DatabaseObject) => boolean;
   onTableDblClick: (schema: string, name: string) => void;
   onFolderToggle: (folderId: string) => void;
 }) {
@@ -878,6 +909,10 @@ function DatabaseNode(props: {
                 }
                 onObjectContextMenu={(e, object) =>
                   props.onObjectContextMenu(e, object, group.objectType)
+                }
+                onObjectClick={props.onObjectClick}
+                isObjectSelected={(object) =>
+                  props.isObjectSelected?.(props.db, object) ?? false
                 }
                 onTableDblClick={props.onTableDblClick}
               />
@@ -1010,6 +1045,151 @@ export default function ObjectExplorer(props: Props) {
     }
   });
   const isMenuActive = createSelector(menuKey);
+
+  type ExplorerSelectionEntry = {
+    key: string;
+    sql?: string;
+    title?: string;
+    database?: string;
+    sourceId?: string;
+    savedQueryFilePath?: string;
+    schema?: string;
+    name?: string;
+  };
+
+  const [explorerSelection, setExplorerSelection] = createStore<
+    Record<string, ExplorerSelectionEntry>
+  >({});
+  const [selectionAnchorKey, setSelectionAnchorKey] = createSignal<string | null>(
+    null,
+  );
+
+  const explorerSelectionCount = () => Object.keys(explorerSelection).length;
+
+  function isExplorerSelected(key: string) {
+    return key in explorerSelection;
+  }
+
+  function clearExplorerSelection() {
+    setExplorerSelection(reconcile({}));
+    setSelectionAnchorKey(null);
+  }
+
+  function toggleExplorerSelection(entry: ExplorerSelectionEntry) {
+    setExplorerSelection(
+      produce((draft) => {
+        if (draft[entry.key]) {
+          delete draft[entry.key];
+        } else {
+          draft[entry.key] = entry;
+        }
+      }),
+    );
+    setSelectionAnchorKey(entry.key);
+  }
+
+  function setExplorerRangeSelection(
+    entries: ExplorerSelectionEntry[],
+    anchorKey: string | null,
+    targetKey: string,
+  ) {
+    const anchorIndex = anchorKey
+      ? entries.findIndex((entry) => entry.key === anchorKey)
+      : -1;
+    const targetIndex = entries.findIndex((entry) => entry.key === targetKey);
+    if (anchorIndex === -1 || targetIndex === -1) {
+      toggleExplorerSelection(
+        entries.find((entry) => entry.key === targetKey) ?? {
+          key: targetKey,
+        },
+      );
+      return;
+    }
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    const next: Record<string, ExplorerSelectionEntry> = {};
+    for (let index = start; index <= end; index += 1) {
+      next[entries[index].key] = entries[index];
+    }
+    setExplorerSelection(reconcile(next));
+    setSelectionAnchorKey(targetKey);
+  }
+
+  function handleExplorerSelectableClick(
+    e: MouseEvent,
+    entry: ExplorerSelectionEntry,
+    entries: ExplorerSelectionEntry[],
+    defaultAction: () => void,
+  ) {
+    const isCtrl = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+    if (isCtrl) {
+      e.preventDefault();
+      toggleExplorerSelection(entry);
+      return;
+    }
+    if (isShift) {
+      e.preventDefault();
+      setExplorerRangeSelection(entries, selectionAnchorKey(), entry.key);
+      return;
+    }
+    clearExplorerSelection();
+    defaultAction();
+  }
+
+  function buildOpenGroupMenuItem(): ContextMenuItem | null {
+    const count = explorerSelectionCount();
+    if (count < 2 || !props.onOpenGroup) return null;
+    return {
+      id: "open-as-group",
+      label: `Open ${count} as Group`,
+      icon: <i class="fa-solid fa-object-group" />,
+      onClick: () => {
+        void props.onOpenGroup?.(
+          Object.values(explorerSelection),
+          `Group (${count})`,
+        );
+        clearExplorerSelection();
+      },
+    };
+  }
+
+  function isObjectSelected(database: string, object: DatabaseObject) {
+    return isExplorerSelected(
+      `obj:${database}:${object.schema_name}:${object.name}`,
+    );
+  }
+
+  function handleObjectClick(
+    e: MouseEvent,
+    database: string,
+    object: DatabaseObject,
+    objectType: ObjectGroup["objectType"],
+  ) {
+    if (objectType !== "TABLE" && objectType !== "VIEW") return;
+    const entries = groupsForDatabase(tableCache[database]).flatMap((group) => {
+      if (group.objectType !== "TABLE" && group.objectType !== "VIEW") {
+        return [];
+      }
+      return group.items.map((item) => ({
+        key: `obj:${database}:${item.schema_name}:${item.name}`,
+        title: `${item.schema_name}.${item.name}`,
+        database,
+        schema: item.schema_name,
+        name: item.name,
+        sourceId: `object:${database}:${item.schema_name}:${item.name}:${group.objectType}`,
+      }));
+    });
+    const entry: ExplorerSelectionEntry = {
+      key: `obj:${database}:${object.schema_name}:${object.name}`,
+      title: `${object.schema_name}.${object.name}`,
+      database,
+      schema: object.schema_name,
+      name: object.name,
+      sourceId: `object:${database}:${object.schema_name}:${object.name}:${objectType}`,
+    };
+    handleExplorerSelectableClick(e, entry, entries, () => {});
+  }
 
   function updateFilter(folderId: string, value: string) {
     setFolderFilters(folderId, value);
@@ -1531,9 +1711,12 @@ export default function ObjectExplorer(props: Props) {
     const ctx = contextMenu();
     if (!ctx) return [];
 
+    const openGroupItem = buildOpenGroupMenuItem();
+    const prependGroup = (items: ContextMenuItem[]) =>
+      openGroupItem ? [openGroupItem, { id: "sep-open-group", separator: true }, ...items] : items;
+
     const { database, schema, table, objectType } = ctx;
 
-    // Wrap onSelect so every context-menu action switches to the correct database
     const select = (sql: string, execute?: boolean) =>
       props.onSelect(sql, execute, undefined, database);
 
@@ -1560,7 +1743,7 @@ export default function ObjectExplorer(props: Props) {
       const queryId = ctx.sql || "";
       const filePath = ctx.savedQueryFilePath || "";
       const title = table;
-      return [
+      return prependGroup([
         {
           id: "open-saved",
           label: "Open",
@@ -1594,13 +1777,13 @@ export default function ObjectExplorer(props: Props) {
               onConfirm: () => props.onDeleteSavedQuery?.(queryId),
             }),
         },
-      ];
+      ]);
     }
 
     if (objectType === "HISTORY") {
       const sqlValue = ctx.sql || "";
       const dbName = database;
-      return [
+      return prependGroup([
         {
           id: "use-query",
           label: "Open Query",
@@ -1633,7 +1816,7 @@ export default function ObjectExplorer(props: Props) {
               onConfirm: () => props.onDeleteHistory(sqlValue),
             }),
         },
-      ];
+      ]);
     }
 
     if (objectType === "DATABASE") {
@@ -1677,7 +1860,8 @@ export default function ObjectExplorer(props: Props) {
       ];
     }
 
-    return buildObjectExplorerMenuItems({
+    return prependGroup(
+      buildObjectExplorerMenuItems({
       database,
       schema,
       table,
@@ -1711,7 +1895,8 @@ export default function ObjectExplorer(props: Props) {
           table,
           objectType as ExplorerObjectType,
         ),
-    });
+    }),
+    );
   }
 
   return (
@@ -1808,6 +1993,12 @@ export default function ObjectExplorer(props: Props) {
                         onTableDblClick={(schema, name) =>
                           handleTableDoubleClick(db, schema, name)
                         }
+                        onObjectClick={(e, object, objectType) =>
+                          handleObjectClick(e, db, object, objectType)
+                        }
+                        isObjectSelected={(database, object) =>
+                          isObjectSelected(database, object)
+                        }
                         onFolderToggle={toggle}
                       />
                     )}
@@ -1872,17 +2063,40 @@ export default function ObjectExplorer(props: Props) {
                   <For each={filteredSavedQueries()}>
                     {(item) => {
                       const isRenaming = () => renamingQueryId() === item.id;
+                      const rowKey = `saved:${item.id}`;
+                      const savedEntries = () =>
+                        filteredSavedQueries().map((query) => ({
+                          key: `saved:${query.id}`,
+                          title: query.title,
+                          savedQueryFilePath: query.filePath,
+                          sourceId: `saved:${query.filePath}`,
+                        }));
                       const row = (
                         <div
                           class={`${LIST_ROW} ${
-                            isMenuActive(`saved:${item.id}`) ||
+                            isMenuActive(rowKey) ||
+                            isExplorerSelected(rowKey) ||
                             isRenaming()
                               ? "is-selected"
                               : ""
                           }`}
-                          onClick={() => {
+                          onClick={(e) => {
                             if (isRenaming()) return;
-                            props.onLoadSavedQuery?.(item.filePath, item.title);
+                            handleExplorerSelectableClick(
+                              e,
+                              {
+                                key: rowKey,
+                                title: item.title,
+                                savedQueryFilePath: item.filePath,
+                                sourceId: `saved:${item.filePath}`,
+                              },
+                              savedEntries(),
+                              () =>
+                                props.onLoadSavedQuery?.(
+                                  item.filePath,
+                                  item.title,
+                                ),
+                            );
                           }}
                           onContextMenu={(e) =>
                             handleContextMenu(
@@ -2008,21 +2222,44 @@ export default function ObjectExplorer(props: Props) {
                   <ExplorerEmpty message="No matching history" />
                 ) : (
                   <For each={filteredHistory()}>
-                    {(item) => (
+                    {(item) => {
+                      const rowKey = `history:${item.sql}`;
+                      const historyEntries = () =>
+                        filteredHistory().map((entry) => ({
+                          key: `history:${entry.sql}`,
+                          sql: entry.sql,
+                          title: entry.title,
+                          database: entry.database,
+                          sourceId: `history:${entry.sql}`,
+                        }));
+                      return (
                       <Tooltip content={item.sql} placement="right" class="w-full">
                         <div
                           class={`${LIST_ROW} ${
-                            isMenuActive(`history:${item.sql}`)
+                            isMenuActive(rowKey) ||
+                            isExplorerSelected(rowKey)
                               ? "is-selected"
                               : ""
                           }`}
-                          onClick={() =>
-                            props.onSelect(
-                              item.sql,
-                              false,
-                              item.title,
-                              item.database,
-                              `history:${item.sql}`,
+                          onClick={(e) =>
+                            handleExplorerSelectableClick(
+                              e,
+                              {
+                                key: rowKey,
+                                sql: item.sql,
+                                title: item.title,
+                                database: item.database,
+                                sourceId: `history:${item.sql}`,
+                              },
+                              historyEntries(),
+                              () =>
+                                props.onSelect(
+                                  item.sql,
+                                  false,
+                                  item.title,
+                                  item.database,
+                                  `history:${item.sql}`,
+                                ),
                             )
                           }
                           onContextMenu={(e) =>
@@ -2051,7 +2288,8 @@ export default function ObjectExplorer(props: Props) {
                           </div>
                         </div>
                       </Tooltip>
-                    )}
+                      );
+                    }}
                   </For>
                 )}
               </div>

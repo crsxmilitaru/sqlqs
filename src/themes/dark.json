@@ -11,5 +11,14 @@
     "--color-success": "#10b981",
     "--color-error": "#ef4444",
     "--color-warning": "#f59e0b"
-  }
+  },
+  "tabColors": [
+    "#60a5fa",
+    "#22d3ee",
+    "#4ade80",
+    "#facc15",
+    "#fb923c",
+    "#f87171",
+    "#c084fc"
+  ]
 }

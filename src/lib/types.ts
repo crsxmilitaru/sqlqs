@@ -175,6 +175,22 @@ export interface AppSettings {
   auto_connect_startup: boolean;
 }
 
+export type TabGroupColor =
+  | "blue"
+  | "cyan"
+  | "green"
+  | "yellow"
+  | "orange"
+  | "red"
+  | "purple";
+
+export interface TabGroup {
+  id: string;
+  name: string;
+  color: TabGroupColor;
+  collapsed?: boolean;
+}
+
 export interface QueryTab {
   id: string;
   title: string;
@@ -190,6 +206,7 @@ export interface QueryTab {
   userTitle?: boolean;
   pinned?: boolean;
   temporary?: boolean;
+  groupId?: string;
 }
 
 export type QueryTabHistoryEntryType = "typing" | "action";
@@ -217,6 +234,8 @@ export interface ClosedTab {
   sourceId?: string;
   pinned?: boolean;
   temporary?: boolean;
+  groupId?: string;
+  group?: TabGroup;
   index: number;
 }
 

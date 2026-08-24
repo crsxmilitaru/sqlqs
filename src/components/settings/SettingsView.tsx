@@ -13,6 +13,7 @@ import {
   EDITOR_FONT_FAMILY_OPTIONS,
   FORMAT_INDENT_OPTIONS,
   FORMAT_KEYWORD_CASE_OPTIONS,
+  TAB_AUTO_NAMING_OPTIONS,
   UPDATE_CHANNEL_OPTIONS,
   loadPreferences,
   MAX_EDITOR_FONT_SIZE,
@@ -42,10 +43,12 @@ import {
   saveMaxHistoryItems,
   savePersistTabs,
   saveRevealCurrentDatabaseInExplorer,
+  saveTabAutoNaming,
   saveUpdateChannel,
   saveOpenLastChatStartup,
   type DateFormat,
   type SqlKeywordCase,
+  type TabAutoNamingMode,
   type UpdateChannel,
 } from "../../lib/settings";
 import {
@@ -162,6 +165,9 @@ export default function SettingsView(props: Props) {
   const [persistTabs, setPersistTabs] = createSignal(prefs.persistTabs);
   const [confirmCloseUnsaved, setConfirmCloseUnsaved] = createSignal(
     prefs.confirmCloseUnsaved,
+  );
+  const [tabAutoNaming, setTabAutoNaming] = createSignal<TabAutoNamingMode>(
+    prefs.tabAutoNaming,
   );
   const [autoConnectStartup, setAutoConnectStartup] = createSignal(
     prefs.autoConnectStartup,
@@ -545,6 +551,39 @@ export default function SettingsView(props: Props) {
             saveConfirmCloseUnsaved(next);
           }}
         />
+      ),
+    },
+    {
+      id: "tab-auto-naming",
+      tab: "general",
+      title: "Tab auto naming",
+      keywords: "tab auto naming title first line sql generate ai flash lite",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-m font-medium text-text">Tab auto naming</h4>
+              <p class="text-s text-text-muted mt-0.5">
+                Untitled tabs use the first line of SQL, or a short name from
+                Flash Lite. AI needs a Gemini API key.
+              </p>
+            </div>
+            <div class="min-w-[200px]">
+              <Dropdown
+                value={tabAutoNaming()}
+                options={TAB_AUTO_NAMING_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+                onChange={(val) => {
+                  const next = val as TabAutoNamingMode;
+                  setTabAutoNaming(next);
+                  saveTabAutoNaming(next);
+                }}
+              />
+            </div>
+          </div>
+        </div>
       ),
     },
     {
@@ -1519,7 +1558,7 @@ export default function SettingsView(props: Props) {
       tab: "shortcuts",
       title: "Keyboard shortcuts",
       keywords:
-        "shortcuts keyboard hotkeys keys bindings f5 ctrl cmd execute save tab",
+        "shortcuts keyboard hotkeys keys bindings f5 ctrl cmd execute save tab select multiple",
       render: () => <ShortcutsReference isPreviewBuild={isPreviewBuild()} />,
     },
     {
@@ -1785,6 +1824,7 @@ export default function SettingsView(props: Props) {
           onClose={() => setIsCreatingTheme(false)}
           onSave={handleSaveCustomTheme}
           activeThemeColors={activeTheme()?.colors}
+          activeThemeTabColors={activeTheme()!.tabColors}
           activeThemeMode={activeThemeMode()}
         />
       </Show>
@@ -1794,6 +1834,7 @@ export default function SettingsView(props: Props) {
             editTheme={theme()}
             onClose={() => setEditingTheme(null)}
             onSave={handleSaveCustomTheme}
+            activeThemeTabColors={theme().tabColors}
           />
         )}
       </Show>

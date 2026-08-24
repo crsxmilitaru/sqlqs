@@ -116,6 +116,7 @@ Installs npm packages, fetches cargo dependencies, and restores .NET sidecar pac
 - **Reactivity Rules**: SolidJS components do not re-render like React components; the component function executes only once. Use reactive primitives (`createSignal`, `createMemo`, `createEffect`, `createStore`, `Show`, `For`).
 - **Props**: Never destructure props directly inside component arguments as it breaks reactivity (use `mergeProps` or access via `props.propertyName`).
 - **Styling**: Use Tailwind CSS v4 classes. Avoid inline styles and deep selector nesting.
+- **Shortcuts**: Any new keyboard shortcut must also be registered in `src/lib/shortcuts.ts` so it appears on the Settings > Shortcuts page.
 - **Error Handling**: Never use empty `catch` blocks. Surface errors through user-facing modal dialogs or status indicators.
 
 ### Rust & Tauri Backend Guidelines
