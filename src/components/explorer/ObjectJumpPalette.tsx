@@ -60,6 +60,11 @@ interface Props {
     name: string,
     objectType: ExplorerObjectType,
   ) => void;
+  onShowCompareData?: (
+    database: string,
+    schema: string,
+    name: string,
+  ) => void;
   onShowRename?: (
     database: string,
     schema: string,
@@ -454,6 +459,14 @@ export default function ObjectJumpPalette(props: Props) {
           object.schema_name,
           object.name,
           object.object_type as ExplorerObjectType,
+        );
+        props.onClose();
+      },
+      onShowCompareData: () => {
+        props.onShowCompareData?.(
+          object.database,
+          object.schema_name,
+          object.name,
         );
         props.onClose();
       },

@@ -32,6 +32,7 @@ import PropertiesDialog, {
 } from "../dialogs/PropertiesDialog";
 import QueryEditorPanel from "../editor/QueryEditorPanel";
 import RenameDialog from "../dialogs/RenameDialog";
+import TableCompareDialog from "../dialogs/TableCompareDialog";
 import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
 import SettingsView from "../settings/SettingsView";
 import {
@@ -292,6 +293,11 @@ export default function App() {
     name: string;
     objectType: ExplorerObjectType;
   } | null>(null);
+  const [compareTarget, setCompareTarget] = createSignal<{
+    database: string;
+    schema: string;
+    table: string;
+  } | null>(null);
 
   const [globalContextMenu, setGlobalContextMenu] = createSignal<{
     visible: boolean;
@@ -336,6 +342,14 @@ export default function App() {
     objectType: ExplorerObjectType,
   ) => {
     setDependenciesTarget({ database, schema, name, objectType });
+  };
+
+  const handleShowCompareData = (
+    database: string,
+    schema: string,
+    table: string,
+  ) => {
+    setCompareTarget({ database, schema, table });
   };
 
   createEffect(() => {
@@ -1010,6 +1024,7 @@ export default function App() {
     !!renameTarget() ||
     !!dropTarget() ||
     !!dependenciesTarget() ||
+    !!compareTarget() ||
     !!pendingRisky() ||
     !!pendingDisconnect() ||
     !!exitConfirm();
@@ -1411,6 +1426,7 @@ export default function App() {
                     onShowRename={handleShowRename}
                     onShowDrop={handleShowDrop}
                     onShowDependencies={handleShowDependencies}
+                    onShowCompareData={handleShowCompareData}
                     onShowBackupRestore={(database) =>
                       setBackupRestoreDatabase(database)
                     }
@@ -1511,7 +1527,28 @@ export default function App() {
         onShowRename={handleShowRename}
         onShowDrop={handleShowDrop}
         onShowDependencies={handleShowDependencies}
+        onShowCompareData={handleShowCompareData}
       />
+
+      <Show when={compareTarget()}>
+        {(target) => (
+          <TableCompareDialog
+            sourceDatabase={target().database}
+            schema={target().schema}
+            table={target().table}
+            databases={databases()}
+            onClose={() => setCompareTarget(null)}
+            onOpenQuery={(sql, title) => {
+              handleOpenQueryTab({
+                sql,
+                title,
+                database: target().database,
+                switchDatabase: false,
+              });
+            }}
+          />
+        )}
+      </Show>
 
       <Show when={propertiesTarget()}>
         {(target) => (

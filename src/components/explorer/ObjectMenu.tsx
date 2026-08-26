@@ -16,6 +16,7 @@ interface BuildObjectExplorerMenuItemsParams {
   objectType: ExplorerObjectType;
   onSelectSql: (sql: string, execute?: boolean) => void;
   onShowProperties?: () => void;
+  onShowCompareData?: () => void;
   onShowRename?: () => void;
   onShowDrop?: () => void;
   onShowDependencies?: () => void;
@@ -444,6 +445,16 @@ export function buildObjectExplorerMenuItems(props: BuildObjectExplorerMenuItems
         },
       ],
     },
+    ...(props.objectType === "TABLE" && props.onShowCompareData
+      ? [
+          {
+            id: "compare-data",
+            label: "Compare Data…",
+            icon: <i class="fa-solid fa-code-compare" />,
+            onClick: () => props.onShowCompareData?.(),
+          } as ContextMenuItem,
+        ]
+      : []),
     { id: "sep-tv-2", separator: true },
     renameItem,
     dropItem,

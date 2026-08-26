@@ -82,6 +82,11 @@ interface Props {
     name: string,
     objectType: ExplorerObjectType | "DATABASE",
   ) => void;
+  onShowCompareData?: (
+    database: string,
+    schema: string,
+    name: string,
+  ) => void;
   onShowRename?: (
     database: string,
     schema: string,
@@ -1874,6 +1879,8 @@ export default function ObjectExplorer(props: Props) {
           table,
           objectType as ExplorerObjectType,
         ),
+      onShowCompareData: () =>
+        props.onShowCompareData?.(database, schema, table),
       onShowRename: () =>
         props.onShowRename?.(
           database,
