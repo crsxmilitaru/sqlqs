@@ -13,7 +13,10 @@ import {
 import {
   defaultKeymap,
   history,
+  historyField,
   historyKeymap,
+  indentLess,
+  indentMore,
   moveLineDown,
   moveLineUp,
 } from "@codemirror/commands";
@@ -23,6 +26,7 @@ import {
   defaultHighlightStyle,
   foldGutter,
   foldKeymap,
+  indentUnit,
   syntaxTree,
   syntaxHighlighting,
 } from "@codemirror/language";
@@ -57,7 +61,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { loadEditorPreferences } from "../../lib/settings";
+import { loadEditorPreferences, loadFormatPreferences } from "../../lib/settings";
 import { registerSchemaCatalogInvalidator } from "../../lib/schema-catalog";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { sqlLinter } from "../../lib/sql-linter";
@@ -68,6 +72,99 @@ import type {
 } from "../../lib/types";
 
 const externalSyncAnnotation = Annotation.define<boolean>();
+const editorHistoryConfig = { history: historyField };
+
+interface CachedTabEditorState {
+  json: unknown;
+  scrollTop: number;
+  scrollLeft: number;
+  anchor: number;
+  head: number;
+}
+
+const tabEditorStateCache = new Map<string, CachedTabEditorState>();
+
+function sqlTextEquals(a: string, b: string) {
+  return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
+}
+
+function snapshotTabEditorState(tabId: string, view: EditorView) {
+  const selection = view.state.selection.main;
+  tabEditorStateCache.set(tabId, {
+    json: view.state.toJSON(editorHistoryConfig),
+    scrollTop: view.scrollDOM.scrollTop,
+    scrollLeft: view.scrollDOM.scrollLeft,
+    anchor: selection.anchor,
+    head: selection.head,
+  });
+}
+
+function applyCachedScroll(view: EditorView, top: number, left: number) {
+  const apply = () => {
+    view.scrollDOM.scrollTop = top;
+    view.scrollDOM.scrollLeft = left;
+  };
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(apply);
+  });
+}
+
+function restoreTabEditorState(
+  tabId: string,
+  value: string,
+  view: EditorView,
+  extensions: Extension[],
+) {
+  const cached = tabEditorStateCache.get(tabId);
+  if (!cached) return;
+
+  let restored: EditorState | undefined;
+  try {
+    restored = EditorState.fromJSON(
+      cached.json,
+      { extensions },
+      editorHistoryConfig,
+    );
+  } catch {
+    restored = undefined;
+  }
+
+  if (restored && sqlTextEquals(restored.doc.toString(), value)) {
+    view.setState(restored);
+  } else {
+    const max = value.length;
+    view.setState(EditorState.create({ doc: value, extensions }));
+    view.dispatch({
+      selection: {
+        anchor: Math.min(Math.max(cached.anchor, 0), max),
+        head: Math.min(Math.max(cached.head, 0), max),
+      },
+      annotations: [
+        Transaction.addToHistory.of(false),
+        externalSyncAnnotation.of(true),
+      ],
+    });
+  }
+
+  applyCachedScroll(view, cached.scrollTop, cached.scrollLeft);
+}
+
+function insertIndentUnit(view: EditorView): boolean {
+  if (view.state.readOnly) return false;
+  const unit = view.state.facet(indentUnit);
+  view.dispatch({
+    ...view.state.replaceSelection(unit),
+    userEvent: "input",
+  });
+  return true;
+}
+
+function indentSizeUnit(): string {
+  const size = loadFormatPreferences().indentSize;
+  return " ".repeat(size > 0 ? size : 2);
+}
 
 const searchScrollbarPlugin = ViewPlugin.fromClass(
   class {
@@ -139,6 +236,7 @@ const searchScrollbarPlugin = ViewPlugin.fromClass(
 );
 
 interface Props {
+  tabId: string;
   value: string;
   onChange: (value: string, options?: QueryTabUpdateOptions) => void;
   onExecute: (selectedSql?: string) => void;
@@ -159,8 +257,10 @@ export interface SqlEditorHandle {
   getSelectedText: () => string;
   replaceSelection: (text: string) => void;
   formatSelection: () => boolean;
+  applyFormattedDocument: (formatted: string) => boolean;
   selectAll: () => void;
   scrollToBottom: () => void;
+  retainStates: (tabIds: string[]) => void;
 }
 
 function createFoldMarker(open: boolean): HTMLElement {
@@ -229,9 +329,9 @@ function historyOptionsForEditorUpdate(
 
   if (hasUserEvent("input.format")) {
     return {
-      historyMode: "capture-current",
+      historyMode: "preserve-current",
       historyType: "action",
-      historyLabel: "Format",
+      historyLabel: "Format SQL",
     };
   }
 
@@ -256,10 +356,29 @@ function formatSelectionInEditor(view: EditorView): boolean {
           head: from + formatted.length,
         },
         scrollIntoView: true,
-        annotations: Transaction.userEvent.of("input.format"),
+        userEvent: "input.format",
       });
     })
     .catch(() => undefined);
+  return true;
+}
+
+function applyFormattedDocumentInEditor(
+  view: EditorView,
+  formatted: string,
+): boolean {
+  if (view.state.readOnly) return false;
+  const current = view.state.doc.toString();
+  if (formatted === current) return true;
+  view.dispatch({
+    changes: {
+      from: 0,
+      to: view.state.doc.length,
+      insert: formatted,
+    },
+    userEvent: "input.format",
+    annotations: [externalSyncAnnotation.of(true)],
+  });
   return true;
 }
 
@@ -1845,8 +1964,12 @@ export default function SqlEditor(props: Props) {
   const themeCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
+  const indentUnitCompartment = new Compartment();
   let lastSearchString = "";
   let lastCount = -1;
+  let lastMatchIndex = 0;
+  let lastTabId = "";
+  let editorExtensions: Extension[] | undefined;
 
   const searchHistory: string[] = [];
   let historyIndex = -1;
@@ -1886,6 +2009,11 @@ export default function SqlEditor(props: Props) {
       viewRef.focus();
       return formatSelectionInEditor(viewRef);
     },
+    applyFormattedDocument(formatted: string) {
+      if (!viewRef) return false;
+      viewRef.focus();
+      return applyFormattedDocumentInEditor(viewRef, formatted);
+    },
     selectAll() {
       if (!viewRef) return;
       viewRef.focus();
@@ -1901,6 +2029,12 @@ export default function SqlEditor(props: Props) {
         selection: { anchor: end },
         scrollIntoView: true,
       });
+    },
+    retainStates(tabIds: string[]) {
+      const keep = new Set(tabIds);
+      for (const id of tabEditorStateCache.keys()) {
+        if (!keep.has(id)) tabEditorStateCache.delete(id);
+      }
     },
   };
 
@@ -1986,6 +2120,59 @@ export default function SqlEditor(props: Props) {
     };
   };
 
+  function applyLiveCompartments(view: EditorView) {
+    const prefs = loadEditorPreferences();
+    view.dispatch({
+      effects: [
+        indentUnitCompartment.reconfigure(indentUnit.of(indentSizeUnit())),
+        wrapCompartment.reconfigure(
+          props.wrapLines ? EditorView.lineWrapping : [],
+        ),
+        lineNumbersCompartment.reconfigure(
+          prefs.lineNumbers ? lineNumbers() : [],
+        ),
+        minimapCompartment.reconfigure(
+          prefs.minimap ? buildMinimapExt() : [],
+        ),
+        autocompleteCompartment.reconfigure(
+          prefs.autocomplete
+            ? buildAutocompletionExt(combinedCompletionSource)
+            : [],
+        ),
+        fontThemeCompartment.reconfigure(
+          buildFontTheme(prefs.fontFamily, prefs.fontSize),
+        ),
+        themeCompartment.reconfigure(buildThemeExtension(props.theme)),
+        readOnlyCompartment.reconfigure(
+          buildReadOnlyExtension(Boolean(props.readOnly)),
+        ),
+        placeholderCompartment.reconfigure(
+          placeholderExt(
+            buildPlaceholderText(
+              Boolean(props.readOnly),
+              props.currentDatabase,
+            ),
+          ),
+        ),
+      ],
+    });
+  }
+
+  function snapshotTabState(tabId: string) {
+    if (!viewRef || !tabId) return;
+    snapshotTabEditorState(tabId, viewRef);
+  }
+
+  function restoreTabState(tabId: string, value: string) {
+    if (!viewRef || !editorExtensions) return;
+    restoreTabEditorState(tabId, value, viewRef, editorExtensions);
+    applyLiveCompartments(viewRef);
+    const cached = tabEditorStateCache.get(tabId);
+    if (cached) {
+      applyCachedScroll(viewRef, cached.scrollTop, cached.scrollLeft);
+    }
+  }
+
   createEffect(() => {
     if (!containerRef) return;
 
@@ -2032,10 +2219,10 @@ export default function SqlEditor(props: Props) {
           transaction.annotation(externalSyncAnnotation) === true,
         );
         if (!isExternalSync) {
-          props.onChange(
-            update.state.doc.toString(),
-            historyOptionsForEditorUpdate(update),
-          );
+          const next = update.state.doc.toString();
+          if (next !== props.value) {
+            props.onChange(next, historyOptionsForEditorUpdate(update));
+          }
         }
       }
 
@@ -2069,34 +2256,56 @@ export default function SqlEditor(props: Props) {
               ? `${query.search}|${query.caseSensitive}|${query.regexp}|${query.wholeWord}`
               : "";
           const queryChanged = currentSearchString !== lastSearchString;
-          // Walk the document only when the query changed or the document
-          // actually changed. Pure cursor moves, viewport changes, and focus
-          // updates would otherwise cause an O(N) re-walk every keystroke.
-          const needsWalk =
+          const needsCount =
             queryChanged || update.docChanged || countSpanCreated;
+          const needsIndex = needsCount || update.selectionSet;
 
-          if (needsWalk) {
-            lastSearchString = currentSearchString;
-
-            if (!currentSearchString) {
+          if (!currentSearchString) {
+            if (needsCount) {
+              lastSearchString = currentSearchString;
               lastCount = -1;
-            } else {
-              let count = 0;
-              const cursor = query.getCursor(update.state.doc) as any;
-              while (!cursor.next().done) {
-                count++;
-                if (count >= 1000) break;
-              }
-              lastCount = count;
+              lastMatchIndex = 0;
             }
+          } else if (needsCount || needsIndex) {
+            if (needsCount) lastSearchString = currentSearchString;
+            const sel = update.state.selection.main;
+            let walked = 0;
+            let index = 0;
+            const cursor = query.getCursor(update.state.doc) as {
+              next: () => {
+                done: boolean;
+                value?: { from: number; to: number };
+              };
+            };
+            let item = cursor.next();
+            while (!item.done) {
+              walked += 1;
+              const range = item.value;
+              if (
+                range &&
+                range.from === sel.from &&
+                range.to === sel.to
+              ) {
+                index = walked;
+                if (!needsCount) break;
+              }
+              if (walked >= 1000) break;
+              item = cursor.next();
+            }
+            if (needsCount) lastCount = walked;
+            lastMatchIndex = index;
           }
 
           if (lastCount === -1 || lastCount === 0) {
             countSpan.textContent = "No results";
-          } else if (lastCount >= 1000) {
-            countSpan.textContent = "1000+ results";
+          } else if (lastMatchIndex > 0) {
+            countSpan.textContent =
+              lastCount >= 1000
+                ? `${lastMatchIndex} of 1000+`
+                : `${lastMatchIndex} of ${lastCount}`;
           } else {
-            countSpan.textContent = `${lastCount} result${lastCount === 1 ? "" : "s"}`;
+            countSpan.textContent =
+              lastCount >= 1000 ? "– of 1000+" : `– of ${lastCount}`;
           }
 
           const hasResults = lastCount > 0;
@@ -2143,9 +2352,7 @@ export default function SqlEditor(props: Props) {
       },
     });
 
-    const state = EditorState.create({
-      doc: untrack(() => props.value),
-      extensions: [
+    editorExtensions = [
         searchScrollbarPlugin,
         lineNumbersCompartment.of(initialPrefs.lineNumbers ? lineNumbers() : []),
         highlightActiveLineGutter(),
@@ -2176,7 +2383,19 @@ export default function SqlEditor(props: Props) {
         formatKeymap,
         lineMovementKeymap,
         keymap.of([
-          { key: "Tab", run: acceptCompletion },
+          {
+            key: "Tab",
+            run: (view) => {
+              if (acceptCompletion(view)) return true;
+              const hasSelection = view.state.selection.ranges.some(
+                (range) => !range.empty,
+              );
+              return hasSelection
+                ? indentMore(view)
+                : insertIndentUnit(view);
+            },
+            shift: indentLess,
+          },
           ...defaultKeymap,
           ...historyKeymap,
           ...completionKeymap,
@@ -2199,7 +2418,12 @@ export default function SqlEditor(props: Props) {
           initialPrefs.minimap ? buildMinimapExt() : [],
         ),
         readOnlyCompartment.of(buildReadOnlyExtension(initialReadOnly)),
-      ],
+        indentUnitCompartment.of(indentUnit.of(indentSizeUnit())),
+    ];
+
+    const state = EditorState.create({
+      doc: untrack(() => props.value),
+      extensions: editorExtensions,
     });
 
     const view = new EditorView({
@@ -2208,6 +2432,8 @@ export default function SqlEditor(props: Props) {
     });
 
     viewRef = view;
+    lastTabId = untrack(() => props.tabId);
+    restoreTabState(lastTabId, untrack(() => props.value));
 
     const enhanceSearchPanel = (panel: HTMLElement) => {
       if (panel.dataset.enhanced === "true") return;
@@ -2354,15 +2580,28 @@ export default function SqlEditor(props: Props) {
     panelObserver.observe(containerRef, { childList: true, subtree: true });
 
     onCleanup(() => {
+      if (lastTabId && viewRef) snapshotTabState(lastTabId);
       panelObserver.disconnect();
       view.destroy();
       viewRef = null;
+      lastTabId = "";
+      editorExtensions = undefined;
     });
   });
 
   createEffect(() => {
+    const tabId = props.tabId;
     const value = props.value;
-    if (viewRef && viewRef.state.doc.toString() !== value) {
+    if (!viewRef) return;
+
+    if (tabId !== lastTabId) {
+      if (lastTabId) snapshotTabState(lastTabId);
+      restoreTabState(tabId, value);
+      lastTabId = tabId;
+      return;
+    }
+
+    if (!sqlTextEquals(viewRef.state.doc.toString(), value)) {
       viewRef.dispatch({
         changes: {
           from: 0,

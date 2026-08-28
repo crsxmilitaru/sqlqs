@@ -421,6 +421,11 @@ export default function QueryEditorPanel(props: Props) {
       ? props.tabs.find((t) => t.id === props.activeTabId)
       : undefined,
   );
+
+  createEffect(() => {
+    const ids = props.tabs.map((tab) => tab.id);
+    editorRef?.retainStates(ids);
+  });
   const isActiveExecuting = createMemo(() => activeTab()?.isExecuting === true);
   const isActiveCancelling = createMemo(
     () => cancellingTabId() === props.activeTabId && isActiveExecuting(),
@@ -555,6 +560,7 @@ export default function QueryEditorPanel(props: Props) {
     if (!tab) return;
     try {
       const formatted = await formatSqlWithPrefs(tab.sql);
+      editorRef?.applyFormattedDocument(formatted);
       props.onTabUpdate(
         tab.id,
         { sql: formatted },
@@ -1229,6 +1235,7 @@ export default function QueryEditorPanel(props: Props) {
                 <div class="relative flex-1 min-w-0 min-h-0">
                   <Suspense fallback={<div class="h-full bg-surface-panel" />}>
                     <SqlEditor
+                      tabId={tab.id}
                       value={tab.sql}
                       onChange={(val: string, options?: QueryTabUpdateOptions) =>
                         props.onTabUpdate(tab.id, { sql: val }, options)

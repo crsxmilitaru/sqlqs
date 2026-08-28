@@ -33,6 +33,8 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
         { label: "Format SQL", keys: ["Alt+Shift+F"] },
         { label: "Find in editor", keys: [`${mod}+F`] },
         { label: "Find next", keys: [`${mod}+G`] },
+        { label: "Indent", keys: ["Tab"] },
+        { label: "Outdent", keys: ["Shift+Tab"] },
         { label: "Move line up", keys: ["Alt+↑"] },
         { label: "Move line down", keys: ["Alt+↓"] },
         { label: "Undo", keys: [`${mod}+Z`] },
