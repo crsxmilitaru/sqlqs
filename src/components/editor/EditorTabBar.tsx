@@ -71,6 +71,7 @@ interface Props {
   requestCloseTabs: (tabIds: string[]) => void;
   isTabDirty: (tab: QueryTab) => boolean;
   setTabBarRef: (el: HTMLDivElement) => void;
+  setTabBarContextMenuHandler: (handler: (e: MouseEvent) => void) => void;
   onRenamingChange: (renaming: boolean) => void;
 }
 
@@ -223,10 +224,13 @@ export default function EditorTabBar(props: Props) {
   }
 
   function handleRenameKeyDown(e: KeyboardEvent, kind: "tab" | "group", id: string) {
+    e.stopPropagation();
     if (e.key === "Enter") {
+      e.preventDefault();
       if (kind === "tab") handleRenameTab(id);
       else handleRenameGroup(id);
     } else if (e.key === "Escape") {
+      e.preventDefault();
       setRenamingTabId(null);
       setRenamingGroupId(null);
       setRenameValue("");
@@ -754,6 +758,7 @@ export default function EditorTabBar(props: Props) {
 
   function handleTabBarContextMenu(e: MouseEvent) {
     e.preventDefault();
+    e.stopPropagation();
     setTabContextMenu(null);
     setGroupContextMenu(null);
     setCollapsedGroupMenu(null);
@@ -763,6 +768,11 @@ export default function EditorTabBar(props: Props) {
       y: e.clientY,
     });
   }
+
+  props.setTabBarContextMenuHandler(handleTabBarContextMenu);
+  onCleanup(() => {
+    props.setTabBarContextMenuHandler(() => {});
+  });
 
   createEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -955,7 +965,7 @@ export default function EditorTabBar(props: Props) {
               </Tooltip>
             )}
           </div>
-          <div class="flex items-center justify-center w-5 h-5 flex-shrink-0 relative">
+          <div class="flex items-center justify-center w-4 h-4 flex-shrink-0 relative">
             {tab.isExecuting && (
               <span class="animate-pulse text-warning text-s absolute">
                 &#9679;
@@ -973,7 +983,7 @@ export default function EditorTabBar(props: Props) {
               }}
               class={`tab-close-btn relative flex items-center justify-center rounded hover:bg-surface-active text-text-muted hover:text-text cursor-pointer ${isActive() ? "active" : ""}`}
             >
-              <i class="fa-solid fa-xmark text-s" />
+              <i class="fa-solid fa-xmark" />
             </button>
           </div>
         </div>
@@ -1045,9 +1055,9 @@ export default function EditorTabBar(props: Props) {
         on:mousedown={(e: MouseEvent) => {
           if (e.button === 1) e.preventDefault();
         }}
+        onContextMenu={handleTabBarContextMenu}
         role="tablist"
         class="flex overflow-x-auto overflow-y-hidden tab-bar min-w-0 h-full"
-        onContextMenu={handleTabBarContextMenu}
       >
         <For each={tabBarSegments()}>
           {(segment) => {

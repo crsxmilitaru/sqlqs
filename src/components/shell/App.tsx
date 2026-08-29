@@ -1,12 +1,22 @@
-import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppUpdater } from "../../hooks/useAppUpdater";
 import { useConnection } from "../../hooks/useConnection";
+import { useEditorNavigation } from "../../hooks/useEditorNavigation";
 import { useHistory } from "../../hooks/useHistory";
 import { useSavedQueries } from "../../hooks/useSavedQueries";
 import { useTabs } from "../../hooks/useTabs";
+import {
+  discardStaleNavigationRestore,
+  isGoBackKey,
+  isGoForwardKey,
+  isMouseBackButton,
+  isMouseForwardButton,
+  queueNavigationRestore,
+  type EditorNavigationPoint,
+} from "../../lib/editor-navigation";
 import { baseFileName, getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { generateTabTitle } from "../../lib/sql";
@@ -31,6 +41,7 @@ import PropertiesDialog, {
   type PropertiesObjectType,
 } from "../dialogs/PropertiesDialog";
 import QueryEditorPanel from "../editor/QueryEditorPanel";
+import type { SqlEditorHandle } from "../editor/SqlEditor";
 import RenameDialog from "../dialogs/RenameDialog";
 import TableCompareDialog from "../dialogs/TableCompareDialog";
 import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
@@ -158,6 +169,16 @@ function getTextEditableTarget(
   return null;
 }
 
+function isCodeMirrorTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest(".cm-editor"));
+}
+
+function isTabRenameTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement && Boolean(target.closest(".tab-rename-input"))
+  );
+}
+
 function isLikelySchemaChangingSql(sql: string): boolean {
   return SCHEMA_REFRESH_REGEX.test(stripSqlStringsAndComments(sql));
 }
@@ -210,10 +231,52 @@ export default function App() {
     renameGroup,
     setGroupColor,
     toggleGroupCollapsed,
+    revealTab,
     ungroupGroup,
     closeGroup,
     requestAutoTabTitle,
   } = useTabs();
+
+  let editorHandle: SqlEditorHandle | null = null;
+
+  function currentNavigationPoint(): EditorNavigationPoint | null {
+    const location = editorHandle?.getLocation();
+    const tabId = activeTabId();
+    if (!location || !tabId) return null;
+    return { tabId, ...location };
+  }
+
+  const editorNavigation = useEditorNavigation({
+    getPoint: currentNavigationPoint,
+    restorePoint: (point: EditorNavigationPoint, onSettled) => {
+      revealTab(point.tabId);
+      const finish = () => {
+        if (activeTabId() === point.tabId) editorHandle?.focus();
+        onSettled();
+      };
+      if (point.tabId !== activeTabId() || !editorHandle) {
+        queueNavigationRestore(point, finish);
+        if (point.tabId !== activeTabId()) setActiveTabId(point.tabId);
+        return;
+      }
+      editorHandle.setLocation(point, finish);
+    },
+    tabExists: (tabId) => tabs().some((tab) => tab.id === tabId),
+  });
+
+  function rememberCurrentLocation() {
+    const point = currentNavigationPoint();
+    if (point) editorNavigation.remember(point);
+  }
+
+  const openTabIdKey = createMemo(() => tabs().map((tab) => tab.id).join("\0"));
+  createEffect(() => {
+    const key = openTabIdKey();
+    editorNavigation.prune(new Set(key ? key.split("\0") : []));
+  });
+  createEffect(() => {
+    discardStaleNavigationRestore(activeTabId());
+  });
 
   const {
     connected,
@@ -753,6 +816,7 @@ export default function App() {
       void handleDatabaseChange(database);
     }
 
+    rememberCurrentLocation();
     const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
     if (execute) {
       setTimeout(() => handleExecute(tabId, sql), 0);
@@ -761,6 +825,7 @@ export default function App() {
   }
 
   function handleTabAdd(sql?: string, title?: string, groupId?: string) {
+    rememberCurrentLocation();
     return addTab(
       sql ?? "",
       title,
@@ -833,6 +898,7 @@ export default function App() {
       try {
         const content = await file.text();
         const title = file.name.replace(/\.sql$/i, "").trim();
+        rememberCurrentLocation();
         addTab(content, title || undefined);
         toast.success(`Opened ${file.name}`);
       } catch (error) {
@@ -852,6 +918,7 @@ export default function App() {
         content: string;
       }>("read_sql_file", { path });
 
+      rememberCurrentLocation();
       addTab(file.content, file.file_name, `file:${file.path}`, true);
       void invoke("add_to_recent_docs", { path: file.path }).catch(() => undefined);
       toast.success(`Opened ${file.file_name}`);
@@ -964,6 +1031,7 @@ export default function App() {
   async function handleLoadSavedQuery(filePath: string, title: string) {
     const content = await loadQueryContent(filePath);
     if (content) {
+      rememberCurrentLocation();
       addTab(content, title, `saved:${filePath}`, true, { temporary: true });
     }
   }
@@ -1326,6 +1394,62 @@ export default function App() {
 
   const isAnyDialogOpen = () => hasBlockingDialog() || isObjectJumpOpen();
 
+  createEffect(() => {
+    const settingsOpen = isSettingsOpen();
+    const dialogOpen = isAnyDialogOpen();
+    const connectedNow = connected();
+
+    const shouldIgnore = () => settingsOpen || dialogOpen || !connectedNow;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnore() || event.defaultPrevented) return;
+      if (isTabRenameTarget(event.target)) return;
+      if (isGoBackKey(event)) {
+        if (editorNavigation.canGoBack()) {
+          event.preventDefault();
+          editorNavigation.goBack();
+        } else if (!isCodeMirrorTarget(event.target)) {
+          event.preventDefault();
+        }
+        return;
+      }
+      if (isGoForwardKey(event)) {
+        if (editorNavigation.canGoForward()) {
+          event.preventDefault();
+          editorNavigation.goForward();
+        } else if (!isCodeMirrorTarget(event.target)) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (!isMouseBackButton(event) && !isMouseForwardButton(event)) return;
+      if (shouldIgnore()) return;
+      event.preventDefault();
+    };
+
+    const onMouseUp = (event: MouseEvent) => {
+      if (!isMouseBackButton(event) && !isMouseForwardButton(event)) return;
+      if (shouldIgnore()) return;
+      event.preventDefault();
+      if (isMouseBackButton(event)) {
+        if (editorNavigation.canGoBack()) editorNavigation.goBack();
+      } else if (editorNavigation.canGoForward()) {
+        editorNavigation.goForward();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("mousedown", onMouseDown, true);
+    window.addEventListener("mouseup", onMouseUp, true);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("mousedown", onMouseDown, true);
+      window.removeEventListener("mouseup", onMouseUp, true);
+    });
+  });
+
   return (
     <div class="app-shell app-material-shell flex h-screen w-screen relative flex-col overflow-hidden font-sans text-text selection:bg-accent/30 selection:text-accent-text">
       <TitleBar
@@ -1355,6 +1479,10 @@ export default function App() {
         updateAvailable={!!updateAvailable()}
         onViewUpdateDetails={() => setUpdateDialogVisible(true)}
         hasTabs={tabs().length > 0}
+        canGoBack={editorNavigation.canGoBack()}
+        canGoForward={editorNavigation.canGoForward()}
+        onGoBack={editorNavigation.goBack}
+        onGoForward={editorNavigation.goForward}
       />
 
       <div class="app-workspace flex flex-1 overflow-hidden relative">
@@ -1444,7 +1572,10 @@ export default function App() {
                 tabs={tabs()}
                 groups={groups()}
                 activeTabId={activeTabId()}
-                onTabChange={setActiveTabId}
+                onTabChange={(id) => {
+                  if (id !== activeTabId()) rememberCurrentLocation();
+                  setActiveTabId(id);
+                }}
                 onTabAdd={handleTabAdd}
                 onTabClose={closeTab}
                 onTabCloseOthers={closeOtherTabs}
@@ -1462,6 +1593,7 @@ export default function App() {
                 onGroupRename={renameGroup}
                 onGroupSetColor={setGroupColor}
                 onGroupToggleCollapsed={toggleGroupCollapsed}
+                onRevealTab={revealTab}
                 onGroupUngroup={ungroupGroup}
                 onGroupClose={closeGroup}
                 onOpenSqlFile={handleOpenSqlFile}
@@ -1480,6 +1612,10 @@ export default function App() {
                 onSaveToFile={handleTabSaveToFile}
                 executedQueries={executedQueries()}
                 dialogOpen={isAnyDialogOpen()}
+                onNavigationPoint={editorNavigation.remember}
+                onEditorHandle={(handle) => {
+                  editorHandle = handle;
+                }}
               />
             </main>
           </>

@@ -1567,7 +1567,7 @@ export default function SettingsView(props: Props) {
       tab: "shortcuts",
       title: "Keyboard shortcuts",
       keywords:
-        "shortcuts keyboard hotkeys keys bindings f5 ctrl cmd execute save tab select multiple",
+        "shortcuts keyboard hotkeys keys bindings f5 ctrl cmd execute save tab select multiple go back forward",
       render: () => <ShortcutsReference isPreviewBuild={isPreviewBuild()} />,
     },
     {

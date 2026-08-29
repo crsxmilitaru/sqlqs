@@ -43,6 +43,10 @@ import { loadPreferences } from "../../lib/settings";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
 import EditorTabBar from "./EditorTabBar";
+import {
+  hasNavigationRestore,
+  type EditorNavigationPoint,
+} from "../../lib/editor-navigation";
 
 const SqlEditor = lazy(() => import("./SqlEditor"));
 const loadAIChatPanel = () => import("../ai/AIChatPanel");
@@ -128,6 +132,7 @@ interface Props {
   onGroupRename: (groupId: string, name: string) => void;
   onGroupSetColor: (groupId: string, color: TabGroupColor) => void;
   onGroupToggleCollapsed: (groupId: string) => void;
+  onRevealTab?: (tabId: string) => void;
   onGroupUngroup: (groupId: string) => void;
   onGroupClose: (groupId: string) => void;
   onOpenSqlFile?: () => void;
@@ -146,6 +151,8 @@ interface Props {
   onSaveToFile?: (id: string) => void;
   executedQueries?: ExecutedQuery[];
   dialogOpen?: boolean;
+  onNavigationPoint?: (point: EditorNavigationPoint) => void;
+  onEditorHandle?: (handle: SqlEditorHandle | null) => void;
 }
 
 export default function QueryEditorPanel(props: Props) {
@@ -160,6 +167,7 @@ export default function QueryEditorPanel(props: Props) {
 
   const [tabBarRenaming, setTabBarRenaming] = createSignal(false);
   let tabBarRef: HTMLDivElement | undefined;
+  let tabBarContextMenuHandler: ((e: MouseEvent) => void) | undefined;
   let savedTabBarScrollLeft = 0;
   let cleanupTabBarWheelListener: (() => void) | undefined;
   let cleanupEditorResizeListeners: (() => void) | undefined;
@@ -399,6 +407,14 @@ export default function QueryEditorPanel(props: Props) {
     Record<string, Record<number, ResultsTableViewState>>
   >({});
   let editorRef: SqlEditorHandle | null = null;
+  onCleanup(() => props.onEditorHandle?.(null));
+
+  function handleNavigateTab(id: string) {
+    if (id !== props.activeTabId) {
+      props.onRevealTab?.(id);
+    }
+    props.onTabChange(id);
+  }
 
   createEffect(() => {
     if (!props.connected) return;
@@ -454,6 +470,7 @@ export default function QueryEditorPanel(props: Props) {
         [props.activeTabId, props.currentDatabase, props.dialogOpen] as const,
       ([activeTabId, currentDatabase, dialogOpen]) => {
         if (!activeTabId || !currentDatabase || dialogOpen) return;
+        if (hasNavigationRestore(activeTabId)) return;
         focusEditorSoon();
       },
       { defer: true },
@@ -475,9 +492,30 @@ export default function QueryEditorPanel(props: Props) {
     ),
   );
 
-  const isFirstTabActive = createMemo(() => {
+  const squareEditorTopLeft = createMemo(() => {
     if (!props.tabs || props.tabs.length === 0) return false;
-    return props.tabs[0].id === props.activeTabId;
+    const first = props.tabs[0];
+    if (
+      first.groupId &&
+      props.groups.some((group) => group.id === first.groupId)
+    ) {
+      return true;
+    }
+    return first.id === props.activeTabId;
+  });
+
+  const hidePlusSeparator = createMemo(() => {
+    if (!props.tabs || props.tabs.length === 0) return false;
+    const last = props.tabs[props.tabs.length - 1];
+    if (
+      last.groupId &&
+      props.groups.some((group) => group.id === last.groupId)
+    ) {
+      return props.tabs.some(
+        (tab) => tab.groupId === last.groupId && tab.id === props.activeTabId,
+      );
+    }
+    return last.id === props.activeTabId;
   });
 
   function restoreResultsSize() {
@@ -518,6 +556,18 @@ export default function QueryEditorPanel(props: Props) {
     if (tab.error) return true;
     if (!tab.result || tab.result.result_sets.length === 0) return true;
     return false;
+  });
+
+  const canMaximizeResults = createMemo(() => {
+    const tab = activeTab();
+    if (!tab || tab.error || !tab.result) return false;
+    return tab.result.result_sets.some((resultSet) => resultSet.rows.length > 0);
+  });
+
+  createEffect(() => {
+    if (!canMaximizeResults() && resultsMaximized()) {
+      restoreResultsSize();
+    }
   });
 
   const editorHasFixedHeight = () =>
@@ -903,7 +953,7 @@ export default function QueryEditorPanel(props: Props) {
           const index = parseInt(e.key, 10) - 1;
           if (index < visible.length) {
             e.preventDefault();
-            props.onTabChange(visible[index].id);
+            handleNavigateTab(visible[index].id);
           }
           return;
         }
@@ -924,7 +974,7 @@ export default function QueryEditorPanel(props: Props) {
         const nextIndex = index === -1 ? 0 : (index + 1) % visible.length;
         const nextId = visible[nextIndex].id;
         if (nextId !== props.activeTabId) {
-          props.onTabChange(nextId);
+          handleNavigateTab(nextId);
         }
         return;
       }
@@ -939,7 +989,7 @@ export default function QueryEditorPanel(props: Props) {
             : (index - 1 + visible.length) % visible.length;
         const nextId = visible[nextIndex].id;
         if (nextId !== props.activeTabId) {
-          props.onTabChange(nextId);
+          handleNavigateTab(nextId);
         }
       }
     };
@@ -972,6 +1022,7 @@ export default function QueryEditorPanel(props: Props) {
               <div
                 class="flex items-stretch justify-between flex-shrink-0 min-w-0 bg-transparent h-9"
                 onDblClick={handleTabRowDoubleClick}
+                onContextMenu={(e) => tabBarContextMenuHandler?.(e)}
               >
                 <div class="flex items-stretch min-w-0 flex-shrink overflow-hidden h-full">
                   {props.tabs.length > 0 && (
@@ -981,7 +1032,7 @@ export default function QueryEditorPanel(props: Props) {
                         groups={props.groups}
                         activeTabId={props.activeTabId}
                         pinnedCount={pinnedCount()}
-                        onTabChange={props.onTabChange}
+                        onTabChange={handleNavigateTab}
                         onTabClose={props.onTabClose}
                         onTabCloseOthers={props.onTabCloseOthers}
                         onTabCloseAll={props.onTabCloseAll}
@@ -1011,12 +1062,18 @@ export default function QueryEditorPanel(props: Props) {
                         requestCloseTabs={requestCloseTabs}
                         isTabDirty={isTabDirty}
                         setTabBarRef={setTabBarRef}
+                        setTabBarContextMenuHandler={(handler) => {
+                          tabBarContextMenuHandler = handler;
+                        }}
                         onRenamingChange={setTabBarRenaming}
                       />
-                      <div class="ui-divider mx-1.5 self-center" />
+                      <div
+                        class="ui-divider mx-0.5 self-center"
+                        classList={{ "opacity-0": hidePlusSeparator() }}
+                      />
                     </>
                   )}
-                  <Tooltip content="New Query" placement="bottom">
+                  <Tooltip content="New Query" placement="bottom" class="h-full items-center">
                     <button
                       type="button"
                       aria-label="New Query"
@@ -1028,7 +1085,7 @@ export default function QueryEditorPanel(props: Props) {
                           }
                         });
                       }}
-                      class="control-icon-btn control-icon-btn-sm ml-0 mr-1.5 self-center"
+                      class="control-icon-btn control-icon-btn-sm ml-0 mr-1.5"
                     >
                       <i class="fa-solid fa-plus text-s" />
                     </button>
@@ -1038,7 +1095,7 @@ export default function QueryEditorPanel(props: Props) {
 
               <div
                 class={`app-panel flex flex-col flex-1 min-w-0 min-h-0 ${
-                  isFirstTabActive() ? "rounded-tl-none" : ""
+                  squareEditorTopLeft() ? "rounded-tl-none" : ""
                 }`}
               >
                 <div class="editor-toolbar-frame flex items-center gap-6 p-2 flex-shrink-0 min-w-0 mx-3 mt-3 mb-2">
@@ -1246,8 +1303,15 @@ export default function QueryEditorPanel(props: Props) {
                       theme={props.theme}
                       currentDatabase={props.currentDatabase}
                       onContextMenu={handleEditorContextMenu}
-                      onRef={(handle) => (editorRef = handle)}
+                      onRef={(handle) => {
+                        editorRef = handle;
+                        props.onEditorHandle?.(handle);
+                      }}
                       onSearchPanelChange={setSearchOpen}
+                      onNavigationPoint={(point) => {
+                        if (tabBarRenaming()) return;
+                        props.onNavigationPoint?.(point);
+                      }}
                       wrapLines={wrapLines()}
                     />
                   </Suspense>
@@ -1307,23 +1371,25 @@ export default function QueryEditorPanel(props: Props) {
                       <span>Statistics</span>
                     </button>
                   </Show>
-                  <button
-                    type="button"
-                    aria-label={
-                      resultsMaximized()
-                        ? "Restore results size"
-                        : "Maximize results"
-                    }
-                    onClick={toggleResultsMaximized}
-                    class="btn btn-secondary"
-                  >
-                    <i
-                      class={`fa-solid ${
-                        resultsMaximized() ? "fa-compress" : "fa-expand"
-                      }`}
-                    />
-                    <span>{resultsMaximized() ? "Restore" : "Maximize"}</span>
-                  </button>
+                  <Show when={canMaximizeResults()}>
+                    <button
+                      type="button"
+                      aria-label={
+                        resultsMaximized()
+                          ? "Restore results size"
+                          : "Maximize results"
+                      }
+                      onClick={toggleResultsMaximized}
+                      class="btn btn-secondary"
+                    >
+                      <i
+                        class={`fa-solid ${
+                          resultsMaximized() ? "fa-compress" : "fa-expand"
+                        }`}
+                      />
+                      <span>{resultsMaximized() ? "Restore" : "Maximize"}</span>
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     onClick={() => {

@@ -1053,6 +1053,42 @@ export function useTabs() {
     );
   };
 
+  const revealTab = (tabId: string) => {
+    const tab = unwrap(tabsStore).find((item) => item.id === tabId);
+    if (!tab) return;
+    const groups = unwrap(groupsStore);
+
+    if (!tab.groupId) {
+      if (groups.every((group) => group.collapsed)) return;
+      setGroupsStore(
+        produce((draft) => {
+          for (const item of draft) {
+            item.collapsed = true;
+          }
+        }),
+      );
+      return;
+    }
+
+    const groupId = tab.groupId;
+    if (!groups.some((group) => group.id === groupId)) return;
+    if (
+      groups.every((group) =>
+        group.id === groupId ? !group.collapsed : group.collapsed,
+      )
+    ) {
+      return;
+    }
+
+    setGroupsStore(
+      produce((draft) => {
+        for (const item of draft) {
+          item.collapsed = item.id !== groupId;
+        }
+      }),
+    );
+  };
+
   const ungroupGroup = (groupId: string) => {
     const current = unwrap(tabsStore);
     const nextTabs = current.map((tab) =>
@@ -1117,6 +1153,7 @@ export function useTabs() {
     renameGroup,
     setGroupColor,
     toggleGroupCollapsed,
+    revealTab,
     ungroupGroup,
     closeGroup,
     requestAutoTabTitle,

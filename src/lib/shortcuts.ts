@@ -1,3 +1,4 @@
+import { getGoBackShortcutLabel, getGoForwardShortcutLabel } from "./editor-navigation";
 import { getModifierKeyLabel } from "./platform";
 
 export interface ShortcutDefinition {
@@ -56,6 +57,8 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
         { label: "Switch to tab 1–9", keys: [`${mod}+1 … ${mod}+9`] },
         { label: "Next tab", keys: [`${mod}+Page Down`] },
         { label: "Previous tab", keys: [`${mod}+Page Up`] },
+        { label: "Go back", keys: [getGoBackShortcutLabel()] },
+        { label: "Go forward", keys: [getGoForwardShortcutLabel()] },
       ],
     },
     {

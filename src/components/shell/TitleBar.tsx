@@ -3,6 +3,7 @@ import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
+import { getGoBackShortcutLabel, getGoForwardShortcutLabel } from "../../lib/editor-navigation";
 import { isMacOS } from "../../lib/platform";
 import type { ServerObjectIndexStatus } from "../../lib/types";
 import Tooltip from "../ui/Tooltip";
@@ -44,6 +45,10 @@ interface Props {
   hideAppContent?: boolean;
   hasTabs: boolean;
   onRequestClose?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
 }
 
 export default function TitleBar(props: Props) {
@@ -326,12 +331,53 @@ export default function TitleBar(props: Props) {
                   Connect Server
                 </button>
               )}
+
+              <div class="ui-divider mx-1" />
+
+              <Tooltip
+                content={`Go Back (${getGoBackShortcutLabel()})`}
+                placement="bottom"
+              >
+                <button
+                  type="button"
+                  aria-label="Go Back"
+                  onClick={() => props.onGoBack?.()}
+                  disabled={
+                    (props.dialogOpen ?? false) ||
+                    !props.connected ||
+                    !props.canGoBack
+                  }
+                  class="control-icon-btn titlebar-icon-btn"
+                >
+                  <i class="fa-solid fa-arrow-left text-m" />
+                </button>
+              </Tooltip>
+              <Tooltip
+                content={`Go Forward (${getGoForwardShortcutLabel()})`}
+                placement="bottom"
+              >
+                <button
+                  type="button"
+                  aria-label="Go Forward"
+                  onClick={() => props.onGoForward?.()}
+                  disabled={
+                    (props.dialogOpen ?? false) ||
+                    !props.connected ||
+                    !props.canGoForward
+                  }
+                  class="control-icon-btn titlebar-icon-btn"
+                >
+                  <i class="fa-solid fa-arrow-right text-m" />
+                </button>
+              </Tooltip>
             </>
           )}
         </div>
 
+        <div class="flex-1 h-full" data-tauri-drag-region />
+
         {!props.hideAppContent && props.connected && (
-          <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center no-drag">
+          <div class="flex items-center no-drag" data-tauri-drag-region="false">
             <Tooltip content={objectJumpTooltip()} placement="bottom">
               <div
                 onClick={props.onToggleObjectJump}

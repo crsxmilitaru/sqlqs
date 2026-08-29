@@ -70,6 +70,14 @@ import type {
   DatabaseSchemaCatalogEntry,
   QueryTabUpdateOptions,
 } from "../../lib/types";
+import {
+  consumeNavigationRestore,
+  EDITOR_NAVIGATION_CHAR_JUMP,
+  EDITOR_NAVIGATION_LINE_JUMP,
+  hasNavigationRestore,
+  type EditorNavigationPoint,
+  type EditorViewLocation,
+} from "../../lib/editor-navigation";
 
 const externalSyncAnnotation = Annotation.define<boolean>();
 const editorHistoryConfig = { history: historyField };
@@ -99,15 +107,28 @@ function snapshotTabEditorState(tabId: string, view: EditorView) {
   });
 }
 
-function applyCachedScroll(view: EditorView, top: number, left: number) {
+let scrollApplyGeneration = 0;
+
+function applyCachedScroll(
+  view: EditorView,
+  top: number,
+  left: number,
+  onSettled?: () => void,
+) {
+  const generation = ++scrollApplyGeneration;
   const apply = () => {
+    if (generation !== scrollApplyGeneration) return false;
     view.scrollDOM.scrollTop = top;
     view.scrollDOM.scrollLeft = left;
+    return true;
   };
   apply();
   requestAnimationFrame(() => {
-    apply();
-    requestAnimationFrame(apply);
+    if (!apply()) return;
+    requestAnimationFrame(() => {
+      if (!apply()) return;
+      onSettled?.();
+    });
   });
 }
 
@@ -147,8 +168,6 @@ function restoreTabEditorState(
       ],
     });
   }
-
-  applyCachedScroll(view, cached.scrollTop, cached.scrollLeft);
 }
 
 function insertIndentUnit(view: EditorView): boolean {
@@ -247,6 +266,7 @@ interface Props {
   onContextMenu?: (e: MouseEvent) => void;
   onRef?: (handle: SqlEditorHandle) => void;
   onSearchPanelChange?: (open: boolean) => void;
+  onNavigationPoint?: (point: EditorNavigationPoint) => void;
   wrapLines?: boolean;
 }
 
@@ -255,6 +275,8 @@ export interface SqlEditorHandle {
   openCompletion: () => void;
   openSearch: () => void;
   getSelectedText: () => string;
+  getLocation: () => EditorViewLocation | null;
+  setLocation: (location: EditorViewLocation, onSettled?: () => void) => void;
   replaceSelection: (text: string) => void;
   formatSelection: () => boolean;
   applyFormattedDocument: (formatted: string) => boolean;
@@ -1969,6 +1991,12 @@ export default function SqlEditor(props: Props) {
   let lastCount = -1;
   let lastMatchIndex = 0;
   let lastTabId = "";
+  let applyingTabState = false;
+  let applyingLocation = false;
+  let locationApplyGeneration = 0;
+  let tabStateApplyGeneration = 0;
+  let lastScrollTop = 0;
+  let lastScrollLeft = 0;
   let editorExtensions: Extension[] | undefined;
 
   const searchHistory: string[] = [];
@@ -1998,6 +2026,19 @@ export default function SqlEditor(props: Props) {
       const selection = viewRef.state.selection.main;
       if (selection.from === selection.to) return "";
       return viewRef.state.doc.sliceString(selection.from, selection.to);
+    },
+    getLocation() {
+      if (!viewRef) return null;
+      const selection = viewRef.state.selection.main;
+      return {
+        anchor: selection.anchor,
+        head: selection.head,
+        scrollTop: viewRef.scrollDOM.scrollTop,
+        scrollLeft: viewRef.scrollDOM.scrollLeft,
+      };
+    },
+    setLocation(location: EditorViewLocation, onSettled?: () => void) {
+      applyViewLocation(location, onSettled);
     },
     replaceSelection(text: string) {
       if (!viewRef) return;
@@ -2037,10 +2078,6 @@ export default function SqlEditor(props: Props) {
       }
     },
   };
-
-  onMount(() => {
-    props.onRef?.(handle);
-  });
 
   const schemaCompletionSource = async (context: CompletionContext) => {
     const database = props.currentDatabase;
@@ -2121,40 +2158,42 @@ export default function SqlEditor(props: Props) {
   };
 
   function applyLiveCompartments(view: EditorView) {
-    const prefs = loadEditorPreferences();
-    view.dispatch({
-      effects: [
-        indentUnitCompartment.reconfigure(indentUnit.of(indentSizeUnit())),
-        wrapCompartment.reconfigure(
-          props.wrapLines ? EditorView.lineWrapping : [],
-        ),
-        lineNumbersCompartment.reconfigure(
-          prefs.lineNumbers ? lineNumbers() : [],
-        ),
-        minimapCompartment.reconfigure(
-          prefs.minimap ? buildMinimapExt() : [],
-        ),
-        autocompleteCompartment.reconfigure(
-          prefs.autocomplete
-            ? buildAutocompletionExt(combinedCompletionSource)
-            : [],
-        ),
-        fontThemeCompartment.reconfigure(
-          buildFontTheme(prefs.fontFamily, prefs.fontSize),
-        ),
-        themeCompartment.reconfigure(buildThemeExtension(props.theme)),
-        readOnlyCompartment.reconfigure(
-          buildReadOnlyExtension(Boolean(props.readOnly)),
-        ),
-        placeholderCompartment.reconfigure(
-          placeholderExt(
-            buildPlaceholderText(
-              Boolean(props.readOnly),
-              props.currentDatabase,
+    untrack(() => {
+      const prefs = loadEditorPreferences();
+      view.dispatch({
+        effects: [
+          indentUnitCompartment.reconfigure(indentUnit.of(indentSizeUnit())),
+          wrapCompartment.reconfigure(
+            props.wrapLines ? EditorView.lineWrapping : [],
+          ),
+          lineNumbersCompartment.reconfigure(
+            prefs.lineNumbers ? lineNumbers() : [],
+          ),
+          minimapCompartment.reconfigure(
+            prefs.minimap ? buildMinimapExt() : [],
+          ),
+          autocompleteCompartment.reconfigure(
+            prefs.autocomplete
+              ? buildAutocompletionExt(combinedCompletionSource)
+              : [],
+          ),
+          fontThemeCompartment.reconfigure(
+            buildFontTheme(prefs.fontFamily, prefs.fontSize),
+          ),
+          themeCompartment.reconfigure(buildThemeExtension(props.theme)),
+          readOnlyCompartment.reconfigure(
+            buildReadOnlyExtension(Boolean(props.readOnly)),
+          ),
+          placeholderCompartment.reconfigure(
+            placeholderExt(
+              buildPlaceholderText(
+                Boolean(props.readOnly),
+                props.currentDatabase,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      });
     });
   }
 
@@ -2163,17 +2202,86 @@ export default function SqlEditor(props: Props) {
     snapshotTabEditorState(tabId, viewRef);
   }
 
-  function restoreTabState(tabId: string, value: string) {
-    if (!viewRef || !editorExtensions) return;
-    restoreTabEditorState(tabId, value, viewRef, editorExtensions);
-    applyLiveCompartments(viewRef);
-    const cached = tabEditorStateCache.get(tabId);
-    if (cached) {
-      applyCachedScroll(viewRef, cached.scrollTop, cached.scrollLeft);
+  function applyViewLocation(
+    location: EditorViewLocation,
+    onSettled?: () => void,
+  ) {
+    if (!viewRef) {
+      onSettled?.();
+      return;
     }
+    const generation = ++locationApplyGeneration;
+    tabStateApplyGeneration += 1;
+    applyingLocation = true;
+    const max = viewRef.state.doc.length;
+    viewRef.dispatch({
+      selection: {
+        anchor: Math.min(Math.max(location.anchor, 0), max),
+        head: Math.min(Math.max(location.head, 0), max),
+      },
+      annotations: [
+        Transaction.addToHistory.of(false),
+        externalSyncAnnotation.of(true),
+      ],
+    });
+    const tabIdToSnapshot = lastTabId;
+    applyCachedScroll(
+      viewRef,
+      location.scrollTop,
+      location.scrollLeft,
+      () => {
+        if (generation !== locationApplyGeneration) return;
+        lastScrollTop = location.scrollTop;
+        lastScrollLeft = location.scrollLeft;
+        applyingLocation = false;
+        applyingTabState = false;
+        if (tabIdToSnapshot && tabIdToSnapshot === lastTabId) {
+          snapshotTabState(tabIdToSnapshot);
+        }
+        onSettled?.();
+      },
+    );
   }
 
-  createEffect(() => {
+  function applyQueuedRestore(tabId: string) {
+    const queued = consumeNavigationRestore(tabId);
+    if (!queued) return;
+    applyViewLocation(queued.point, queued.onSettled);
+  }
+
+  function restoreTabState(
+    tabId: string,
+    value: string,
+    onSettled?: () => void,
+  ) {
+    if (!viewRef || !editorExtensions) {
+      onSettled?.();
+      return;
+    }
+    const skipScroll = hasNavigationRestore(tabId);
+    restoreTabEditorState(
+      tabId,
+      value,
+      viewRef,
+      editorExtensions,
+    );
+    applyLiveCompartments(viewRef);
+    if (!skipScroll) {
+      const cached = tabEditorStateCache.get(tabId);
+      if (cached) {
+        applyCachedScroll(
+          viewRef,
+          cached.scrollTop,
+          cached.scrollLeft,
+          onSettled,
+        );
+        return;
+      }
+    }
+    onSettled?.();
+  }
+
+  onMount(() => {
     if (!containerRef) return;
 
     const initialTheme = untrack(() => props.theme);
@@ -2222,6 +2330,52 @@ export default function SqlEditor(props: Props) {
           const next = update.state.doc.toString();
           if (next !== props.value) {
             props.onChange(next, historyOptionsForEditorUpdate(update));
+          }
+        }
+      }
+
+      if (
+        update.selectionSet &&
+        !applyingTabState &&
+        !applyingLocation &&
+        lastTabId &&
+        !update.transactions.some(
+          (transaction) =>
+            transaction.annotation(externalSyncAnnotation) === true,
+        )
+      ) {
+        const oldSelection = update.startState.selection.main;
+        const newSelection = update.state.selection.main;
+        if (
+          oldSelection.anchor !== newSelection.anchor ||
+          oldSelection.head !== newSelection.head
+        ) {
+          const oldLine = update.startState.doc.lineAt(
+            oldSelection.head,
+          ).number;
+          const newLine = update.state.doc.lineAt(newSelection.head).number;
+          const lineJump = Math.abs(newLine - oldLine);
+          const charJump = Math.abs(newSelection.head - oldSelection.head);
+          const pointerSelect = update.transactions.some((transaction) =>
+            transaction.isUserEvent("select.pointer"),
+          );
+          const userSelect = update.transactions.some((transaction) =>
+            transaction.isUserEvent("select"),
+          );
+          const shouldRecord =
+            !update.docChanged &&
+            userSelect &&
+            (pointerSelect ||
+              lineJump >= EDITOR_NAVIGATION_LINE_JUMP ||
+              charJump >= EDITOR_NAVIGATION_CHAR_JUMP);
+          if (shouldRecord) {
+            props.onNavigationPoint?.({
+              tabId: lastTabId,
+              anchor: oldSelection.anchor,
+              head: oldSelection.head,
+              scrollTop: lastScrollTop,
+              scrollLeft: lastScrollLeft,
+            });
           }
         }
       }
@@ -2433,7 +2587,21 @@ export default function SqlEditor(props: Props) {
 
     viewRef = view;
     lastTabId = untrack(() => props.tabId);
-    restoreTabState(lastTabId, untrack(() => props.value));
+    lastScrollTop = view.scrollDOM.scrollTop;
+    lastScrollLeft = view.scrollDOM.scrollLeft;
+    const onEditorScroll = () => {
+      lastScrollTop = view.scrollDOM.scrollTop;
+      lastScrollLeft = view.scrollDOM.scrollLeft;
+    };
+    view.scrollDOM.addEventListener("scroll", onEditorScroll, { passive: true });
+    const mountGeneration = ++tabStateApplyGeneration;
+    applyingTabState = true;
+    restoreTabState(lastTabId, untrack(() => props.value), () => {
+      if (mountGeneration !== tabStateApplyGeneration) return;
+      applyingTabState = false;
+    });
+    applyQueuedRestore(lastTabId);
+    props.onRef?.(handle);
 
     const enhanceSearchPanel = (panel: HTMLElement) => {
       if (panel.dataset.enhanced === "true") return;
@@ -2581,6 +2749,7 @@ export default function SqlEditor(props: Props) {
 
     onCleanup(() => {
       if (lastTabId && viewRef) snapshotTabState(lastTabId);
+      view.scrollDOM.removeEventListener("scroll", onEditorScroll);
       panelObserver.disconnect();
       view.destroy();
       viewRef = null;
@@ -2596,8 +2765,14 @@ export default function SqlEditor(props: Props) {
 
     if (tabId !== lastTabId) {
       if (lastTabId) snapshotTabState(lastTabId);
-      restoreTabState(tabId, value);
+      const generation = ++tabStateApplyGeneration;
+      applyingTabState = true;
+      restoreTabState(tabId, value, () => {
+        if (generation !== tabStateApplyGeneration) return;
+        applyingTabState = false;
+      });
       lastTabId = tabId;
+      applyQueuedRestore(tabId);
       return;
     }
 
