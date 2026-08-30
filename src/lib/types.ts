@@ -135,10 +135,26 @@ export interface BackupScheduleInfo {
   next_run?: string | null;
 }
 
+export interface SchemaCatalogColumn {
+  name: string;
+  type_name: string;
+  is_nullable: boolean;
+  is_identity: boolean;
+  is_primary_key: boolean;
+}
+
+export interface SchemaCatalogParameter {
+  name: string;
+  type_name: string;
+  is_output: boolean;
+}
+
 export interface DatabaseSchemaCatalogEntry {
-  table_name: string;
   schema_name: string;
-  columns: string[];
+  object_name: string;
+  object_kind: string;
+  columns: SchemaCatalogColumn[];
+  parameters: SchemaCatalogParameter[];
 }
 
 export interface ServerDatabaseObject extends DatabaseObject {

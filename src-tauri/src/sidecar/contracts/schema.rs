@@ -129,10 +129,30 @@ pub struct ListSchemaCatalogRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SchemaCatalogColumn {
+    pub name: String,
+    pub type_name: String,
+    pub is_nullable: bool,
+    pub is_identity: bool,
+    pub is_primary_key: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaCatalogParameter {
+    pub name: String,
+    pub type_name: String,
+    pub is_output: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SchemaCatalogEntry {
     pub schema_name: String,
-    pub table_name: String,
-    pub columns: Vec<String>,
+    pub object_name: String,
+    pub object_kind: String,
+    pub columns: Vec<SchemaCatalogColumn>,
+    pub parameters: Vec<SchemaCatalogParameter>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

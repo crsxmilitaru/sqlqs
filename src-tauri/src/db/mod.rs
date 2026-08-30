@@ -7,7 +7,8 @@ pub use query::split_batches;
 pub use types::{
     BackupDatabaseRequest, BackupDefaults, BackupFileInfo, BackupOperationResult,
     BackupScheduleInfo, BackupScheduleRequest, ColumnInfo, ConnectionConfig, DatabaseObject,
-    DatabaseSchemaCatalogEntry, QueryResult, RestoreDatabaseRequest, ResultSet,
+    DatabaseSchemaCatalogEntry, QueryResult, RestoreDatabaseRequest, ResultSet, SchemaCatalogColumn,
+    SchemaCatalogParameter,
     ServerObjectIndexStatus, ServerObjectSearchResponse, QueryStatistics, TableIoStatistics,
     OutputItem,
 };

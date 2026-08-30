@@ -106,8 +106,17 @@
     filter: brightness(0.9);
   }
 
+  .tab-bar ~ .ui-divider + span .control-icon-btn:hover:not(:disabled) {
+    background: var(--color-accent);
+    color: var(--color-accent-text);
+  }
+
   .tab-bar ~ .ui-divider + span .control-icon-btn:active:not(:disabled) {
     transform: none;
+  }
+
+  .tab-bar:has(> :last-child:hover) ~ .ui-divider {
+    opacity: 0;
   }
 
   .control-icon-btn:focus-visible {
@@ -210,6 +219,7 @@
     gap: var(--spacing-m);
     padding: 0 var(--spacing-m);
     color: var(--color-text-muted);
+    -webkit-app-region: no-drag;
     cursor: pointer;
     user-select: none;
     transition: color var(--duration-normal) ease;

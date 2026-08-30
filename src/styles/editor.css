@@ -111,18 +111,12 @@
   color: var(--color-accent-text) !important;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {
-  display: list-item !important;
-  padding: 8px 12px 4px !important;
-  margin: 2px 2px 0 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  color: var(--color-text-muted) !important;
-  font-family: var(--font-sans) !important;
-  font-size: var(--text-xs) !important;
-  font-weight: 700 !important;
-  letter-spacing: 0 !important;
-  opacity: 0.7 !important;
-  text-transform: uppercase !important;
+.cm-sql-ghost {
+  color: var(--color-text-muted);
+  font-style: italic;
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
 }
 
 .cm-completionIcon {
@@ -158,7 +152,7 @@
 }
 
 .cm-completionIcon-property::before {
-  content: "P";
+  content: "C";
 }
 
 .cm-completionIcon-keyword {
@@ -227,6 +221,109 @@
 .cm-completionIcon-text::before {
   content: "AI";
   font-size: var(--text-icon-xs) !important;
+}
+
+.cm-completionIcon-interface {
+  background-color: color-mix(
+    in srgb,
+    var(--color-success),
+    transparent 85%
+  ) !important;
+  color: var(--color-success) !important;
+}
+
+.cm-completionIcon-interface::before {
+  content: "V";
+}
+
+.cm-completionIcon-method {
+  background-color: color-mix(
+    in srgb,
+    var(--color-warning),
+    transparent 85%
+  ) !important;
+  color: var(--color-warning) !important;
+}
+
+.cm-completionIcon-method::before {
+  content: "P";
+}
+
+.cm-completionIcon-function {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 85%
+  ) !important;
+  color: var(--color-accent) !important;
+}
+
+.cm-completionIcon-function::before {
+  content: "F";
+}
+
+.cm-completionIcon-class {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent),
+    transparent 85%
+  ) !important;
+  color: var(--color-accent) !important;
+}
+
+.cm-completionIcon-class::before {
+  content: "D";
+}
+
+.cm-completionIcon-pk {
+  background-color: color-mix(
+    in srgb,
+    var(--color-warning),
+    transparent 85%
+  ) !important;
+  color: var(--color-warning) !important;
+}
+
+.cm-completionIcon-pk::before {
+  content: "K";
+}
+
+.cm-completionIcon-snippet {
+  background-color: color-mix(
+    in srgb,
+    var(--color-text-muted),
+    transparent 85%
+  ) !important;
+  color: var(--color-text-muted) !important;
+}
+
+.cm-completionIcon-snippet::before {
+  content: "{}";
+  font-size: var(--text-icon-xs) !important;
+}
+
+.cm-tooltip.cm-completionInfo {
+  background-color: var(--color-surface-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  padding: var(--spacing-s) var(--spacing-m) !important;
+  box-shadow: var(--shadow-popover) !important;
+  max-width: 360px !important;
+}
+
+.cm-sql-completion-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-s);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.cm-sql-completion-info > div:first-child {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .cm-tooltip.cm-tooltip-autocomplete

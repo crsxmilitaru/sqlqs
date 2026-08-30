@@ -7,6 +7,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { bracketIdentifier } from "../../lib/schema-catalog";
 import { loadExecutionPreferences } from "../../lib/settings";
 import type { ResultSet } from "../../lib/types";
 import DialogCloseButton from "../ui/DialogCloseButton";
@@ -249,10 +250,6 @@ function pickDefaultTable(
 
 function tableRefDisplayName(ref: TableRef): string {
   return ref.schema ? `${ref.schema}.${ref.table}` : ref.table;
-}
-
-function bracketIdentifier(name: string): string {
-  return `[${name.replace(/\]/g, "]]")}]`;
 }
 
 function bracketedTargetName(ref: TableRef): string {

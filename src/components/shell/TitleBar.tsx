@@ -1,5 +1,5 @@
 import { IconWinMinimize, IconWinMaximize, IconWinRestore, IconWinClose, IconMacClose, IconMacMinimize, IconMacMaximize, } from "../ui/Icons";
-import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
@@ -44,6 +44,7 @@ interface Props {
   onViewUpdateDetails?: () => void;
   hideAppContent?: boolean;
   hasTabs: boolean;
+  hasAiKey: boolean;
   onRequestClose?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -53,14 +54,8 @@ interface Props {
 
 export default function TitleBar(props: Props) {
   const isMac = isMacOS();
-  const [hasAiKey, setHasAiKey] = createSignal(false);
   const [isMaximized, setIsMaximized] = createSignal(false);
   const win = getCurrentWindow();
-
-  createEffect(() => {
-    const _ = props.hideAppContent;
-    AiService.getStatus().then((s) => setHasAiKey(s.hasKey));
-  });
 
   onMount(() => {
     const unlistens: Array<() => void> = [];
@@ -430,7 +425,7 @@ export default function TitleBar(props: Props) {
             <div class="flex items-center self-center">
               <Tooltip
                 content={
-                  !hasAiKey()
+                  !props.hasAiKey
                     ? "AI Chat • Add a Gemini API key in Settings"
                     : !props.connected
                       ? "AI Chat • Connect to a server"
@@ -444,7 +439,7 @@ export default function TitleBar(props: Props) {
                     void import("../ai/AIChatPanel");
                     void AiService.listAvailableModels();
                   }}
-                  disabled={!hasAiKey() || !props.connected || !props.hasTabs}
+                  disabled={!props.hasAiKey || !props.connected || !props.hasTabs}
                   class={`control-icon-btn titlebar-icon-btn ${
                     props.aiChatOpen ? "is-active" : ""
                     }`}

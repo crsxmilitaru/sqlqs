@@ -25,6 +25,8 @@ const STORAGE_KEY_EDITOR_FONT_SIZE = "sqlqs_editor_font_size";
 const STORAGE_KEY_EDITOR_LINE_NUMBERS = "sqlqs_editor_line_numbers";
 const STORAGE_KEY_EDITOR_MINIMAP = "sqlqs_editor_minimap";
 const STORAGE_KEY_EDITOR_AUTOCOMPLETE = "sqlqs_editor_autocomplete";
+const STORAGE_KEY_EDITOR_SUGGESTION_STYLE =
+  "sqlqs_editor_suggestion_style";
 const STORAGE_KEY_EDITOR_FORMAT_ON_PASTE = "sqlqs_editor_format_on_paste";
 const STORAGE_KEY_REVEAL_DB_IN_EXPLORER = "sqlqs_reveal_current_db_in_explorer";
 const STORAGE_KEY_OPEN_LAST_CHAT_STARTUP = "sqlqs_open_last_chat_startup";
@@ -41,6 +43,7 @@ export const DEFAULT_EDITOR_FONT_FAMILY = "";
 export const DEFAULT_EDITOR_FONT_SIZE = 14;
 export const MIN_EDITOR_FONT_SIZE = 10;
 export const MAX_EDITOR_FONT_SIZE = 24;
+export const DEFAULT_EDITOR_SUGGESTION_STYLE: EditorSuggestionStyle = "ghost";
 
 export const EDITOR_FONT_FAMILY_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Default (Cascadia Code)" },
@@ -53,15 +56,23 @@ export const EDITOR_FONT_FAMILY_OPTIONS: { value: string; label: string }[] = [
   { value: "monospace", label: "System Monospace" },
 ];
 
+export const EDITOR_SUGGESTION_STYLE_OPTIONS: { value: EditorSuggestionStyle; label: string }[] =
+  [
+    { value: "ghost", label: "Inline ghost text" },
+    { value: "popup", label: "Popup list" },
+  ];
+
 export interface EditorPreferences {
   fontFamily: string;
   fontSize: number;
   lineNumbers: boolean;
   minimap: boolean;
   autocomplete: boolean;
+  suggestionStyle: EditorSuggestionStyle;
   formatOnPaste: boolean;
 }
 
+export type EditorSuggestionStyle = "ghost" | "popup";
 export type SqlKeywordCase = "upper" | "lower" | "preserve";
 export type UpdateChannel = "stable" | "preview";
 export type TabAutoNamingMode = "first-line" | "ai";
@@ -242,11 +253,24 @@ function readEditorPreferencesFromStorage(): EditorPreferences {
     lineNumbers: readBoolWithDefault(STORAGE_KEY_EDITOR_LINE_NUMBERS, true),
     minimap: readBoolWithDefault(STORAGE_KEY_EDITOR_MINIMAP, true),
     autocomplete: readBoolWithDefault(STORAGE_KEY_EDITOR_AUTOCOMPLETE, true),
+    suggestionStyle: readSuggestionStyleFromStorage(),
     formatOnPaste: readBoolWithDefault(
       STORAGE_KEY_EDITOR_FORMAT_ON_PASTE,
       false,
     ),
   };
+}
+
+export function normalizeEditorSuggestionStyle(
+  raw: string | null,
+): EditorSuggestionStyle {
+  return raw === "popup" ? "popup" : DEFAULT_EDITOR_SUGGESTION_STYLE;
+}
+
+function readSuggestionStyleFromStorage(): EditorSuggestionStyle {
+  return normalizeEditorSuggestionStyle(
+    localStorage.getItem(STORAGE_KEY_EDITOR_SUGGESTION_STYLE),
+  );
 }
 
 function readNonNegativeIntWithDefault(key: string, def: number): number {
@@ -598,6 +622,14 @@ export function saveEditorAutocomplete(value: boolean) {
   setPreferences((prev) => ({
     ...prev,
     editor: { ...prev.editor, autocomplete: value },
+  }));
+}
+
+export function saveEditorSuggestionStyle(value: EditorSuggestionStyle) {
+  localStorage.setItem(STORAGE_KEY_EDITOR_SUGGESTION_STYLE, value);
+  setPreferences((prev) => ({
+    ...prev,
+    editor: { ...prev.editor, suggestionStyle: value },
   }));
 }
 

@@ -19,6 +19,7 @@ import {
 } from "../../lib/editor-navigation";
 import { baseFileName, getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
+import { AiService } from "../../lib/ai";
 import { generateTabTitle } from "../../lib/sql";
 import { loadTheme, THEME_CHANGED_EVENT, type ThemeSelection } from "../../lib/theme";
 import { startTaskbarOperation } from "../../lib/taskbar";
@@ -332,6 +333,7 @@ export default function App() {
     loadPreferences().openLastChatStartup &&
       localStorage.getItem("sqlqs_ai_chat_open") === "true",
   );
+  const [hasAiKey, setHasAiKey] = createSignal(false);
   const [propertiesTarget, setPropertiesTarget] = createSignal<{
     database: string;
     schema: string;
@@ -419,8 +421,28 @@ export default function App() {
     localStorage.setItem("sqlqs_ai_chat_open", String(aiChatOpen()));
   });
 
+  createEffect(() => {
+    if (isSettingsOpen()) return;
+    void AiService.getStatus()
+      .then((status) => setHasAiKey(status.hasKey))
+      .catch((err) => console.error("Failed to refresh AI status:", err));
+  });
+
   function handleToggleAiChat() {
+    if (!connected() || !hasAiKey() || tabs().length === 0) return;
     setAiChatOpen((prev) => !prev);
+  }
+
+  function handleToggleSidebar() {
+    if (
+      !connected() ||
+      isInitializing() ||
+      isSettingsOpen() ||
+      isAnyDialogOpen()
+    ) {
+      return;
+    }
+    setIsSidebarOpen((prev) => !prev);
   }
 
   function handleWindowClose() {
@@ -1310,6 +1332,33 @@ export default function App() {
   });
 
   createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (isSettingsOpen() || isAnyDialogOpen()) return;
+
+      const key = event.key.toLowerCase();
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.shiftKey || key !== "b") return;
+
+      if (event.altKey) {
+        if (!connected() || !hasAiKey() || tabs().length === 0) return;
+        event.preventDefault();
+        handleToggleAiChat();
+        return;
+      }
+
+      if (getTextEditableTarget(event.target)) return;
+
+      if (!connected() || isInitializing()) return;
+      event.preventDefault();
+      handleToggleSidebar();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
     const canOpen = canOpenObjectJump();
     const blocking = hasBlockingDialog();
 
@@ -1465,8 +1514,8 @@ export default function App() {
         onShowSettings={() => setIsSettingsOpen(true)}
         onHideSettings={() => setIsSettingsOpen(false)}
         settingsDisabled={isSettingsOpen()}
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen())}
-        sidebarVisible={isSidebarOpen()}
+        onToggleSidebar={handleToggleSidebar}
+        sidebarVisible={connected() && !isInitializing() && isSidebarOpen()}
         sidebarWidth={explorerWidth()}
         dialogOpen={isAnyDialogOpen()}
         aiChatOpen={aiChatOpen()}
@@ -1479,6 +1528,7 @@ export default function App() {
         updateAvailable={!!updateAvailable()}
         onViewUpdateDetails={() => setUpdateDialogVisible(true)}
         hasTabs={tabs().length > 0}
+        hasAiKey={hasAiKey()}
         canGoBack={editorNavigation.canGoBack()}
         canGoForward={editorNavigation.canGoForward()}
         onGoBack={editorNavigation.goBack}
@@ -1519,7 +1569,7 @@ export default function App() {
           />
         ) : (
           <>
-            {connected() && isSidebarOpen() && (
+            {connected() && !isInitializing() && isSidebarOpen() && (
               <>
                 <div
                   style={{ width: `${explorerWidth()}px` }}

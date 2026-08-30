@@ -8,7 +8,8 @@ mod sql_gen;
 use db::{
     BackupDatabaseRequest, BackupDefaults, BackupFileInfo, BackupOperationResult,
     BackupScheduleInfo, BackupScheduleRequest, CachedServerObjectIndex, ColumnInfo,
-    ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult,
+    ConnectionConfig, DatabaseObject, DatabaseSchemaCatalogEntry, QueryResult, SchemaCatalogColumn,
+    SchemaCatalogParameter,
     RestoreDatabaseRequest, ServerObjectIndexStatus, ServerObjectSearchResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -1347,6 +1348,40 @@ async fn get_columns(
     get_columns_via_sidecar(&state, &database, &schema, &table).await
 }
 
+impl From<sidecar::contracts::schema::SchemaCatalogColumn> for SchemaCatalogColumn {
+    fn from(column: sidecar::contracts::schema::SchemaCatalogColumn) -> Self {
+        Self {
+            name: column.name,
+            type_name: column.type_name,
+            is_nullable: column.is_nullable,
+            is_identity: column.is_identity,
+            is_primary_key: column.is_primary_key,
+        }
+    }
+}
+
+impl From<sidecar::contracts::schema::SchemaCatalogParameter> for SchemaCatalogParameter {
+    fn from(parameter: sidecar::contracts::schema::SchemaCatalogParameter) -> Self {
+        Self {
+            name: parameter.name,
+            type_name: parameter.type_name,
+            is_output: parameter.is_output,
+        }
+    }
+}
+
+impl From<sidecar::contracts::schema::SchemaCatalogEntry> for DatabaseSchemaCatalogEntry {
+    fn from(entry: sidecar::contracts::schema::SchemaCatalogEntry) -> Self {
+        Self {
+            schema_name: entry.schema_name,
+            object_name: entry.object_name,
+            object_kind: entry.object_kind,
+            columns: entry.columns.into_iter().map(Into::into).collect(),
+            parameters: entry.parameters.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[tauri::command]
 async fn get_database_schema_catalog(
     state: State<'_, AppState>,
@@ -1360,11 +1395,7 @@ async fn get_database_schema_catalog(
     Ok(response
         .entries
         .into_iter()
-        .map(|e| DatabaseSchemaCatalogEntry {
-            table_name: e.table_name,
-            schema_name: e.schema_name,
-            columns: e.columns,
-        })
+        .map(DatabaseSchemaCatalogEntry::from)
         .collect())
 }
 

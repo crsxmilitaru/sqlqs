@@ -1302,6 +1302,7 @@ export default function QueryEditorPanel(props: Props) {
                       readOnly={!hasDatabaseSelected()}
                       theme={props.theme}
                       currentDatabase={props.currentDatabase}
+                      databases={props.databases}
                       onContextMenu={handleEditorContextMenu}
                       onRef={(handle) => {
                         editorRef = handle;

@@ -17,6 +17,7 @@ import { loadRevealCurrentDatabaseInExplorer } from "../../lib/settings";
 import type { JSX } from "solid-js";
 import type { SavedQuery } from "../../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../../lib/types";
+import { preloadSchemaCatalog } from "../../lib/schema-catalog";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import {
   IconChevronRight,
@@ -1478,6 +1479,7 @@ export default function ObjectExplorer(props: Props) {
         if (tableCache[database] !== interned) {
           setTableCache(database, interned);
         }
+        preloadSchemaCatalog(database);
         setLoadErrors(
           produce((errors) => {
             delete errors[database];

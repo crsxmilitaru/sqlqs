@@ -197,10 +197,28 @@ pub struct BackupScheduleInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct SchemaCatalogColumn {
+    pub name: String,
+    pub type_name: String,
+    pub is_nullable: bool,
+    pub is_identity: bool,
+    pub is_primary_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SchemaCatalogParameter {
+    pub name: String,
+    pub type_name: String,
+    pub is_output: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DatabaseSchemaCatalogEntry {
-    pub table_name: String,
     pub schema_name: String,
-    pub columns: Vec<String>,
+    pub object_name: String,
+    pub object_kind: String,
+    pub columns: Vec<SchemaCatalogColumn>,
+    pub parameters: Vec<SchemaCatalogParameter>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -2,7 +2,7 @@
 
   .tab-bar {
     display: flex;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 0;
     padding: 0;
     scrollbar-width: none;
@@ -16,7 +16,7 @@
 
   .tab {
     position: relative;
-    height: 36px;
+    height: 100%;
     padding: 0 10px;
     max-width: clamp(160px, 18vw, 240px);
     border-top-left-radius: var(--radius-md);
@@ -25,7 +25,7 @@
     border-bottom-right-radius: 0;
     border: none;
     background-color: transparent;
-    line-height: 1.35;
+    line-height: 1;
     overflow: hidden;
     transition:
       background-color 0.16s ease,
@@ -51,8 +51,8 @@
   }
 
   .tab-title {
-    line-height: 1.4;
-    padding: 1px 0 3px;
+    line-height: 1.25;
+    padding: 0;
   }
 
   .tab.temporary .tab-title {
@@ -195,13 +195,13 @@
     align-items: stretch;
     flex-shrink: 0;
     border-radius: var(--radius-md) var(--radius-md) 0 0;
-    outline: 1px solid color-mix(in srgb, var(--group-color) 45%, transparent);
-    outline-offset: -1px;
+    border: 1px solid color-mix(in srgb, var(--group-color) 45%, transparent);
+    border-bottom: none;
     background: color-mix(in srgb, var(--group-color) 5%, transparent);
   }
 
   .tab-group-collapsed {
-    outline: none;
+    border: none;
     background: transparent;
   }
 
@@ -213,7 +213,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 36px;
+    height: 100%;
     padding: 0 10px;
     max-width: clamp(120px, 16vw, 200px);
     border-top-left-radius: var(--radius-md);
@@ -223,6 +223,7 @@
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
+    line-height: 1;
     transition:
       background-color 0.16s ease,
       color 0.16s ease;
@@ -237,8 +238,8 @@
   }
 
   .tab-group-title {
-    line-height: 1.4;
-    font-size: 0.8125rem;
+    line-height: 1.25;
+    font-size: var(--text-s);
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -282,23 +283,10 @@
   }
 
   .tab-group .tab.active {
-    box-shadow: none;
-  }
-
-  .tab-group .tab.active::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border: 1px solid color-mix(in srgb, var(--group-color) 45%, transparent);
-    border-bottom: none;
+    box-shadow: inset 1px 0 0 color-mix(in srgb, var(--group-color) 45%, transparent);
   }
 
   .tab-group > .flex:last-child .tab.active {
-    border-top-right-radius: var(--radius-md);
-  }
-
-  .tab-group > .flex:last-child .tab.active::after {
     border-top-right-radius: var(--radius-md);
   }
 

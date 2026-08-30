@@ -121,10 +121,12 @@ async fn full_schema_introspection_against_local_sql_server() {
             .iter()
             .take(3)
             .map(|e| format!(
-                "{}.{} ({} cols)",
+                "{}.{} [{}] ({} cols, {} params)",
                 e.schema_name,
-                e.table_name,
-                e.columns.len()
+                e.object_name,
+                e.object_kind,
+                e.columns.len(),
+                e.parameters.len()
             ))
             .collect::<Vec<_>>()
     );

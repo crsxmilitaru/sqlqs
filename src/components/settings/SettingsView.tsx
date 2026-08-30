@@ -11,6 +11,7 @@ import {
   DEFAULT_FORMAT_INDENT_SIZE,
   DEFAULT_MAX_HISTORY,
   EDITOR_FONT_FAMILY_OPTIONS,
+  EDITOR_SUGGESTION_STYLE_OPTIONS,
   FORMAT_INDENT_OPTIONS,
   FORMAT_KEYWORD_CASE_OPTIONS,
   TAB_AUTO_NAMING_OPTIONS,
@@ -21,11 +22,13 @@ import {
   MAX_MAX_HISTORY,
   MIN_EDITOR_FONT_SIZE,
   MIN_MAX_HISTORY,
+  normalizeEditorSuggestionStyle,
   saveAiNotifications,
   saveAutoCheckUpdates,
   saveAutoConnectStartup,
   saveConfirmCloseUnsaved,
   saveEditorAutocomplete,
+  saveEditorSuggestionStyle,
   saveEditorFontFamily,
   saveEditorFontSize,
   saveEditorFormatOnPaste,
@@ -47,6 +50,7 @@ import {
   saveUpdateChannel,
   saveOpenLastChatStartup,
   type DateFormat,
+  type EditorSuggestionStyle,
   type SqlKeywordCase,
   type TabAutoNamingMode,
   type UpdateChannel,
@@ -205,6 +209,8 @@ export default function SettingsView(props: Props) {
   const [editorAutocomplete, setEditorAutocomplete] = createSignal(
     prefs.editor.autocomplete,
   );
+  const [editorSuggestionStyle, setEditorSuggestionStyle] =
+    createSignal<EditorSuggestionStyle>(prefs.editor.suggestionStyle);
   const [editorFormatOnPaste, setEditorFormatOnPaste] = createSignal(
     prefs.editor.formatOnPaste,
   );
@@ -769,6 +775,37 @@ export default function SettingsView(props: Props) {
             saveEditorAutocomplete(next);
           }}
         />
+      ),
+    },
+    {
+      id: "editor-suggestion-style",
+      tab: "editor",
+      title: "Suggestion style",
+      keywords:
+        "suggestion style ghost inline popup dropdown intellisense autocomplete editor",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between">
+            <div classList={{ "opacity-50": !editorAutocomplete() }}>
+              <h4 class="text-m font-medium text-text">Suggestion style</h4>
+              <p class="text-s text-text-muted mt-0.5">
+                How SQL suggestions appear while typing
+              </p>
+            </div>
+            <div class="min-w-[170px]">
+              <Dropdown
+                value={editorSuggestionStyle()}
+                options={EDITOR_SUGGESTION_STYLE_OPTIONS}
+                disabled={!editorAutocomplete()}
+                onChange={(value) => {
+                  const next = normalizeEditorSuggestionStyle(value);
+                  setEditorSuggestionStyle(next);
+                  saveEditorSuggestionStyle(next);
+                }}
+              />
+            </div>
+          </div>
+        </div>
       ),
     },
     {

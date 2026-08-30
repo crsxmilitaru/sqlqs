@@ -28,10 +28,19 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
       ],
     },
     {
+      title: "Panels",
+      shortcuts: [
+        { label: "Toggle sidebar", keys: [`${mod}+B`] },
+        { label: "Toggle AI chat", keys: [`${mod}+Alt+B`] },
+      ],
+    },
+    {
       title: "Query editor",
       shortcuts: [
         { label: "Execute query", keys: ["F5", `${mod}+Enter`] },
         { label: "Format SQL", keys: ["Alt+Shift+F"] },
+        { label: "Show all suggestions", keys: ["Ctrl+Space", "↓"] },
+        { label: "Accept inline suggestion", keys: ["Tab"] },
         { label: "Find in editor", keys: [`${mod}+F`] },
         { label: "Find next", keys: [`${mod}+G`] },
         { label: "Indent", keys: ["Tab"] },

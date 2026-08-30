@@ -1,3 +1,4 @@
+import { bracketIdentifier } from "./schema-catalog";
 import type { ColumnInfo, QueryResult } from "./types";
 
 export interface TableCompareRef {
@@ -34,10 +35,6 @@ const NON_HASHABLE_TYPES = new Set([
   "rowversion",
   "hierarchyid",
 ]);
-
-export function bracketIdentifier(name: string): string {
-  return `[${name.replace(/\]/g, "]]")}]`;
-}
 
 export function threePartTable(ref: TableCompareRef): string {
   return `${bracketIdentifier(ref.database)}.${bracketIdentifier(ref.schema)}.${bracketIdentifier(ref.table)}`;

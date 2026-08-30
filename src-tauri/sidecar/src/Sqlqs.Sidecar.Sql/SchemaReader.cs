@@ -255,53 +255,180 @@ public sealed class SchemaReader
         await using var lease = await _connections.AcquireAsync(connectionId, cancellationToken).ConfigureAwait(false);
         var connection = lease.Connection;
         var db = QuoteIdentifier(database);
-
-        var sql = $$"""
-            SELECT s.name AS schema_name,
-                   o.name AS object_name,
-                   c.name AS column_name
-            FROM {{db}}.sys.objects o
-            JOIN {{db}}.sys.schemas s ON o.schema_id = s.schema_id
-            LEFT JOIN {{db}}.sys.columns c ON o.object_id = c.object_id
-            WHERE o.type IN ('U', 'V') AND o.is_ms_shipped = 0
-            ORDER BY s.name, o.name, c.column_id
+        var columnTypeSql = TypeNameSql("ty", "c");
+        var parameterTypeSql = TypeNameSql("ty", "p");
+        var primaryKeyJoinSql = $"""
+            LEFT JOIN (
+                SELECT ic.object_id, ic.column_id
+                FROM {db}.sys.indexes i
+                JOIN {db}.sys.index_columns ic
+                    ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                WHERE i.is_primary_key = 1
+            ) pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
             """;
 
+        var sql = $$"""
+            SELECT o.object_id,
+                   s.name AS schema_name,
+                   o.name AS object_name,
+                   CASE o.type
+                       WHEN 'U'  THEN N'TABLE'
+                       WHEN 'V'  THEN N'VIEW'
+                       WHEN 'P'  THEN N'PROCEDURE'
+                       WHEN 'FN' THEN N'FUNCTION'
+                       WHEN 'IF' THEN N'FUNCTION'
+                       WHEN 'TF' THEN N'FUNCTION'
+                       WHEN 'SN' THEN N'SYNONYM'
+                   END AS object_kind
+            FROM {{db}}.sys.objects o
+            JOIN {{db}}.sys.schemas s ON o.schema_id = s.schema_id
+            WHERE o.type IN ('U', 'V', 'P', 'FN', 'IF', 'TF', 'SN') AND o.is_ms_shipped = 0
+
+            UNION ALL
+
+            SELECT tt.type_table_object_id,
+                   s.name AS schema_name,
+                   tt.name AS object_name,
+                   N'TYPE' AS object_kind
+            FROM {{db}}.sys.table_types tt
+            JOIN {{db}}.sys.schemas s ON tt.schema_id = s.schema_id
+            WHERE tt.is_user_defined = 1
+
+            UNION ALL
+
+            SELECT -t.user_type_id,
+                   s.name AS schema_name,
+                   t.name AS object_name,
+                   N'TYPE' AS object_kind
+            FROM {{db}}.sys.types t
+            JOIN {{db}}.sys.schemas s ON t.schema_id = s.schema_id
+            WHERE t.is_user_defined = 1 AND t.is_table_type = 0
+
+            ORDER BY 2, 3;
+
+            SELECT c.object_id,
+                   c.name,
+                   {{columnTypeSql}} AS type_name,
+                   c.is_nullable,
+                   c.is_identity,
+                   CAST(CASE WHEN pk.column_id IS NULL THEN 0 ELSE 1 END AS bit) AS is_primary_key,
+                   c.column_id
+            FROM {{db}}.sys.columns c
+            JOIN {{db}}.sys.objects o ON c.object_id = o.object_id
+            JOIN {{db}}.sys.types ty ON c.user_type_id = ty.user_type_id
+            {{primaryKeyJoinSql}}
+            WHERE o.type IN ('U', 'V', 'IF', 'TF') AND o.is_ms_shipped = 0
+
+            UNION ALL
+
+            SELECT c.object_id,
+                   c.name,
+                   {{columnTypeSql}} AS type_name,
+                   c.is_nullable,
+                   c.is_identity,
+                   CAST(CASE WHEN pk.column_id IS NULL THEN 0 ELSE 1 END AS bit) AS is_primary_key,
+                   c.column_id
+            FROM {{db}}.sys.columns c
+            JOIN {{db}}.sys.table_types tt ON c.object_id = tt.type_table_object_id
+            JOIN {{db}}.sys.types ty ON c.user_type_id = ty.user_type_id
+            {{primaryKeyJoinSql}}
+
+            ORDER BY 1, 7;
+
+            SELECT p.object_id,
+                   p.name,
+                   {{parameterTypeSql}} AS type_name,
+                   p.is_output
+            FROM {{db}}.sys.parameters p
+            JOIN {{db}}.sys.objects o ON p.object_id = o.object_id
+            JOIN {{db}}.sys.types ty ON p.user_type_id = ty.user_type_id
+            WHERE o.type IN ('P', 'FN', 'IF', 'TF') AND o.is_ms_shipped = 0 AND p.parameter_id > 0
+            ORDER BY p.object_id, p.parameter_id
+            """;
+
+        var entriesById =
+            new Dictionary<int, (List<SchemaCatalogColumn> Columns, List<SchemaCatalogParameter> Parameters)>();
         var entries = new List<SchemaCatalogEntry>();
-        SchemaCatalogEntry? current = null;
-        List<string>? currentColumns = null;
 
         using var cmd = new SqlCommand(sql, connection);
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var schemaName = reader.IsDBNull(0) ? "dbo" : reader.GetString(0);
-            var tableName = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
-            if (string.IsNullOrEmpty(tableName)) continue;
+            var objectId = reader.GetInt32(0);
+            var schemaName = reader.IsDBNull(1) ? "dbo" : reader.GetString(1);
+            var objectName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+            var objectKind = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+            if (string.IsNullOrEmpty(objectName) || string.IsNullOrEmpty(objectKind)) continue;
 
-            var columnName = reader.IsDBNull(2) ? null : reader.GetString(2);
-
-            if (current is null ||
-                !string.Equals(current.SchemaName, schemaName, StringComparison.Ordinal) ||
-                !string.Equals(current.TableName, tableName, StringComparison.Ordinal))
+            var columns = new List<SchemaCatalogColumn>();
+            var parameters = new List<SchemaCatalogParameter>();
+            entriesById[objectId] = (columns, parameters);
+            entries.Add(new SchemaCatalogEntry
             {
-                currentColumns = new List<string>();
-                current = new SchemaCatalogEntry
+                SchemaName = schemaName,
+                ObjectName = objectName,
+                ObjectKind = objectKind,
+                Columns = columns,
+                Parameters = parameters,
+            });
+        }
+
+        if (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var objectId = reader.GetInt32(0);
+                if (!entriesById.TryGetValue(objectId, out var lists)) continue;
+                var name = reader.IsDBNull(1) ? null : reader.GetString(1);
+                if (string.IsNullOrEmpty(name)) continue;
+
+                lists.Columns.Add(new SchemaCatalogColumn
                 {
-                    SchemaName = schemaName,
-                    TableName = tableName,
-                    Columns = currentColumns,
-                };
-                entries.Add(current);
+                    Name = name,
+                    TypeName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                    IsNullable = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                    IsIdentity = !reader.IsDBNull(4) && reader.GetBoolean(4),
+                    IsPrimaryKey = !reader.IsDBNull(5) && reader.GetBoolean(5),
+                });
             }
+        }
 
-            if (columnName is not null && currentColumns is not null)
+        if (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                currentColumns.Add(columnName);
+                var objectId = reader.GetInt32(0);
+                if (!entriesById.TryGetValue(objectId, out var lists)) continue;
+                var name = reader.IsDBNull(1) ? null : reader.GetString(1);
+                if (string.IsNullOrEmpty(name)) continue;
+
+                lists.Parameters.Add(new SchemaCatalogParameter
+                {
+                    Name = name,
+                    TypeName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                    IsOutput = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                });
             }
         }
 
         return new ListSchemaCatalogResponse { Entries = entries };
+    }
+
+    private static string TypeNameSql(string typeAlias, string attrAlias)
+    {
+        return $"""
+            CASE
+                WHEN {typeAlias}.name IN (N'varchar', N'char', N'varbinary', N'binary')
+                    THEN {typeAlias}.name + N'(' + CASE WHEN {attrAlias}.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), {attrAlias}.max_length) END + N')'
+                WHEN {typeAlias}.name IN (N'nvarchar', N'nchar')
+                    THEN {typeAlias}.name + N'(' + CASE WHEN {attrAlias}.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), {attrAlias}.max_length / 2) END + N')'
+                WHEN {typeAlias}.name IN (N'decimal', N'numeric')
+                    THEN {typeAlias}.name + N'(' + CONVERT(nvarchar(12), {attrAlias}.precision) + N',' + CONVERT(nvarchar(12), {attrAlias}.scale) + N')'
+                WHEN {typeAlias}.name IN (N'datetime2', N'datetimeoffset', N'time')
+                    THEN {typeAlias}.name + N'(' + CONVERT(nvarchar(12), {attrAlias}.scale) + N')'
+                ELSE {typeAlias}.name
+            END
+            """;
     }
 
     private static string QuoteIdentifier(string identifier)
