@@ -117,7 +117,7 @@ function versionForPreview(bump) {
 
 function commitVersionFiles(message) {
   run(
-    "git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
+    "git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock",
     true,
   );
   run(`git commit -m "${message}"`, true);

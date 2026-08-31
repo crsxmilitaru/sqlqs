@@ -1,5 +1,6 @@
 # Node dependencies and package-manager caches
 node_modules/
+package-lock.json
 .pnp/
 .pnp.*
 .yarn/*
@@ -71,6 +72,7 @@ desktop.ini
 $RECYCLE.BIN/
 
 # Local development data and scratch files
+*.scripts
 *.local
 *.tmp
 *.temp

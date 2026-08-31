@@ -28,12 +28,6 @@ function replaceRequired(path, contents, pattern, replacement) {
 const pkg = readJson("package.json");
 pkg.version = version;
 
-const pkgLock = readJson("package-lock.json");
-pkgLock.version = version;
-if (pkgLock.packages?.[""]) {
-  pkgLock.packages[""].version = version;
-}
-
 const tauri = readJson("src-tauri/tauri.conf.json");
 tauri.version = version;
 
@@ -52,7 +46,6 @@ const lock = replaceRequired(
 );
 
 writeJson("package.json", pkg);
-writeJson("package-lock.json", pkgLock);
 writeJson("src-tauri/tauri.conf.json", tauri);
 writeFileSync("src-tauri/Cargo.toml", cargo);
 writeFileSync("src-tauri/Cargo.lock", lock);

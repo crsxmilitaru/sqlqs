@@ -37,6 +37,10 @@
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "sidecar:dev": "node scripts/dev-sidecar.mjs",
     "cargo:update": "cargo update --manifest-path src-tauri/Cargo.toml",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.{ts,tsx}",
     "lint:fix": "eslint src/**/*.{ts,tsx} --fix",
     "release": "node scripts/run-release-workflow.mjs"
@@ -64,16 +68,22 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/user-event": "^14.6.6",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.8.1",
     "eslint-plugin-solid": "^0.15.0",
     "globals": "^17.11.0",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.2.1",
-    "vite-plugin-solid": "^2.11.14"
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.11"
   }
 }

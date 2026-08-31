@@ -1,9 +1,26 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 
-export default defineConfig({
-  plugins: [solid(), tailwindcss()],
+export default defineConfig(({ mode }) => ({
+  plugins: [solid({ hot: mode !== "test" }), tailwindcss()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    clearMocks: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/index.tsx"],
+      thresholds: {
+        statements: 40,
+        branches: 33,
+        functions: 40,
+        lines: 41,
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,
@@ -25,4 +42,4 @@ export default defineConfig({
     },
   },
   clearScreen: false,
-});
+}));
