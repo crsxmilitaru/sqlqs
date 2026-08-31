@@ -17,9 +17,9 @@ const STORAGE_KEY_EXEC_CONFIRM_DESTRUCTIVE = "sqlqs_exec_confirm_destructive";
 const STORAGE_KEY_APP_DATE_FORMAT = "sqlqs_app_date_format";
 const STORAGE_KEY_RESULTS_DATE_FORMAT = "sqlqs_results_date_format";
 const STORAGE_KEY_RESULTS_SHOW_FILTERS = "sqlqs_results_show_filters";
+const STORAGE_KEY_FORMAT_STYLE = "sqlqs_format_style";
 const STORAGE_KEY_FORMAT_INDENT_SIZE = "sqlqs_format_indent_size";
 const STORAGE_KEY_FORMAT_KEYWORD_CASE = "sqlqs_format_keyword_case";
-const STORAGE_KEY_FORMAT_MAX_LINE_LENGTH = "sqlqs_format_max_line_length";
 const STORAGE_KEY_EDITOR_FONT_FAMILY = "sqlqs_editor_font_family";
 const STORAGE_KEY_EDITOR_FONT_SIZE = "sqlqs_editor_font_size";
 const STORAGE_KEY_EDITOR_LINE_NUMBERS = "sqlqs_editor_line_numbers";
@@ -74,6 +74,7 @@ export interface EditorPreferences {
 
 export type EditorSuggestionStyle = "ghost" | "popup";
 export type SqlKeywordCase = "upper" | "lower" | "preserve";
+export type SqlFormatStyle = "compact" | "expanded";
 export type UpdateChannel = "stable" | "preview";
 export type TabAutoNamingMode = "first-line" | "ai";
 export type DateFormat =
@@ -86,9 +87,9 @@ export type DateFormat =
   | "utc";
 
 export interface SqlFormatPreferences {
+  formatStyle: SqlFormatStyle;
   indentSize: number;
   keywordCase: SqlKeywordCase;
-  maxLineLength: number;
 }
 
 export interface ExecutionPreferences {
@@ -135,6 +136,14 @@ export const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = [
   { value: "utc", label: "UTC Time" },
 ];
 
+export const DEFAULT_FORMAT_STYLE: SqlFormatStyle = "compact";
+export const FORMAT_STYLE_OPTIONS: {
+  value: SqlFormatStyle;
+  label: string;
+}[] = [
+  { value: "compact", label: "Compact" },
+  { value: "expanded", label: "Expanded" },
+];
 export const DEFAULT_FORMAT_INDENT_SIZE = 2;
 export const FORMAT_INDENT_OPTIONS = [
   { value: "2", label: "2 spaces" },
@@ -150,7 +159,6 @@ export const FORMAT_KEYWORD_CASE_OPTIONS: {
     { value: "lower", label: "lower case" },
     { value: "preserve", label: "Preserve" },
   ];
-export const DEFAULT_FORMAT_MAX_LINE_LENGTH = 0;
 export const DEFAULT_UPDATE_CHANNEL: UpdateChannel = "stable";
 
 export const UPDATE_CHANNEL_OPTIONS: {
@@ -287,6 +295,13 @@ function readKeywordCaseFromStorage(): SqlKeywordCase {
   return DEFAULT_FORMAT_KEYWORD_CASE;
 }
 
+function readFormatStyleFromStorage(): SqlFormatStyle {
+  const raw = localStorage.getItem(STORAGE_KEY_FORMAT_STYLE);
+  return raw === "compact" || raw === "expanded"
+    ? raw
+    : DEFAULT_FORMAT_STYLE;
+}
+
 function readAppDateFormatFromStorage(): DateFormat {
   let raw = localStorage.getItem(STORAGE_KEY_APP_DATE_FORMAT);
   if (!raw) {
@@ -348,12 +363,9 @@ function readFormatPreferencesFromStorage(): SqlFormatPreferences {
     DEFAULT_FORMAT_INDENT_SIZE,
   );
   return {
+    formatStyle: readFormatStyleFromStorage(),
     indentSize: indent > 0 ? indent : DEFAULT_FORMAT_INDENT_SIZE,
     keywordCase: readKeywordCaseFromStorage(),
-    maxLineLength: readNonNegativeIntWithDefault(
-      STORAGE_KEY_FORMAT_MAX_LINE_LENGTH,
-      DEFAULT_FORMAT_MAX_LINE_LENGTH,
-    ),
   };
 }
 
@@ -456,6 +468,14 @@ export function saveAppDateFormat(value: DateFormat) {
   }));
 }
 
+export function saveFormatStyle(value: SqlFormatStyle) {
+  localStorage.setItem(STORAGE_KEY_FORMAT_STYLE, value);
+  setPreferences((prev) => ({
+    ...prev,
+    format: { ...prev.format, formatStyle: value },
+  }));
+}
+
 export function saveFormatIndentSize(value: number) {
   const clamped = value > 0 ? Math.floor(value) : DEFAULT_FORMAT_INDENT_SIZE;
   localStorage.setItem(STORAGE_KEY_FORMAT_INDENT_SIZE, String(clamped));
@@ -470,15 +490,6 @@ export function saveFormatKeywordCase(value: SqlKeywordCase) {
   setPreferences((prev) => ({
     ...prev,
     format: { ...prev.format, keywordCase: value },
-  }));
-}
-
-export function saveFormatMaxLineLength(value: number) {
-  const clamped = Math.max(0, Math.floor(value));
-  localStorage.setItem(STORAGE_KEY_FORMAT_MAX_LINE_LENGTH, String(clamped));
-  setPreferences((prev) => ({
-    ...prev,
-    format: { ...prev.format, maxLineLength: clamped },
   }));
 }
 

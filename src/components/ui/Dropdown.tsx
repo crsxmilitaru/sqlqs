@@ -53,7 +53,6 @@ export default function Dropdown(props: Props) {
   const disabled = () => props.disabled ?? false;
   const className = () => props.class ?? "";
   const filterable = () => props.filterable ?? false;
-  const openUpwards = () => props.openUpwards ?? false;
   const compact = () => props.compact ?? false;
   const title = () =>
     props.title !== undefined ? props.title : selectedOption()?.label;
@@ -81,24 +80,57 @@ export default function Dropdown(props: Props) {
     setIsKeyboardNavigating(false);
   }
 
+  const VIEWPORT_PAD = 8;
+  const POPUP_GAP = 4;
+  const DEFAULT_MAX_HEIGHT = 208;
+  const MIN_PREFERRED_SPACE = 160;
+
   function updatePosition() {
     if (!buttonRef) return;
     const rect = buttonRef.getBoundingClientRect();
-    if (openUpwards()) {
-      setPopupStyle({
-        position: "fixed",
-        left: `${rect.left}px`,
-        bottom: `${window.innerHeight - rect.top + 4}px`,
-        width: `${rect.width}px`,
-      });
+    const vw = window.visualViewport?.width ?? window.innerWidth;
+    const vh = window.visualViewport?.height ?? window.innerHeight;
+
+    const spaceBelow = Math.max(0, vh - rect.bottom - POPUP_GAP - VIEWPORT_PAD);
+    const spaceAbove = Math.max(0, rect.top - POPUP_GAP - VIEWPORT_PAD);
+
+    const shouldOpenUp =
+      props.openUpwards !== undefined
+        ? props.openUpwards
+        : spaceBelow < Math.min(DEFAULT_MAX_HEIGHT, MIN_PREFERRED_SPACE) &&
+          spaceAbove > spaceBelow;
+
+    const availableHeight = shouldOpenUp ? spaceAbove : spaceBelow;
+    const panelMaxHeight = Math.max(
+      48,
+      Math.min(DEFAULT_MAX_HEIGHT, availableHeight),
+    );
+
+    const panelWidth = Math.min(
+      rect.width,
+      Math.max(60, vw - 2 * VIEWPORT_PAD),
+    );
+    const panelLeft = Math.max(
+      VIEWPORT_PAD,
+      Math.min(rect.left, vw - panelWidth - VIEWPORT_PAD),
+    );
+
+    const nextStyle: JSX.CSSProperties = {
+      position: "fixed",
+      left: `${panelLeft}px`,
+      width: `${panelWidth}px`,
+      "max-height": `${panelMaxHeight}px`,
+    };
+
+    if (shouldOpenUp) {
+      nextStyle.bottom = `${vh - rect.top + POPUP_GAP}px`;
+      nextStyle.top = "auto";
     } else {
-      setPopupStyle({
-        position: "fixed",
-        left: `${rect.left}px`,
-        top: `${rect.bottom + 4}px`,
-        width: `${rect.width}px`,
-      });
+      nextStyle.top = `${rect.bottom + POPUP_GAP}px`;
+      nextStyle.bottom = "auto";
     }
+
+    setPopupStyle(nextStyle);
   }
 
   function scrollOptionsToTop() {
@@ -155,10 +187,18 @@ export default function Dropdown(props: Props) {
     const handleReposition = () => updatePosition();
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleReposition);
+      window.visualViewport.addEventListener("scroll", handleReposition);
+    }
 
     onCleanup(() => {
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleReposition);
+        window.visualViewport.removeEventListener("scroll", handleReposition);
+      }
     });
   });
 
@@ -271,14 +311,8 @@ export default function Dropdown(props: Props) {
         <Icon
           name="chevron-down"
           class={`text-text-muted text-icon transition-transform duration-150 ${
-            isOpen()
-              ? openUpwards()
-                ? ""
-                : "rotate-180"
-              : openUpwards()
-                ? "rotate-180"
-                : ""
-            }`}
+            isOpen() ? "rotate-180" : ""
+          }`}
         />
       </button>
 
@@ -287,7 +321,7 @@ export default function Dropdown(props: Props) {
           <div
             ref={listRef}
             style={popupStyle()}
-            class="dropdown-panel z-[100000] py-1 rounded-lg max-h-52 flex flex-col items-stretch animate-popover-in"
+            class="dropdown-panel z-[100000] py-1 rounded-lg flex flex-col items-stretch animate-popover-in"
             data-keyboard-nav={isKeyboardNavigating() ? "true" : undefined}
             id={listboxId}
             role="listbox"
@@ -315,7 +349,7 @@ export default function Dropdown(props: Props) {
                 </div>
               </div>
             </Show>
-            <div ref={optionsListRef} class="flex-1 overflow-y-auto">
+            <div ref={optionsListRef} class="flex-1 min-h-0 overflow-y-auto">
               <Show
                 when={filteredOptions().length > 0}
                 fallback={

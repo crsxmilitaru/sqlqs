@@ -169,4 +169,60 @@ describe("Dropdown", () => {
 
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
+
+  it("flips upward when bottom viewport space is constrained", async () => {
+    Object.defineProperty(window, "innerHeight", { value: 600, writable: true, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 800, writable: true, configurable: true });
+
+    renderDropdown();
+    const trigger = screen.getByRole("combobox");
+
+    trigger.getBoundingClientRect = () => ({
+      left: 100,
+      right: 300,
+      top: 520,
+      bottom: 554,
+      width: 200,
+      height: 34,
+      x: 100,
+      y: 520,
+      toJSON: () => { },
+    });
+
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      const listbox = screen.getByRole("listbox");
+      expect(listbox).toBeInTheDocument();
+      expect(listbox.style.bottom).toBe("84px");
+      expect(listbox.style.top).toBe("auto");
+    });
+  });
+
+  it("clamps panel width and left position to viewport padding", async () => {
+    Object.defineProperty(window, "innerHeight", { value: 600, writable: true, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 500, writable: true, configurable: true });
+
+    renderDropdown();
+    const trigger = screen.getByRole("combobox");
+
+    trigger.getBoundingClientRect = () => ({
+      left: 450,
+      right: 650,
+      top: 100,
+      bottom: 134,
+      width: 200,
+      height: 34,
+      x: 450,
+      y: 100,
+      toJSON: () => { },
+    });
+
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      const listbox = screen.getByRole("listbox");
+      expect(listbox).toBeInTheDocument();
+      expect(listbox.style.left).toBe("292px");
+      expect(listbox.style.top).toBe("138px");
+    });
+  });
 });

@@ -14,6 +14,7 @@ import {
   EDITOR_SUGGESTION_STYLE_OPTIONS,
   FORMAT_INDENT_OPTIONS,
   FORMAT_KEYWORD_CASE_OPTIONS,
+  FORMAT_STYLE_OPTIONS,
   TAB_AUTO_NAMING_OPTIONS,
   UPDATE_CHANNEL_OPTIONS,
   loadPreferences,
@@ -42,7 +43,7 @@ import {
   saveResultsShowFilters,
   saveFormatIndentSize,
   saveFormatKeywordCase,
-  saveFormatMaxLineLength,
+  saveFormatStyle,
   saveMaxHistoryItems,
   savePersistTabs,
   saveRevealCurrentDatabaseInExplorer,
@@ -51,6 +52,7 @@ import {
   saveOpenLastChatStartup,
   type DateFormat,
   type EditorSuggestionStyle,
+  type SqlFormatStyle,
   type SqlKeywordCase,
   type TabAutoNamingMode,
   type UpdateChannel,
@@ -232,14 +234,14 @@ export default function SettingsView(props: Props) {
     prefs.execution.resultsShowFilters,
   );
 
+  const [formatStyle, setFormatStyle] = createSignal<SqlFormatStyle>(
+    prefs.format.formatStyle,
+  );
   const [formatIndentSize, setFormatIndentSize] = createSignal(
     prefs.format.indentSize,
   );
   const [formatKeywordCase, setFormatKeywordCase] =
     createSignal<SqlKeywordCase>(prefs.format.keywordCase);
-  const [formatMaxLineLength, setFormatMaxLineLength] = createSignal(
-    prefs.format.maxLineLength,
-  );
 
   const [connections, setConnections] = createSignal<SavedConnection[]>([]);
   const [editingConnection, setEditingConnection] =
@@ -299,7 +301,7 @@ export default function SettingsView(props: Props) {
       const themes = await invoke<ThemeOption[]>("list_custom_themes");
       setCustomThemes(themes);
       registerCustomThemes(themes);
-    } catch {}
+    } catch { }
   }
 
   async function handleSaveCustomTheme(theme: ThemeOption) {
@@ -334,7 +336,7 @@ export default function SettingsView(props: Props) {
     try {
       const settings: AppSettings = await invoke("load_connections");
       setConnections(settings.connections);
-    } catch {}
+    } catch { }
   }
 
   async function moveConnection(index: number, direction: -1 | 1) {
@@ -827,6 +829,36 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
+      id: "format-style",
+      tab: "editor",
+      title: "Format style",
+      keywords: "format style compact expanded single line clause sql",
+      render: () => (
+        <div class="settings-section">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-m font-medium text-text">Format style</h4>
+              <p class="text-s text-text-muted mt-0.5">
+                Choose a compact layout with fewer lines or an expanded layout
+                with more spacing
+              </p>
+            </div>
+            <div class="min-w-[160px]">
+              <Dropdown
+                value={formatStyle()}
+                options={FORMAT_STYLE_OPTIONS}
+                onChange={(val) => {
+                  const next = val as SqlFormatStyle;
+                  setFormatStyle(next);
+                  saveFormatStyle(next);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
       id: "format-indent",
       tab: "editor",
       title: "Format indent size",
@@ -837,7 +869,7 @@ export default function SettingsView(props: Props) {
             <div>
               <h4 class="text-m font-medium text-text">Format indent size</h4>
               <p class="text-s text-text-muted mt-0.5">
-                Indentation used by the SQL formatter
+                Indentation used by the SQL formatter and the editor Tab key
               </p>
             </div>
             <div class="min-w-[160px]">
@@ -884,41 +916,6 @@ export default function SettingsView(props: Props) {
                   const next = val as SqlKeywordCase;
                   setFormatKeywordCase(next);
                   saveFormatKeywordCase(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      id: "format-max-line-length",
-      tab: "editor",
-      title: "Format max line length",
-      keywords: "format max line length wrap expression width sql",
-      render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Format max line length
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Wrap expressions wider than this. 0 = no wrap.
-              </p>
-            </div>
-            <div class="w-[120px]">
-              <Input
-                type="number"
-                name="format-max-line-length"
-                min="0"
-                value={String(formatMaxLineLength())}
-                onInput={(e) => {
-                  const raw = (e.target as HTMLInputElement).value;
-                  const n = Number.parseInt(raw, 10);
-                  const safe = Number.isFinite(n) && n >= 0 ? n : 0;
-                  setFormatMaxLineLength(safe);
-                  saveFormatMaxLineLength(safe);
                 }}
               />
             </div>
