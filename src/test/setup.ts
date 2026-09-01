@@ -101,9 +101,39 @@ afterEach(() => {
   resetInvokeMock();
 });
 
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: vi.fn().mockResolvedValue(undefined),
+  listen: vi.fn().mockResolvedValue(() => undefined),
+  once: vi.fn().mockResolvedValue(() => undefined),
+}));
+
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,
   value: vi.fn(() => ({
+    arc: vi.fn(),
+    beginPath: vi.fn(),
+    clearRect: vi.fn(),
+    clip: vi.fn(),
+    closePath: vi.fn(),
+    drawImage: vi.fn(),
+    fill: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    lineTo: vi.fn(),
     measureText: () => ({ width: 8 }),
+    moveTo: vi.fn(),
+    rect: vi.fn(),
+    resetTransform: vi.fn(),
+    restore: vi.fn(),
+    rotate: vi.fn(),
+    save: vi.fn(),
+    scale: vi.fn(),
+    setTransform: vi.fn(),
+    stroke: vi.fn(),
+    strokeRect: vi.fn(),
+    strokeText: vi.fn(),
+    transform: vi.fn(),
+    translate: vi.fn(),
   })),
 });
+

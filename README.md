@@ -70,6 +70,12 @@ npm run tauri:build
 # Lint frontend
 npm run lint
 
+# Typecheck frontend
+npm run typecheck
+
+# Run frontend tests
+npm test
+
 # Run Rust host tests
 cargo test --manifest-path src-tauri/Cargo.toml
 ```

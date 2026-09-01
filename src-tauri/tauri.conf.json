@@ -16,7 +16,7 @@
         "title": "SQL Query Studio",
         "width": 1400,
         "height": 900,
-        "minWidth": 1000,
+        "minWidth": 1100,
         "minHeight": 700,
         "decorations": false,
         "visible": false,

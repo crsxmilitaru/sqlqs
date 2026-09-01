@@ -105,7 +105,9 @@ npm run cargo:update    # update Rust dependencies in Cargo.lock
 
 ### Test
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml
+npm test                                        # frontend Vitest suite
+npm run typecheck                               # TypeScript type checking
+cargo test --manifest-path src-tauri/Cargo.toml # Rust host tests
 ```
 
 Health/spawn tests run without SQL Server. Live tests (`sidecar_*_live.rs`) require `SQLQS_TEST_SERVER` environment variable (SQL Server connection string). Optional test env vars:

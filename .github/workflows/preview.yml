@@ -32,63 +32,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          VERSION="$(node -e "const fs = require('fs'); console.log(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview$ ]]; then
-            echo "::error::Current package version must be a preview version, got: $VERSION"
-            exit 1
-          fi
-
-          PREVIEW_TAGS="$(
-            gh api --paginate "repos/$REPOSITORY/releases" \
-              --jq '.[] | select(.prerelease == true) | .tag_name' \
-              || true
-          )"
-
-          NEXT_NUMBER=1
-          PREV_TAG=""
-          while IFS= read -r EXISTING_TAG; do
-            [ -z "$EXISTING_TAG" ] && continue
-            SUFFIX="${EXISTING_TAG#v${VERSION}.}"
-            if [[ "$SUFFIX" == "$EXISTING_TAG" ]] || [[ ! "$SUFFIX" =~ ^[0-9]+$ ]]; then
-              continue
-            fi
-            if [ "$SUFFIX" -ge "$NEXT_NUMBER" ]; then
-              NEXT_NUMBER=$((SUFFIX + 1))
-              PREV_TAG="$EXISTING_TAG"
-            fi
-          done <<< "$PREVIEW_TAGS"
-
-          if [ -z "$PREV_TAG" ]; then
-            PREV_TAG="$(
-              printf '%s\n' "$PREVIEW_TAGS" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-preview(\.[0-9]+){0,2}$' \
-                | sort -V \
-                | tail -n 1 \
-                || true
-            )"
-          fi
-
-          TAG_NAME="v$VERSION.$NEXT_NUMBER"
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG="$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
-          else
-            CHANGELOG="$(git log -n 10 --pretty=format:"- %s (%h)" | grep -viE "^- (preview|bump version|v[0-9])" || true)"
-          fi
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="- Routine update"
-          fi
-
-          git tag "$TAG_NAME" "$GITHUB_SHA"
-          git push origin "refs/tags/$TAG_NAME"
-
-          echo "release-version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "release-tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+        run: node scripts/prepare-preview-release.mjs
 
   preview:
     name: Preview (${{ matrix.os }})
