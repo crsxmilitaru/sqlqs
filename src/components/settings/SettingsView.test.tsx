@@ -39,4 +39,39 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Editor" }));
     expect(screen.getByText("Suggestion style")).toBeInTheDocument();
   });
+
+  it("filters setting sections and category tabs when searching", async () => {
+    setInvokeHandler((command) => {
+      if (command === "load_connections") {
+        return { connections: [], auto_connect_startup: false };
+      }
+      if (command === "list_custom_themes") return [];
+      throw new Error(`Unexpected Tauri command: ${command}`);
+    });
+    render(() => (
+      <SettingsView
+        onClose={vi.fn()}
+        version="0.5.0-preview"
+        onCheckForUpdates={vi.fn()}
+        checkingForUpdates={false}
+        updateMessage={null}
+        updateMessageTone="info"
+      />
+    ));
+
+    const searchInput = screen.getByPlaceholderText("Search settings…");
+    fireEvent.input(searchInput, { target: { value: "font" } });
+
+    expect(screen.getByRole("button", { name: /All results/ })).toBeInTheDocument();
+    expect(screen.getByText("Font size")).toBeInTheDocument();
+
+    const editorTab = screen.getByRole("button", { name: "Editor" });
+    fireEvent.click(editorTab);
+    expect(screen.getByText("Font size")).toBeInTheDocument();
+
+    const allResults = screen.getByRole("button", { name: /All results/ });
+    fireEvent.click(allResults);
+    expect(screen.getByText("Font size")).toBeInTheDocument();
+  });
 });
+

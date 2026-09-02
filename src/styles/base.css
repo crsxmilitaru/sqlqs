@@ -112,9 +112,7 @@
     }
   }
 
-  .scrollbar-gutter-stable,
-  .overflow-y-auto,
-  .overflow-auto {
+  .scrollbar-gutter-stable {
     scrollbar-gutter: stable;
   }
 }

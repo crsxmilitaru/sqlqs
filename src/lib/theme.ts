@@ -103,14 +103,17 @@ export function registerCustomThemes(customThemes: ThemeOption[]) {
   }
 }
 
+export function getDefaultThemeForMode(mode: ThemeMode): ThemeOption {
+  return THEMES.find((item) => item.mode === mode) ?? THEMES[0];
+}
+
 export function resolveTabColors(
-  theme?: Pick<ThemeOption, "tabColors" | "mode"> | null,
+  theme?: { tabColors?: string[]; mode?: ThemeMode } | null,
 ): string[] {
   if (Array.isArray(theme?.tabColors) && theme.tabColors.length > 0) {
     return [...theme.tabColors];
   }
-  const fallback =
-    THEMES.find((item) => item.mode === (theme?.mode ?? "dark")) ?? THEMES[0];
+  const fallback = getDefaultThemeForMode(theme?.mode ?? "dark");
   return [...fallback.tabColors];
 }
 

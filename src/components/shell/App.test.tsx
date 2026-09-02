@@ -54,6 +54,7 @@ describe("App", () => {
       }
       if (command === "list_conversations") return [];
       if (command === "load_api_key") return null;
+      if (command === "get_startup_sql_file_path") return null;
       throw new Error(`Unexpected Tauri command: ${command}`);
     });
     render(() => <App />);

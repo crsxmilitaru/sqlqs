@@ -46,4 +46,39 @@ describe("ThemeDialog", () => {
       }),
     );
   });
+
+  it("edits group tab color values", () => {
+    const onSave = vi.fn();
+    const { container } = render(() => (
+      <ThemeDialog
+        onClose={vi.fn()}
+        onSave={onSave}
+        activeThemeColors={{ "--color-bg": "#101010" }}
+        activeThemeTabColors={["#112233"]}
+        activeThemeMode="dark"
+      />
+    ));
+
+    const name = container.querySelector<HTMLInputElement>(
+      'input[name="theme-name"]',
+    )!;
+    fireEvent.input(name, { target: { value: "Ocean Blue" } });
+
+    const tabColorHex = container.querySelector<HTMLInputElement>(
+      'input[name="theme-tab-color-hex-0"]',
+    )!;
+    expect(tabColorHex).toBeInTheDocument();
+    expect(tabColorHex.value).toBe("#112233");
+
+    fireEvent.input(tabColorHex, { target: { value: "#445566" } });
+    expect(tabColorHex.value).toBe("#445566");
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tabColors: ["#445566"],
+      }),
+    );
+  });
 });

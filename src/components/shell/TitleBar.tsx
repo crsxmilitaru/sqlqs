@@ -190,12 +190,6 @@ export default function TitleBar(props: Props) {
       >
         <div
           class="flex items-center h-full px-3 gap-1.5 flex-shrink-0"
-          style={{
-            width:
-              props.sidebarVisible && props.connected
-                ? `${(props.sidebarWidth ?? 325) + 1}px`
-                : "auto",
-          }}
         >
           {isMac && (
             <div class="mac-window-controls pr-2 relative z-[9999]">
@@ -372,7 +366,10 @@ export default function TitleBar(props: Props) {
         <div class="flex-1 h-full" data-tauri-drag-region />
 
         {!props.hideAppContent && props.connected && (
-          <div class="flex items-center no-drag" data-tauri-drag-region="false">
+          <div
+            class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center no-drag"
+            data-tauri-drag-region="false"
+          >
             <Tooltip content={objectJumpTooltip()} placement="bottom">
               <div
                 onClick={props.onToggleObjectJump}
@@ -390,23 +387,7 @@ export default function TitleBar(props: Props) {
           </div>
         )}
 
-        <div class="flex-1 h-full" data-tauri-drag-region />
-
         <div class="flex h-full flex-shrink-0">
-          {!props.hideAppContent && isMac && props.connected && (
-            <Tooltip content="Click to disconnect" placement="bottom">
-              <button
-                onClick={props.onDisconnect}
-                disabled={props.dialogOpen ?? false}
-                class="titlebar-text-btn"
-              >
-                <i class="fa-solid fa-server text-s" />
-                <span class="text-s font-medium tracking-wide truncate max-w-[120px]">
-                  {props.serverName}
-                </span>
-              </button>
-            </Tooltip>
-          )}
           {!props.hideAppContent && props.updateAvailable && props.onViewUpdateDetails && (
             <div class="flex items-center self-center">
               <Tooltip content="A new version is ready to install" placement="bottom">

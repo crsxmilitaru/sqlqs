@@ -15,10 +15,8 @@ export async function initSystemLocale(): Promise<void> {
     if (info && typeof info === "object" && typeof info.locale === "string") {
       cached = info;
     }
-    console.info("[sqlqs] system locale info:", cached);
-  } catch (err) {
+  } catch {
     cached = undefined;
-    console.warn("[sqlqs] failed to fetch system locale:", err);
   }
 }
 

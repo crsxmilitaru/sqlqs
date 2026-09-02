@@ -24,6 +24,10 @@ export function getSavedQueriesDir(documentsPath: string): string {
   return joinPath(documentsPath, "SQL Query Studio", "Queries");
 }
 
+export function getThemesDir(documentsPath: string): string {
+  return joinPath(documentsPath, "SQL Query Studio", "Themes");
+}
+
 export function sanitizeSavedQueryFileName(title: string): string {
   const sanitized = title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Query";
   return `${sanitized}.sql`;

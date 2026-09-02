@@ -7,9 +7,18 @@ import {
   DATE_FORMAT_OPTIONS,
   DEFAULT_DATE_FORMAT,
   DEFAULT_RESULTS_DATE_FORMAT,
+  DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_EDITOR_FONT_SIZE,
+  DEFAULT_EDITOR_SUGGESTION_STYLE,
+  DEFAULT_EXEC_MAX_ROWS,
+  DEFAULT_EXEC_TIMEOUT_SECONDS,
   DEFAULT_FORMAT_INDENT_SIZE,
+  DEFAULT_FORMAT_KEYWORD_CASE,
+  DEFAULT_FORMAT_STYLE,
   DEFAULT_MAX_HISTORY,
+  DEFAULT_RESULTS_SHOW_FILTERS,
+  DEFAULT_TAB_AUTO_NAMING,
+  DEFAULT_UPDATE_CHANNEL,
   EDITOR_FONT_FAMILY_OPTIONS,
   EDITOR_SUGGESTION_STYLE_OPTIONS,
   FORMAT_INDENT_OPTIONS,
@@ -78,12 +87,23 @@ import type {
 import ConnectionDialog from "../dialogs/ConnectionDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import ThemeDialog from "../dialogs/ThemeDialog";
-import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
 import { Icon } from "../ui/Icons";
+import { toast } from "../ui/Toaster";
+import { getThemesDir } from "../../lib/path";
+import {
+  isGoBackKey,
+  isGoForwardKey,
+  isMouseBackButton,
+  isMouseForwardButton,
+} from "../../lib/editor-navigation";
 import {
   ConnectionRow,
+  DropdownSetting,
+  NumberInputSetting,
   RangeSetting,
+  SettingContainer,
+  SettingsNavButtons,
   SettingsSection,
   SettingTitle,
   ShortcutsReference,
@@ -150,11 +170,11 @@ export default function SettingsView(props: Props) {
   const currentTheme = loadTheme();
   const prefs = loadPreferences();
   const isPreviewBuild = createMemo(() => props.version?.includes("-preview") ?? false);
-  const visibleTabs = createMemo(() =>
-    TABS.filter((tab) => tab.id !== "developer" || isPreviewBuild()),
-  );
   const [activeTab, setActiveTab] = createSignal<Tab>("general");
+  const [backStack, setBackStack] = createSignal<Tab[]>([]);
+  const [forwardStack, setForwardStack] = createSignal<Tab[]>([]);
   const [search, setSearch] = createSignal("");
+  const [searchTab, setSearchTab] = createSignal<Tab | null>(null);
   const [themeId, setThemeId] = createSignal(currentTheme.id);
   const [followSystemTheme, setFollowSystemThemeState] = createSignal(
     loadFollowSystemTheme(),
@@ -195,6 +215,125 @@ export default function SettingsView(props: Props) {
   const [revealCurrentDb, setRevealCurrentDb] = createSignal(
     prefs.revealCurrentDatabaseInExplorer,
   );
+
+  const isTabAvailable = (tab: Tab) => tab !== "developer" || isPreviewBuild();
+  const canGoBack = createMemo(() => backStack().some(isTabAvailable));
+  const canGoForward = createMemo(() => forwardStack().some(isTabAvailable));
+
+  function selectTab(tab: Tab) {
+    if (tab === "about") {
+      const img = new Image();
+      img.src = "/favicon.png";
+    }
+    if (isSearching()) {
+      setSearchTab(tab);
+      return;
+    }
+    if (tab === activeTab()) return;
+    setBackStack((prev) => [...prev, activeTab()].slice(-50));
+    setForwardStack([]);
+    setActiveTab(tab);
+  }
+
+  function popValidTab(
+    stack: Tab[],
+  ): { tab: Tab; rest: Tab[] } | null {
+    for (let index = stack.length - 1; index >= 0; index -= 1) {
+      if (isTabAvailable(stack[index])) {
+        return { tab: stack[index], rest: stack.slice(0, index) };
+      }
+    }
+    return null;
+  }
+
+  function goBack() {
+    const popped = popValidTab(backStack());
+    if (!popped) {
+      setBackStack([]);
+      return;
+    }
+    setBackStack(popped.rest);
+    if (isTabAvailable(activeTab())) {
+      setForwardStack((prev) => [...prev, activeTab()].slice(-50));
+    }
+    setActiveTab(popped.tab);
+    if (isSearching()) {
+      setSearch("");
+      setSearchTab(null);
+    }
+  }
+
+  function goForward() {
+    const popped = popValidTab(forwardStack());
+    if (!popped) {
+      setForwardStack([]);
+      return;
+    }
+    setForwardStack(popped.rest);
+    if (isTabAvailable(activeTab())) {
+      setBackStack((prev) => [...prev, activeTab()].slice(-50));
+    }
+    setActiveTab(popped.tab);
+    if (isSearching()) {
+      setSearch("");
+      setSearchTab(null);
+    }
+  }
+
+  const isAnyDialogOpen = () =>
+    Boolean(
+      editingConnection() ||
+      addingConnection() ||
+      deletingConnection() ||
+      isCreatingTheme() ||
+      editingTheme() ||
+      themeToDelete(),
+    );
+
+  onMount(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isAnyDialogOpen() || event.defaultPrevented) return;
+      if (isGoBackKey(event)) {
+        if (canGoBack()) {
+          event.preventDefault();
+          goBack();
+        }
+        return;
+      }
+      if (isGoForwardKey(event)) {
+        if (canGoForward()) {
+          event.preventDefault();
+          goForward();
+        }
+      }
+    };
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (!isMouseBackButton(event) && !isMouseForwardButton(event)) return;
+      if (isAnyDialogOpen()) return;
+      event.preventDefault();
+    };
+
+    const onMouseUp = (event: MouseEvent) => {
+      if (!isMouseBackButton(event) && !isMouseForwardButton(event)) return;
+      if (isAnyDialogOpen()) return;
+      event.preventDefault();
+      if (isMouseBackButton(event)) {
+        if (canGoBack()) goBack();
+      } else if (isMouseForwardButton(event)) {
+        if (canGoForward()) goForward();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("mousedown", onMouseDown, true);
+    window.addEventListener("mouseup", onMouseUp, true);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("mousedown", onMouseDown, true);
+      window.removeEventListener("mouseup", onMouseUp, true);
+    });
+  });
 
   createEffect(() => {
     if (!isPreviewBuild() && activeTab() === "developer") {
@@ -304,6 +443,16 @@ export default function SettingsView(props: Props) {
     } catch { }
   }
 
+  async function handleOpenThemesFolder() {
+    try {
+      const docsFolder = await invoke<string>("get_documents_folder");
+      const themesPath = getThemesDir(docsFolder);
+      await invoke("open_folder", { path: themesPath });
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
   async function handleSaveCustomTheme(theme: ThemeOption) {
     try {
       await invoke("save_custom_theme", { theme });
@@ -312,7 +461,7 @@ export default function SettingsView(props: Props) {
       setIsCreatingTheme(false);
       setEditingTheme(null);
     } catch (err) {
-      console.error("Failed to save custom theme:", err);
+      toast.error(String(err));
     }
   }
 
@@ -326,7 +475,7 @@ export default function SettingsView(props: Props) {
         handleThemeChange("dark");
       }
     } catch (err) {
-      console.error("Failed to delete custom theme:", err);
+      toast.error(String(err));
     } finally {
       setThemeToDelete(null);
     }
@@ -536,10 +685,15 @@ export default function SettingsView(props: Props) {
           title="Restore tabs on startup"
           description="Keep your open tabs between app restarts"
           checked={persistTabs()}
+          defaultValue={true}
           onToggle={() => {
             const next = !persistTabs();
             setPersistTabs(next);
             savePersistTabs(next);
+          }}
+          onReset={() => {
+            setPersistTabs(true);
+            savePersistTabs(true);
           }}
         />
       ),
@@ -554,10 +708,15 @@ export default function SettingsView(props: Props) {
           title="Confirm close unsaved"
           description="Prompt before closing a tab with unsaved SQL changes"
           checked={confirmCloseUnsaved()}
+          defaultValue={true}
           onToggle={() => {
             const next = !confirmCloseUnsaved();
             setConfirmCloseUnsaved(next);
             saveConfirmCloseUnsaved(next);
+          }}
+          onReset={() => {
+            setConfirmCloseUnsaved(true);
+            saveConfirmCloseUnsaved(true);
           }}
         />
       ),
@@ -568,31 +727,19 @@ export default function SettingsView(props: Props) {
       title: "Tab auto naming",
       keywords: "tab auto naming title first line sql generate ai flash lite",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Tab auto naming</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Untitled tabs use the first line of SQL, or a short name from
-                Flash Lite. AI needs a Gemini API key.
-              </p>
-            </div>
-            <div class="min-w-[200px]">
-              <Dropdown
-                value={tabAutoNaming()}
-                options={TAB_AUTO_NAMING_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-                onChange={(val) => {
-                  const next = val as TabAutoNamingMode;
-                  setTabAutoNaming(next);
-                  saveTabAutoNaming(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Tab auto naming"
+          description="Untitled tabs use the first line of SQL, or a short name from AI."
+          value={tabAutoNaming()}
+          defaultValue={DEFAULT_TAB_AUTO_NAMING}
+          options={TAB_AUTO_NAMING_OPTIONS}
+          minWidth="min-w-[160px]"
+          onChange={(val) => {
+            const next = val as TabAutoNamingMode;
+            setTabAutoNaming(next);
+            saveTabAutoNaming(next);
+          }}
+        />
       ),
     },
     {
@@ -605,6 +752,7 @@ export default function SettingsView(props: Props) {
           title="Auto-connect on startup"
           description="Automatically attempt to connect to the last used connection"
           checked={autoConnectStartup()}
+          defaultValue={true}
           onToggle={async () => {
             const next = !autoConnectStartup();
             setAutoConnectStartup(next);
@@ -612,6 +760,19 @@ export default function SettingsView(props: Props) {
             try {
               const settings: AppSettings = await invoke("load_connections");
               settings.auto_connect_startup = next;
+              await invoke("save_connections_settings", {
+                payload: settings,
+              });
+            } catch (err) {
+              console.error("Failed to save auto-connect setting", err);
+            }
+          }}
+          onReset={async () => {
+            setAutoConnectStartup(true);
+            saveAutoConnectStartup(true);
+            try {
+              const settings: AppSettings = await invoke("load_connections");
+              settings.auto_connect_startup = true;
               await invoke("save_connections_settings", {
                 payload: settings,
               });
@@ -631,17 +792,17 @@ export default function SettingsView(props: Props) {
       render: () => (
         <ToggleSetting
           title="Reveal current database in explorer"
-          description={
-            <>
-              When you switch databases from the editor, expand and scroll to
-              that database in the left panel
-            </>
-          }
+          description="When you switch databases from the editor, expand and scroll to that database in the left panel"
           checked={revealCurrentDb()}
+          defaultValue={true}
           onToggle={() => {
             const next = !revealCurrentDb();
             setRevealCurrentDb(next);
             saveRevealCurrentDatabaseInExplorer(next);
+          }}
+          onReset={() => {
+            setRevealCurrentDb(true);
+            saveRevealCurrentDatabaseInExplorer(true);
           }}
         />
       ),
@@ -674,25 +835,20 @@ export default function SettingsView(props: Props) {
       title: "Font family",
       keywords: "font family typeface cascadia fira consolas mono editor",
       render: () => (
-        <SettingsSection>
-          <div class="flex items-center justify-between mb-3">
-            <SettingTitle
-              title="Font family"
-              description="Typeface used by the SQL editor"
-            />
-            <div class="min-w-[220px]">
-              <Dropdown
-                value={fontFamily()}
-                options={EDITOR_FONT_FAMILY_OPTIONS}
-                onChange={(val) => {
-                  setFontFamily(val);
-                  saveEditorFontFamily(val);
-                }}
-              />
-            </div>
-          </div>
+        <DropdownSetting
+          title="Font family"
+          description="Typeface used by the SQL editor"
+          value={fontFamily()}
+          defaultValue={DEFAULT_EDITOR_FONT_FAMILY}
+          options={EDITOR_FONT_FAMILY_OPTIONS}
+          minWidth="min-w-[200px]"
+          onChange={(val) => {
+            setFontFamily(val);
+            saveEditorFontFamily(val);
+          }}
+        >
           <div
-            class="rounded-md border border-border px-3 py-2 text-m text-text"
+            class="rounded-md border border-border px-3 py-2 text-m text-text mt-3"
             style={{
               "font-family": fontFamily() || "var(--font-mono)",
               "font-size": `${fontSize()}px`,
@@ -700,7 +856,7 @@ export default function SettingsView(props: Props) {
           >
             SELECT * FROM users WHERE id = 42;
           </div>
-        </SettingsSection>
+        </DropdownSetting>
       ),
     },
     {
@@ -735,10 +891,15 @@ export default function SettingsView(props: Props) {
           title="Line numbers"
           description="Show line numbers in the editor gutter"
           checked={editorLineNumbers()}
+          defaultValue={true}
           onToggle={() => {
             const next = !editorLineNumbers();
             setEditorLineNumbers(next);
             saveEditorLineNumbers(next);
+          }}
+          onReset={() => {
+            setEditorLineNumbers(true);
+            saveEditorLineNumbers(true);
           }}
         />
       ),
@@ -753,10 +914,15 @@ export default function SettingsView(props: Props) {
           title="Minimap"
           description="Show a code minimap on the right edge of the editor"
           checked={editorMinimap()}
+          defaultValue={true}
           onToggle={() => {
             const next = !editorMinimap();
             setEditorMinimap(next);
             saveEditorMinimap(next);
+          }}
+          onReset={() => {
+            setEditorMinimap(true);
+            saveEditorMinimap(true);
           }}
         />
       ),
@@ -771,10 +937,15 @@ export default function SettingsView(props: Props) {
           title="Auto-complete"
           description="Show SQL suggestions as you type"
           checked={editorAutocomplete()}
+          defaultValue={true}
           onToggle={() => {
             const next = !editorAutocomplete();
             setEditorAutocomplete(next);
             saveEditorAutocomplete(next);
+          }}
+          onReset={() => {
+            setEditorAutocomplete(true);
+            saveEditorAutocomplete(true);
           }}
         />
       ),
@@ -786,28 +957,20 @@ export default function SettingsView(props: Props) {
       keywords:
         "suggestion style ghost inline popup dropdown intellisense autocomplete editor",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div classList={{ "opacity-50": !editorAutocomplete() }}>
-              <h4 class="text-m font-medium text-text">Suggestion style</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                How SQL suggestions appear while typing
-              </p>
-            </div>
-            <div class="min-w-[170px]">
-              <Dropdown
-                value={editorSuggestionStyle()}
-                options={EDITOR_SUGGESTION_STYLE_OPTIONS}
-                disabled={!editorAutocomplete()}
-                onChange={(value) => {
-                  const next = normalizeEditorSuggestionStyle(value);
-                  setEditorSuggestionStyle(next);
-                  saveEditorSuggestionStyle(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Suggestion style"
+          description="How SQL suggestions appear while typing"
+          value={editorSuggestionStyle()}
+          defaultValue={DEFAULT_EDITOR_SUGGESTION_STYLE}
+          options={EDITOR_SUGGESTION_STYLE_OPTIONS}
+          disabled={!editorAutocomplete()}
+          minWidth="min-w-[160px]"
+          onChange={(val) => {
+            const next = normalizeEditorSuggestionStyle(val);
+            setEditorSuggestionStyle(next);
+            saveEditorSuggestionStyle(next);
+          }}
+        />
       ),
     },
     {
@@ -820,10 +983,15 @@ export default function SettingsView(props: Props) {
           title="Format SQL on paste"
           description="Automatically format pasted SQL using T-SQL conventions"
           checked={editorFormatOnPaste()}
+          defaultValue={false}
           onToggle={() => {
             const next = !editorFormatOnPaste();
             setEditorFormatOnPaste(next);
             saveEditorFormatOnPaste(next);
+          }}
+          onReset={() => {
+            setEditorFormatOnPaste(false);
+            saveEditorFormatOnPaste(false);
           }}
         />
       ),
@@ -834,28 +1002,19 @@ export default function SettingsView(props: Props) {
       title: "Format style",
       keywords: "format style compact expanded single line clause sql",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Format style</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Choose a compact layout with fewer lines or an expanded layout
-                with more spacing
-              </p>
-            </div>
-            <div class="min-w-[160px]">
-              <Dropdown
-                value={formatStyle()}
-                options={FORMAT_STYLE_OPTIONS}
-                onChange={(val) => {
-                  const next = val as SqlFormatStyle;
-                  setFormatStyle(next);
-                  saveFormatStyle(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Format style"
+          description="Choose a compact layout with fewer lines or an expanded layout with more spacing"
+          value={formatStyle()}
+          defaultValue={DEFAULT_FORMAT_STYLE}
+          options={FORMAT_STYLE_OPTIONS}
+          minWidth="min-w-[160px]"
+          onChange={(val) => {
+            const next = val as SqlFormatStyle;
+            setFormatStyle(next);
+            saveFormatStyle(next);
+          }}
+        />
       ),
     },
     {
@@ -864,31 +1023,23 @@ export default function SettingsView(props: Props) {
       title: "Format indent size",
       keywords: "format indent size tab width spaces sql",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Format indent size</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Indentation used by the SQL formatter and the editor Tab key
-              </p>
-            </div>
-            <div class="min-w-[160px]">
-              <Dropdown
-                value={String(formatIndentSize())}
-                options={FORMAT_INDENT_OPTIONS}
-                onChange={(val) => {
-                  const n = Number.parseInt(val, 10);
-                  const safe =
-                    Number.isFinite(n) && n > 0
-                      ? n
-                      : DEFAULT_FORMAT_INDENT_SIZE;
-                  setFormatIndentSize(safe);
-                  saveFormatIndentSize(safe);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Format indent size"
+          description="Indentation used by the SQL formatter and the editor Tab key"
+          value={String(formatIndentSize())}
+          defaultValue={String(DEFAULT_FORMAT_INDENT_SIZE)}
+          options={FORMAT_INDENT_OPTIONS}
+          minWidth="min-w-[160px]"
+          onChange={(val) => {
+            const n = Number.parseInt(val, 10);
+            const safe =
+              Number.isFinite(n) && n > 0
+                ? n
+                : DEFAULT_FORMAT_INDENT_SIZE;
+            setFormatIndentSize(safe);
+            saveFormatIndentSize(safe);
+          }}
+        />
       ),
     },
     {
@@ -897,30 +1048,22 @@ export default function SettingsView(props: Props) {
       title: "Format keyword case",
       keywords: "format keyword case upper lower preserve sql",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">Format keyword case</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Convert SQL keywords when formatting
-              </p>
-            </div>
-            <div class="min-w-[160px]">
-              <Dropdown
-                value={formatKeywordCase()}
-                options={FORMAT_KEYWORD_CASE_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
-                onChange={(val) => {
-                  const next = val as SqlKeywordCase;
-                  setFormatKeywordCase(next);
-                  saveFormatKeywordCase(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Format keyword case"
+          description="Convert SQL keywords when formatting"
+          value={formatKeywordCase()}
+          defaultValue={DEFAULT_FORMAT_KEYWORD_CASE}
+          options={FORMAT_KEYWORD_CASE_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
+          minWidth="min-w-[160px]"
+          onChange={(val) => {
+            const next = val as SqlKeywordCase;
+            setFormatKeywordCase(next);
+            saveFormatKeywordCase(next);
+          }}
+        />
       ),
     },
     {
@@ -930,31 +1073,17 @@ export default function SettingsView(props: Props) {
       keywords:
         "results row limit max rows truncate result set query select top",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between mb-1">
-            <div>
-              <h4 class="text-m font-medium text-text">Result row limit</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Truncate each result set to this many rows. 0 = unlimited.
-              </p>
-            </div>
-            <div class="w-[120px]">
-              <Input
-                type="number"
-                name="exec-max-rows"
-                min="0"
-                value={String(execMaxRows())}
-                onInput={(e) => {
-                  const raw = (e.target as HTMLInputElement).value;
-                  const n = Number.parseInt(raw, 10);
-                  const safe = Number.isFinite(n) && n >= 0 ? n : 0;
-                  setExecMaxRows(safe);
-                  saveExecMaxRows(safe);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <NumberInputSetting
+          title="Result row limit"
+          description="Truncate each result set to this many rows. 0 = unlimited."
+          name="exec-max-rows"
+          value={execMaxRows()}
+          defaultValue={DEFAULT_EXEC_MAX_ROWS}
+          onInput={(safe) => {
+            setExecMaxRows(safe);
+            saveExecMaxRows(safe);
+          }}
+        />
       ),
     },
     {
@@ -963,35 +1092,18 @@ export default function SettingsView(props: Props) {
       title: "Query timeout",
       keywords: "execution query timeout seconds cancel kill long running",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between mb-1">
-            <div>
-              <h4 class="text-m font-medium text-text">Query timeout</h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Cancel queries that run longer than this many seconds. 0 = no
-                timeout (max {MAX_EXEC_TIMEOUT_SECONDS}).
-              </p>
-            </div>
-            <div class="w-[120px]">
-              <Input
-                type="number"
-                name="exec-timeout"
-                min="0"
-                max={String(MAX_EXEC_TIMEOUT_SECONDS)}
-                value={String(execTimeout())}
-                onInput={(e) => {
-                  const raw = (e.target as HTMLInputElement).value;
-                  const n = Number.parseInt(raw, 10);
-                  const clamped = Number.isFinite(n)
-                    ? Math.max(0, Math.min(MAX_EXEC_TIMEOUT_SECONDS, n))
-                    : 0;
-                  setExecTimeout(clamped);
-                  saveExecTimeoutSeconds(clamped);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <NumberInputSetting
+          title="Query timeout"
+          description={`Cancel queries that run longer than this many seconds. 0 = no timeout (max ${MAX_EXEC_TIMEOUT_SECONDS}).`}
+          name="exec-timeout"
+          value={execTimeout()}
+          defaultValue={DEFAULT_EXEC_TIMEOUT_SECONDS}
+          max={String(MAX_EXEC_TIMEOUT_SECONDS)}
+          onInput={(clamped) => {
+            setExecTimeout(clamped);
+            saveExecTimeoutSeconds(clamped);
+          }}
+        />
       ),
     },
     {
@@ -1001,32 +1113,22 @@ export default function SettingsView(props: Props) {
       keywords:
         "app date time format local utc region locale properties chat history dialogs",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                App date & time format
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Format used for dates in the app outside the results grid
-              </p>
-            </div>
-            <div class="min-w-[180px]">
-              <Dropdown
-                value={appDateFormat()}
-                options={DATE_FORMAT_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
-                onChange={(val) => {
-                  const next = val as DateFormat;
-                  setAppDateFormatSignal(next);
-                  saveAppDateFormat(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="App date & time format"
+          description="Format used for dates in the app outside the results grid"
+          value={appDateFormat()}
+          defaultValue={DEFAULT_DATE_FORMAT}
+          options={DATE_FORMAT_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
+          minWidth="min-w-[190px]"
+          onChange={(val) => {
+            const next = val as DateFormat;
+            setAppDateFormatSignal(next);
+            saveAppDateFormat(next);
+          }}
+        />
       ),
     },
     {
@@ -1036,32 +1138,22 @@ export default function SettingsView(props: Props) {
       keywords:
         "results grid date time format local utc region locale cell",
       render: () => (
-        <div class="settings-section">
-          <div class="flex items-center justify-between">
-            <div>
-              <h4 class="text-m font-medium text-text">
-                Results date & time format
-              </h4>
-              <p class="text-s text-text-muted mt-0.5">
-                Format applied to date and timestamp cells in the results grid
-              </p>
-            </div>
-            <div class="min-w-[180px]">
-              <Dropdown
-                value={resultsDateFormat()}
-                options={DATE_FORMAT_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
-                onChange={(val) => {
-                  const next = val as DateFormat;
-                  setResultsDateFormatSignal(next);
-                  saveResultsDateFormat(next);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <DropdownSetting
+          title="Results date & time format"
+          description="Format applied to date and timestamp cells in the results grid"
+          value={resultsDateFormat()}
+          defaultValue={DEFAULT_RESULTS_DATE_FORMAT}
+          options={DATE_FORMAT_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
+          minWidth="min-w-[190px]"
+          onChange={(val) => {
+            const next = val as DateFormat;
+            setResultsDateFormatSignal(next);
+            saveResultsDateFormat(next);
+          }}
+        />
       ),
     },
     {
@@ -1073,12 +1165,17 @@ export default function SettingsView(props: Props) {
       render: () => (
         <ToggleSetting
           title="Show column filters by default"
-          description="Show filter inputs under column headers result tables with 5 or more rows. You can still toggle filters per table."
+          description="Show filter inputs under column headers in result tables with 5 or more rows. You can still toggle filters per table."
           checked={resultsShowFilters()}
+          defaultValue={DEFAULT_RESULTS_SHOW_FILTERS}
           onToggle={() => {
             const next = !resultsShowFilters();
             setResultsShowFiltersSignal(next);
             saveResultsShowFilters(next);
+          }}
+          onReset={() => {
+            setResultsShowFiltersSignal(DEFAULT_RESULTS_SHOW_FILTERS);
+            saveResultsShowFilters(DEFAULT_RESULTS_SHOW_FILTERS);
           }}
         />
       ),
@@ -1092,17 +1189,17 @@ export default function SettingsView(props: Props) {
       render: () => (
         <ToggleSetting
           title="Confirm risky queries"
-          description={
-            <>
-              Ask before running DROP / ALTER, TRUNCATE, MERGE, or UPDATE /
-              DELETE without a WHERE clause
-            </>
-          }
+          description="Ask before running DROP / ALTER, TRUNCATE, MERGE, or UPDATE / DELETE without a WHERE clause"
           checked={execConfirmDestructive()}
+          defaultValue={true}
           onToggle={() => {
             const next = !execConfirmDestructive();
             setExecConfirmDestructiveSignal(next);
             saveExecConfirmDestructive(next);
+          }}
+          onReset={() => {
+            setExecConfirmDestructiveSignal(true);
+            saveExecConfirmDestructive(true);
           }}
         />
       ),
@@ -1205,7 +1302,13 @@ export default function SettingsView(props: Props) {
             title="Use device theme"
             description="Automatically switch between Dark and Light to match your system"
             checked={followSystemTheme()}
+            defaultValue={true}
             onToggle={handleFollowSystemThemeToggle}
+            onReset={() => {
+              if (!followSystemTheme()) {
+                handleFollowSystemThemeToggle();
+              }
+            }}
           />
 
           <div class="h-px bg-border/40 w-full" />
@@ -1234,14 +1337,24 @@ export default function SettingsView(props: Props) {
               <h4 class="text-s font-medium text-text-muted uppercase tracking-wider">
                 Custom Themes
               </h4>
-              <button
-                type="button"
-                onClick={() => setIsCreatingTheme(true)}
-                class="btn btn-secondary px-3 py-1.5 cursor-pointer text-s flex items-center gap-1.5"
-              >
-                <Icon name="plus" />
-                Create Theme
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenThemesFolder}
+                  class="btn btn-secondary px-3 py-1.5 cursor-pointer text-s flex items-center gap-1.5"
+                >
+                  <Icon name="folder-open" />
+                  Open Themes Folder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingTheme(true)}
+                  class="btn btn-secondary px-3 py-1.5 cursor-pointer text-s flex items-center gap-1.5"
+                >
+                  <Icon name="plus" />
+                  Create Theme
+                </button>
+              </div>
             </div>
 
             <Show
@@ -1443,17 +1556,17 @@ export default function SettingsView(props: Props) {
       render: () => (
         <ToggleSetting
           title="Notify when AI responds"
-          description={
-            <>
-              Show a desktop notification when a chat reply arrives and the
-              window is in the background
-            </>
-          }
+          description="Show a desktop notification when a chat reply arrives and the window is in the background"
           checked={aiNotifications()}
+          defaultValue={true}
           onToggle={() => {
             const next = !aiNotifications();
             setAiNotifications(next);
             saveAiNotifications(next);
+          }}
+          onReset={() => {
+            setAiNotifications(true);
+            saveAiNotifications(true);
           }}
         />
       ),
@@ -1461,17 +1574,22 @@ export default function SettingsView(props: Props) {
     {
       id: "open-last-chat-startup",
       tab: "ai",
-      title: "Open last chat on startup",
-      keywords: "ai chat open last startup load launch panel side panel",
+      title: "Open last chat",
+      keywords: "ai chat open last restart startup conversation content",
       render: () => (
         <ToggleSetting
-          title="Open last chat on startup"
-          description="Open the AI chat panel on app startup if it was open during the previous session"
+          title="Open last chat"
+          description="Open the last used chat when opening AI chat for the first time after app restart"
           checked={openLastChatStartup()}
+          defaultValue={false}
           onToggle={() => {
             const next = !openLastChatStartup();
             setOpenLastChatStartup(next);
             saveOpenLastChatStartup(next);
+          }}
+          onReset={() => {
+            setOpenLastChatStartup(false);
+            saveOpenLastChatStartup(false);
           }}
         />
       ),
@@ -1482,7 +1600,14 @@ export default function SettingsView(props: Props) {
       title: "Update channel",
       keywords: "update channel stable preview beta experimental release",
       render: () => (
-        <div class="settings-section">
+        <SettingContainer
+          isModified={updateChannel() !== DEFAULT_UPDATE_CHANNEL}
+          onReset={() => {
+            setUpdateChannel(DEFAULT_UPDATE_CHANNEL);
+            saveUpdateChannel(DEFAULT_UPDATE_CHANNEL);
+          }}
+          defaultValueLabel="Stable"
+        >
           <div class="flex items-center justify-between gap-4 mb-4">
             <div>
               <h4 class="text-m font-medium text-text">Update channel</h4>
@@ -1490,7 +1615,7 @@ export default function SettingsView(props: Props) {
                 Choose which release stream the updater checks
               </p>
             </div>
-            <span class="text-s font-semibold text-accent">
+            <span class="text-s font-semibold text-accent shrink-0">
               {UPDATE_CHANNEL_OPTIONS.find((o) => o.value === updateChannel())
                 ?.label ?? "Stable"}
             </span>
@@ -1521,7 +1646,7 @@ export default function SettingsView(props: Props) {
               )}
             </For>
           </div>
-        </div>
+        </SettingContainer>
       ),
     },
     {
@@ -1534,10 +1659,15 @@ export default function SettingsView(props: Props) {
           title="Automatically check for updates"
           description="Check for new versions in the background on startup"
           checked={autoCheckUpdates()}
+          defaultValue={true}
           onToggle={() => {
             const next = !autoCheckUpdates();
             setAutoCheckUpdates(next);
             saveAutoCheckUpdates(next);
+          }}
+          onReset={() => {
+            setAutoCheckUpdates(true);
+            saveAutoCheckUpdates(true);
           }}
         />
       ),
@@ -1744,7 +1874,9 @@ export default function SettingsView(props: Props) {
       ? sections
       : sections.filter((s) => s.tab !== "developer");
     if (isSearching()) {
-      return availableSections.filter(sectionMatches);
+      const matched = availableSections.filter(sectionMatches);
+      const tab = searchTab();
+      return tab ? matched.filter((s) => s.tab === tab) : matched;
     }
     return availableSections.filter((s) => s.tab === activeTab());
   });
@@ -1759,12 +1891,32 @@ export default function SettingsView(props: Props) {
     return Array.from(groups.entries());
   });
 
+  const tabsWithMatches = createMemo<Set<Tab> | null>(() => {
+    if (!isSearching()) return null;
+    const available = isPreviewBuild()
+      ? sections
+      : sections.filter((s) => s.tab !== "developer");
+    return new Set(available.filter(sectionMatches).map((s) => s.tab));
+  });
+
+  const visibleTabs = createMemo(() => {
+    const base = TABS.filter((tab) => tab.id !== "developer" || isPreviewBuild());
+    const matches = tabsWithMatches();
+    return matches ? base.filter((tab) => matches.has(tab.id)) : base;
+  });
+
   const sidebarNode = (
     <>
       <div class="app-panel-header">
         <span class="app-section-title">Settings</span>
+        <SettingsNavButtons
+          canGoBack={canGoBack()}
+          canGoForward={canGoForward()}
+          onGoBack={goBack}
+          onGoForward={goForward}
+        />
       </div>
-      <div class="px-3 pt-2 pb-2">
+      <div class="px-3 pt-2 pb-3">
         <div class="relative">
           <Icon
             name="magnifying-glass"
@@ -1774,22 +1926,37 @@ export default function SettingsView(props: Props) {
             type="search"
             name="settings-search"
             value={search()}
-            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+            onInput={(e) => {
+              setSearch((e.target as HTMLInputElement).value);
+              setSearchTab(null);
+            }}
             placeholder="Search settings…"
-            class="pl-8"
+            class="pl-8 border-none bg-transparent hover:bg-surface-hover focus:bg-surface-hover focus:border-none focus:ring-none placeholder:text-text-muted/60"
           />
         </div>
       </div>
-      <div class="px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pb-4">
+      <div class="settings-nav-list px-3 flex flex-col gap-0.5 overflow-y-auto flex-1 pb-4">
+        <Show when={isSearching()}>
+          <button
+            onClick={() => setSearchTab(null)}
+            class={`settings-nav-btn ${!searchTab() ? "active" : ""}`}
+          >
+            <Icon name="fa-solid fa-magnifying-glass-arrow-right" />
+            All results
+          </button>
+        </Show>
         <For each={visibleTabs()}>
           {(tab) => (
             <button
-              onClick={() => {
-                setActiveTab(tab.id);
-                setSearch("");
-              }}
+              onClick={() => selectTab(tab.id)}
               class={`settings-nav-btn ${
-                !isSearching() && activeTab() === tab.id ? "active" : ""
+                isSearching()
+                  ? searchTab() === tab.id
+                    ? "active"
+                    : ""
+                  : activeTab() === tab.id
+                    ? "active"
+                    : ""
               }`}
             >
               <Icon name={tab.icon} />
@@ -1889,8 +2056,6 @@ export default function SettingsView(props: Props) {
         <ThemeDialog
           onClose={() => setIsCreatingTheme(false)}
           onSave={handleSaveCustomTheme}
-          activeThemeColors={activeTheme()?.colors}
-          activeThemeTabColors={activeTheme()!.tabColors}
           activeThemeMode={activeThemeMode()}
         />
       </Show>
@@ -1931,7 +2096,7 @@ export default function SettingsView(props: Props) {
   return (
     <>
       <div class="flex flex-1 w-full h-full bg-surface overflow-hidden animate-in fade-in duration-[var(--duration-slow)]">
-        <div class="w-[260px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
+        <div class="w-[325px] app-sidebar-surface border-r border-border flex flex-col gap-1 flex-shrink-0 z-10">
           {sidebarNode}
         </div>
         <div class="flex-1 p-8 md:p-12 overflow-y-auto scrollbar-gutter-stable relative bg-surface-panel">

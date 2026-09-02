@@ -41,8 +41,8 @@ export const MAX_MAX_HISTORY = 500;
 
 export const DEFAULT_EDITOR_FONT_FAMILY = "";
 export const DEFAULT_EDITOR_FONT_SIZE = 14;
-export const MIN_EDITOR_FONT_SIZE = 10;
-export const MAX_EDITOR_FONT_SIZE = 24;
+export const MIN_EDITOR_FONT_SIZE = 8;
+export const MAX_EDITOR_FONT_SIZE = 20;
 export const DEFAULT_EDITOR_SUGGESTION_STYLE: EditorSuggestionStyle = "ghost";
 
 export const EDITOR_FONT_FAMILY_OPTIONS: { value: string; label: string }[] = [

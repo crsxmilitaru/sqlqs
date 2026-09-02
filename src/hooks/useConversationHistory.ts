@@ -1,6 +1,7 @@
 import { createSignal, onMount } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatMessage } from "../lib/ai";
+import { loadPreferences } from "../lib/settings";
 
 const ACTIVE_CONVERSATION_STORAGE_KEY = "sqlqs_active_conversation_id";
 
@@ -40,6 +41,9 @@ function nowMillis(): number {
 }
 
 function loadActiveId(): string | null {
+  if (!loadPreferences().openLastChatStartup) {
+    return null;
+  }
   try {
     return localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY);
   } catch {

@@ -885,6 +885,9 @@ fn rename_sql_file(from: String, to: String) -> Result<String, String> {
 
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let path = path.replace('/', "\\");
+
     let folder = PathBuf::from(&path);
     if !folder.exists() {
         let allowed_root = dirs::document_dir().ok_or("Cannot resolve Documents folder")?;

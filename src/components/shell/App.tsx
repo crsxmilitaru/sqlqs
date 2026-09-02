@@ -330,8 +330,7 @@ export default function App() {
   const [objectJumpIndexStatus, setObjectJumpIndexStatus] =
     createSignal<ServerObjectIndexStatus>(EMPTY_OBJECT_INDEX_STATUS);
   const [aiChatOpen, setAiChatOpen] = createSignal(
-    loadPreferences().openLastChatStartup &&
-      localStorage.getItem("sqlqs_ai_chat_open") === "true",
+    localStorage.getItem("sqlqs_ai_chat_open") === "true",
   );
   const [hasAiKey, setHasAiKey] = createSignal(false);
   const [propertiesTarget, setPropertiesTarget] = createSignal<{
@@ -425,7 +424,7 @@ export default function App() {
     if (isSettingsOpen()) return;
     void AiService.getStatus()
       .then((status) => setHasAiKey(status.hasKey))
-      .catch((err) => console.error("Failed to refresh AI status:", err));
+      .catch(() => setHasAiKey(false));
   });
 
   function handleToggleAiChat() {
@@ -1550,15 +1549,10 @@ export default function App() {
             renderLayout={(sidebar, content) => (
               <>
                 <div
-                  style={{ width: `${explorerWidth()}px` }}
-                  class="app-sidebar-surface flex-shrink-0 overflow-hidden relative flex flex-col z-10 animate-in fade-in"
+                  class="w-[325px] mr-[var(--layout-gap)] app-sidebar-surface flex-shrink-0 overflow-hidden relative flex flex-col z-10 animate-in fade-in"
                 >
                   {sidebar}
                 </div>
-                <div
-                  class="resizer resizer-h"
-                  onMouseDown={handleExplorerResize}
-                />
                 <main class="app-panel flex-1 flex flex-col relative">
                   <div class="flex-1 w-full h-full p-8 md:p-12 overflow-y-auto scrollbar-gutter-stable animate-in fade-in duration-[var(--duration-slow)]">
                     {content}
@@ -1652,6 +1646,7 @@ export default function App() {
                 onConnect={() => setIsConnectionDialogOpen(true)}
                 connected={connected()}
                 isInitializing={isInitializing()}
+                serverName={serverName()}
                 currentDatabase={currentDatabase()}
                 databases={databases()}
                 onDatabaseChange={handleDatabaseChange}

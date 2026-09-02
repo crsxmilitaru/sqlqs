@@ -648,7 +648,7 @@ export const AiService = {
     const dbName = database
       ? database.replace(/[\r\n]/g, "").slice(0, 128)
       : "unknown";
-    return `You are an expert T-SQL assistant for Microsoft SQL Server.
+    return `You are an expert T-SQL assistant for SQL Query Studio application.
 Current database: ${dbName}
 
 You have tools available to inspect the database schema, columns, indexes, foreign keys, object definitions, the user's current query, the latest query result message (error or non-data result), and the list of databases. Use them when you need information to answer the user's question accurately.

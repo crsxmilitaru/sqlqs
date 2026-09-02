@@ -7,11 +7,52 @@ import {
   type ShortcutCategory,
   type ShortcutDefinition,
 } from "../../lib/shortcuts";
+import {
+  getGoBackShortcutLabel,
+  getGoForwardShortcutLabel,
+} from "../../lib/editor-navigation";
 import { Icon } from "../ui/Icons";
 import Input from "../ui/Input";
+import Dropdown from "../ui/Dropdown";
+import Tooltip from "../ui/Tooltip";
 
-export function SettingsSection(props: { children: JSX.Element }) {
-  return <div class="settings-section">{props.children}</div>;
+export function SettingsNavButtons(props: {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  class?: string;
+}) {
+  return (
+    <div class={`flex items-center gap-1 ${props.class ?? ""}`}>
+      <Tooltip content={`Go Back (${getGoBackShortcutLabel()})`} placement="bottom">
+        <button
+          type="button"
+          aria-label="Go Back"
+          onClick={props.onGoBack}
+          disabled={!props.canGoBack}
+          class="control-icon-btn"
+        >
+          <Icon name="arrow-left" class="text-s" />
+        </button>
+      </Tooltip>
+      <Tooltip content={`Go Forward (${getGoForwardShortcutLabel()})`} placement="bottom">
+        <button
+          type="button"
+          aria-label="Go Forward"
+          onClick={props.onGoForward}
+          disabled={!props.canGoForward}
+          class="control-icon-btn"
+        >
+          <Icon name="arrow-right" class="text-s" />
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
+export function SettingsSection(props: { children: JSX.Element; class?: string }) {
+  return <div class={`settings-section ${props.class ?? ""}`}>{props.children}</div>;
 }
 
 export function SettingTitle(props: { title: string; description: JSX.Element }) {
@@ -23,26 +64,95 @@ export function SettingTitle(props: { title: string; description: JSX.Element })
   );
 }
 
+export function ResetButton(props: {
+  onReset: () => void;
+  defaultValueLabel?: string;
+  class?: string;
+}) {
+  const tooltipContent = () =>
+    props.defaultValueLabel !== undefined
+      ? `Reset to default (${props.defaultValueLabel})`
+      : "Reset to default";
+
+  return (
+    <Tooltip content={tooltipContent()} placement="top">
+      <button
+        type="button"
+        onClick={props.onReset}
+        aria-label={tooltipContent()}
+        class={`text-text-muted hover:text-accent p-1.5 transition-colors text-s rounded-md hover:bg-surface-active cursor-pointer leading-none flex items-center justify-center shrink-0 ${props.class ?? ""}`}
+      >
+        <Icon name="rotate-left" class="text-xs" />
+      </button>
+    </Tooltip>
+  );
+}
+
+export function SettingContainer(props: {
+  isModified?: boolean;
+  onReset?: () => void;
+  defaultValueLabel?: string;
+  children: JSX.Element;
+  class?: string;
+}) {
+  return (
+    <div class="relative flex items-center w-full">
+      <Show when={props.isModified && props.onReset}>
+        <div class="absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 flex items-center justify-center">
+          <ResetButton
+            onReset={props.onReset!}
+            defaultValueLabel={props.defaultValueLabel}
+          />
+        </div>
+      </Show>
+      <div
+        class={`settings-section flex-1 min-w-0 ${
+          props.isModified ? "is-modified" : ""
+        } ${props.class ?? ""}`}
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 export function ToggleSetting(props: {
   title: string;
   description: JSX.Element;
   checked: boolean;
   onToggle: () => void;
+  defaultValue?: boolean;
+  onReset?: () => void;
 }) {
+  const isModified = () =>
+    props.defaultValue !== undefined && props.checked !== props.defaultValue;
+
+  const handleReset = () => {
+    if (props.onReset) {
+      props.onReset();
+    } else if (props.defaultValue !== undefined && props.checked !== props.defaultValue) {
+      props.onToggle();
+    }
+  };
+
   return (
-    <SettingsSection>
-      <div class="flex items-center justify-between">
+    <SettingContainer
+      isModified={isModified()}
+      onReset={handleReset}
+      defaultValueLabel={props.defaultValue ? "On" : "Off"}
+    >
+      <div class="flex items-center justify-between gap-4">
         <SettingTitle title={props.title} description={props.description} />
         <button
           type="button"
           onClick={props.onToggle}
-          class="settings-toggle"
+          class="settings-toggle shrink-0"
           data-checked={props.checked}
           aria-label={props.title}
           aria-pressed={props.checked}
         />
       </div>
-    </SettingsSection>
+    </SettingContainer>
   );
 }
 
@@ -59,9 +169,14 @@ export function RangeSetting(props: {
   onInput: (value: number) => void;
 }) {
   const valueLabel = () => props.valueLabel ?? props.value;
+  const isModified = createMemo(() => props.value !== props.defaultValue);
 
   return (
-    <SettingsSection>
+    <SettingContainer
+      isModified={isModified()}
+      onReset={() => props.onInput(props.defaultValue)}
+      defaultValueLabel={String(props.defaultValue)}
+    >
       <div class="flex items-center justify-between mb-3">
         <SettingTitle title={props.title} description={props.description} />
         <span class="text-m font-medium text-accent tabular-nums">
@@ -80,12 +195,111 @@ export function RangeSetting(props: {
         }
         class="settings-range"
       />
-      <div class="flex justify-between text-s text-text-muted mt-2">
+      <div class="flex justify-between text-s text-text-muted mt-2 select-none">
         <span>{props.min}</span>
-        <span>{props.defaultValue} (default)</span>
         <span>{props.max}</span>
       </div>
-    </SettingsSection>
+    </SettingContainer>
+  );
+}
+
+export function DropdownSetting<T extends string>(props: {
+  title: string;
+  description: JSX.Element;
+  value: T;
+  defaultValue?: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  onReset?: () => void;
+  disabled?: boolean;
+  minWidth?: string;
+  children?: JSX.Element;
+}) {
+  const isModified = () =>
+    props.defaultValue !== undefined && props.value !== props.defaultValue;
+
+  const defaultOptionLabel = () => {
+    if (props.defaultValue === undefined) return undefined;
+    const matched = props.options.find((o) => o.value === props.defaultValue);
+    return matched?.label ?? props.defaultValue;
+  };
+
+  const handleReset = () => {
+    if (props.onReset) {
+      props.onReset();
+    } else if (props.defaultValue !== undefined) {
+      props.onChange(props.defaultValue);
+    }
+  };
+
+  return (
+    <SettingContainer
+      isModified={isModified()}
+      onReset={handleReset}
+      defaultValueLabel={defaultOptionLabel()}
+    >
+      <div class="flex items-center justify-between gap-4">
+        <div classList={{ "opacity-50": props.disabled }}>
+          <SettingTitle title={props.title} description={props.description} />
+        </div>
+        <div class={`shrink-0 ${props.minWidth ?? "min-w-[160px]"}`}>
+          <Dropdown
+            value={props.value}
+            options={props.options}
+            disabled={props.disabled}
+            onChange={(val) => props.onChange(val as T)}
+          />
+        </div>
+      </div>
+      {props.children}
+    </SettingContainer>
+  );
+}
+
+export function NumberInputSetting(props: {
+  title: string;
+  description: JSX.Element;
+  name: string;
+  value: number;
+  defaultValue: number;
+  min?: string;
+  max?: string;
+  onInput: (value: number) => void;
+  onReset?: () => void;
+}) {
+  const isModified = () => props.value !== props.defaultValue;
+
+  return (
+    <SettingContainer
+      isModified={isModified()}
+      onReset={() =>
+        props.onReset ? props.onReset() : props.onInput(props.defaultValue)
+      }
+      defaultValueLabel={String(props.defaultValue)}
+    >
+      <div class="flex items-center justify-between gap-4">
+        <SettingTitle title={props.title} description={props.description} />
+        <div class="w-[120px] shrink-0">
+          <Input
+            type="number"
+            name={props.name}
+            min={props.min ?? "0"}
+            max={props.max}
+            value={String(props.value)}
+            onInput={(e) => {
+              const raw = (e.target as HTMLInputElement).value;
+              const n = Number.parseInt(raw, 10);
+              const minVal = props.min !== undefined ? Number.parseInt(props.min, 10) : 0;
+              const maxVal = props.max !== undefined ? Number.parseInt(props.max, 10) : Infinity;
+              const min = Number.isFinite(minVal) ? minVal : 0;
+              const max = Number.isFinite(maxVal) ? maxVal : Infinity;
+              const safe = Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : min;
+              props.onInput(safe);
+            }}
+          />
+        </div>
+      </div>
+    </SettingContainer>
   );
 }
 
@@ -126,38 +340,12 @@ export function ThemeCard(props: {
       class={`settings-theme-card ${props.selected ? "is-selected" : ""}`}
     >
       <div class="font-medium text-m flex items-center justify-between">
-        <span class={props.custom ? "truncate pr-16" : ""}>
+        <span class="truncate">
           {props.theme.name}
         </span>
-        <div class="flex items-center gap-2">
-          <Show when={props.custom}>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onEdit?.();
-              }}
-              class="text-text-muted hover:text-text p-1 transition-colors"
-              aria-label={`Edit ${props.theme.name}`}
-            >
-              <Icon name="pen" class="text-s" />
-            </button>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onDelete?.();
-              }}
-              class="text-text-muted hover:text-error p-1 transition-colors"
-              aria-label={`Delete ${props.theme.name}`}
-            >
-              <Icon name="trash" class="text-s" />
-            </button>
-          </Show>
-          <Show when={props.selected}>
-            <Icon name="check" class="text-accent text-s ml-1" />
-          </Show>
-        </div>
+        <Show when={props.selected}>
+          <Icon name="check" class="text-accent text-s ml-1" />
+        </Show>
       </div>
       <div
         class="settings-theme-preview"
@@ -188,6 +376,36 @@ export function ThemeCard(props: {
           />
         </div>
       </div>
+      <Show when={props.custom}>
+        <div class="flex items-center justify-end gap-1.5 pt-1">
+          <Tooltip content="Edit" placement="top">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onEdit?.();
+              }}
+              class="btn btn-secondary px-2 py-1.5"
+              aria-label={`Edit ${props.theme.name}`}
+            >
+              <Icon name="pen" class="text-s" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Delete" placement="top">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onDelete?.();
+              }}
+              class="btn btn-secondary px-2 py-1.5 text-error"
+              aria-label={`Delete ${props.theme.name}`}
+            >
+              <Icon name="trash" class="text-s" />
+            </button>
+          </Tooltip>
+        </div>
+      </Show>
     </div>
   );
 }

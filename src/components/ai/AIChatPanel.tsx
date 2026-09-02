@@ -36,6 +36,7 @@ import { getToolLabel, type ToolExecutionContext } from "../../lib/ai-tools";
 import {
   loadAiNotifications,
   loadExecutionPreferences,
+  loadPreferences,
 } from "../../lib/settings";
 import { formatTimestamp } from "../../lib/sql-date";
 import { useConversationHistory } from "../../hooks/useConversationHistory";
@@ -161,6 +162,9 @@ const TEXT_FILE_EXTENSIONS = new Set([
 ]);
 
 function loadMessages(): ChatMessage[] {
+  if (!loadPreferences().openLastChatStartup) {
+    return [];
+  }
   try {
     const stored = localStorage.getItem(CHAT_STORAGE_KEY);
     return stored ? ensureIds(JSON.parse(stored)) : [];
