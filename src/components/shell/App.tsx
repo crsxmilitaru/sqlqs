@@ -20,6 +20,7 @@ import {
 import { baseFileName, getSavedQueriesDir, joinPath } from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { AiService } from "../../lib/ai";
+import { parseConnectionStringPreview } from "../../lib/connections";
 import { generateTabTitle } from "../../lib/sql";
 import { loadTheme, THEME_CHANGED_EVENT, type ThemeSelection } from "../../lib/theme";
 import { startTaskbarOperation } from "../../lib/taskbar";
@@ -27,6 +28,7 @@ import type {
   ConnectionConfig,
   QueryResult,
   QueryTab,
+  SavedConnection,
   ServerObjectIndexStatus,
 } from "../../lib/types";
 import ConnectionDialog from "../dialogs/ConnectionDialog";
@@ -46,7 +48,7 @@ import type { SqlEditorHandle } from "../editor/SqlEditor";
 import RenameDialog from "../dialogs/RenameDialog";
 import TableCompareDialog from "../dialogs/TableCompareDialog";
 import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
-import SettingsView from "../settings/SettingsView";
+import SettingsView, { type SettingsTab } from "../settings/SettingsView";
 import {
   loadAutoCheckUpdates,
   loadExecutionPreferences,
@@ -69,6 +71,10 @@ interface RiskySchemaChange {
   kind: RiskySchemaChangeKind;
   objectType: string;
 }
+
+type DisconnectIntent =
+  | { kind: "disconnect"; openConnectDialog: boolean }
+  | { kind: "switch"; connection: SavedConnection };
 
 const SCHEMA_REFRESH_OBJECT_TYPES =
   "TABLE|VIEW|PROCEDURE|PROC|FUNCTION|TRIGGER|TYPE|SCHEMA|INDEX|SEQUENCE|SYNONYM";
@@ -309,14 +315,20 @@ export default function App() {
 
   const [isConnectionDialogOpen, setIsConnectionDialogOpen] =
     createSignal(false);
+  const [editConnectionTarget, setEditConnectionTarget] =
+    createSignal<SavedConnection | null>(null);
+  const [isSwitchingConnection, setIsSwitchingConnection] = createSignal(false);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
+  const [settingsInitialTab, setSettingsInitialTab] =
+    createSignal<SettingsTab | null>(null);
   const [pendingRisky, setPendingRisky] = createSignal<{
     tabId: string;
     sql: string;
     unguarded: UnguardedStatement[];
     schemaChanges: RiskySchemaChange[];
   } | null>(null);
-  const [pendingDisconnect, setPendingDisconnect] = createSignal(false);
+  const [pendingDisconnect, setPendingDisconnect] =
+    createSignal<DisconnectIntent | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = createSignal(true);
   const [explorerWidth, setExplorerWidth] = createSignal(325);
   const [theme, setTheme] = createSignal(loadTheme());
@@ -627,6 +639,7 @@ export default function App() {
   function handleConnect(config: ConnectionConfig) {
     connect(config);
     setIsConnectionDialogOpen(false);
+    setEditConnectionTarget(null);
   }
 
   const executeGenerations = new Map<string, number>();
@@ -749,12 +762,52 @@ export default function App() {
     });
   }
 
-  function requestDisconnect() {
+  function beginDisconnect(intent: DisconnectIntent) {
     if (tabs().some((t) => t.isExecuting)) {
-      setPendingDisconnect(true);
+      setPendingDisconnect(intent);
       return;
     }
-    void disconnect();
+    void performDisconnectIntent(intent);
+  }
+
+  async function performDisconnectIntent(intent: DisconnectIntent) {
+    if (intent.kind === "switch") {
+      await runSwitchConnection(intent.connection);
+      return;
+    }
+    await disconnect();
+    if (intent.openConnectDialog) {
+      setIsConnectionDialogOpen(true);
+    }
+  }
+
+  async function runSwitchConnection(connection: SavedConnection) {
+    if (isSwitchingConnection()) return;
+    setIsSwitchingConnection(true);
+    try {
+      const stored = await invoke<string | null>("load_saved_password", {
+        connectionName: connection.name,
+      }).catch(() => null);
+      const config: ConnectionConfig = {
+        ...connection.config,
+        password: stored ?? undefined,
+      };
+      await invoke("connect_to_server", {
+        config,
+        saveConnection: connection.name,
+        rememberPassword: stored !== null,
+      });
+      const preview = connection.config.connection_string
+        ? parseConnectionStringPreview(connection.config.connection_string)
+        : null;
+      connect(preview ? { ...config, ...preview } : config);
+    } catch (err) {
+      toast.error(`Failed to switch to "${connection.name}": ${String(err)}`);
+      setEditConnectionTarget(connection);
+      setIsConnectionDialogOpen(true);
+    } finally {
+      setIsSwitchingConnection(false);
+    }
   }
 
   async function handleDatabaseChange(db: string) {
@@ -1503,14 +1556,23 @@ export default function App() {
       <TitleBar
         connected={connected()}
         isInitializing={isInitializing()}
+        isSwitchingConnection={isSwitchingConnection()}
         serverName={serverName()}
         onConnect={() => setIsConnectionDialogOpen(true)}
-        onDisconnect={requestDisconnect}
+        onDisconnect={() =>
+          beginDisconnect({ kind: "disconnect", openConnectDialog: true })
+        }
+        onSwitchConnection={(connection) =>
+          beginDisconnect({ kind: "switch", connection })
+        }
         onOpenSqlFile={handleOpenSqlFile}
         onShowBackupRestore={() =>
           setBackupRestoreDatabase(currentDatabase() || databases()[0] || "")
         }
-        onShowSettings={() => setIsSettingsOpen(true)}
+        onShowSettings={(tab) => {
+          setSettingsInitialTab(tab ?? null);
+          setIsSettingsOpen(true);
+        }}
         onHideSettings={() => setIsSettingsOpen(false)}
         settingsDisabled={isSettingsOpen()}
         onToggleSidebar={handleToggleSidebar}
@@ -1538,6 +1600,7 @@ export default function App() {
         {isSettingsOpen() ? (
           <SettingsView
             onClose={() => setIsSettingsOpen(false)}
+            initialTab={settingsInitialTab() ?? undefined}
             version={appVersion()}
             onCheckForUpdates={() => checkForUpdates(true)}
             checkingForUpdates={updateStatus().checking}
@@ -1669,7 +1732,11 @@ export default function App() {
 
       {isConnectionDialogOpen() && (
         <ConnectionDialog
-          onClose={() => setIsConnectionDialogOpen(false)}
+          editConnection={editConnectionTarget() ?? undefined}
+          onClose={() => {
+            setIsConnectionDialogOpen(false);
+            setEditConnectionTarget(null);
+          }}
           onConnect={handleConnect}
         />
       )}
@@ -1817,17 +1884,28 @@ export default function App() {
       </Show>
 
       <Show when={pendingDisconnect()}>
-        <ConfirmDialog
-          title="Disconnect while query running?"
-          message="A query is still executing. Disconnecting now will interrupt it. Disconnect anyway?"
-          confirmLabel="Disconnect"
-          variant="danger"
-          onConfirm={() => {
-            setPendingDisconnect(false);
-            void disconnect();
-          }}
-          onCancel={() => setPendingDisconnect(false)}
-        />
+        {(intent) => (
+          <ConfirmDialog
+            title={
+              intent().kind === "switch"
+                ? "Switch while query running?"
+                : "Disconnect while query running?"
+            }
+            message={
+              intent().kind === "switch"
+                ? "A query is still executing. Switching servers now will interrupt it. Switch anyway?"
+                : "A query is still executing. Disconnecting now will interrupt it. Disconnect anyway?"
+            }
+            confirmLabel={intent().kind === "switch" ? "Switch" : "Disconnect"}
+            variant="danger"
+            onConfirm={() => {
+              const next = intent();
+              setPendingDisconnect(null);
+              void performDisconnectIntent(next);
+            }}
+            onCancel={() => setPendingDisconnect(null)}
+          />
+        )}
       </Show>
 
       <Show when={exitConfirm()}>

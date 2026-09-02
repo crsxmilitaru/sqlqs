@@ -10,6 +10,7 @@ import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "./Icons";
 import { toast } from "./Toaster";
+import { usePopupDismiss } from "../../hooks/usePopupDismiss";
 
 export interface ContextMenuItem {
   id: string;
@@ -152,26 +153,9 @@ export default function ContextMenu(props: Props) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  createEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef && !menuRef.contains(e.target as Node)) {
-        props.onClose();
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        props.onClose();
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
-
-    onCleanup(() => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    });
+  usePopupDismiss({
+    getPopup: () => menuRef,
+    onClose: props.onClose,
   });
 
   function handleItemClick(item: ContextMenuItem) {

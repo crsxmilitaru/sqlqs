@@ -211,7 +211,7 @@
 
   .titlebar-search {
     position: relative;
-    width: clamp(180px, 28vw, 360px);
+    width: clamp(220px, calc(40vw - 220px), 380px);
     height: 28px;
     display: flex;
     align-items: center;

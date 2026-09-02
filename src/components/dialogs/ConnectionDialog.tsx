@@ -1,5 +1,6 @@
 import { createSignal, onMount } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { parseConnectionStringPreview } from "../../lib/connections";
 import { isMacOS } from "../../lib/platform";
 import type {
   AppSettings,
@@ -12,76 +13,6 @@ import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
 
 type ConnectMode = "fields" | "connectionString";
-
-function splitConnectionStringParts(value: string) {
-  const parts: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-
-  for (const ch of value) {
-    if (quote) {
-      current += ch;
-      if (ch === quote) quote = null;
-    } else if (ch === "'" || ch === '"') {
-      quote = ch;
-      current += ch;
-    } else if (ch === ";") {
-      parts.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-
-  if (current || value.endsWith(";")) {
-    parts.push(current.trim());
-  }
-
-  return parts;
-}
-
-function unquoteConnectionStringValue(value: string) {
-  const trimmed = value.trim();
-  if (trimmed.length >= 2) {
-    const first = trimmed[0];
-    const last = trimmed[trimmed.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return trimmed.slice(1, -1);
-    }
-  }
-  return trimmed;
-}
-
-function parseConnectionStringPreview(value: string) {
-  const parts = splitConnectionStringParts(value).filter(Boolean);
-  const pairs = new Map<string, string>();
-
-  for (const part of parts) {
-    const [rawKey, ...rest] = part.split("=");
-    const key = rawKey?.trim().toLowerCase();
-    if (!key || rest.length === 0) continue;
-    pairs.set(key, unquoteConnectionStringValue(rest.join("=")));
-  }
-
-  const server =
-    pairs.get("server") ||
-    pairs.get("data source") ||
-    pairs.get("addr") ||
-    pairs.get("address") ||
-    pairs.get("network address") ||
-    pairs.get("datasource") ||
-    "";
-  const database =
-    pairs.get("database") ||
-    pairs.get("initial catalog") ||
-    pairs.get("catalog") ||
-    "";
-
-  return {
-    server: server.replace(/^tcp:/i, ""),
-    database: database || undefined,
-  };
-}
 
 interface Props {
   onConnect: (config: ConnectionConfig) => void;

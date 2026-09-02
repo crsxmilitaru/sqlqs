@@ -73,5 +73,30 @@ describe("SettingsView", () => {
     fireEvent.click(allResults);
     expect(screen.getByText("Font size")).toBeInTheDocument();
   });
+
+  it("opens directly on the requested tab", () => {
+    setInvokeHandler((command) => {
+      if (command === "load_connections") {
+        return { connections: [], auto_connect_startup: false };
+      }
+      if (command === "list_custom_themes") return [];
+      throw new Error(`Unexpected Tauri command: ${command}`);
+    });
+    render(() => (
+      <SettingsView
+        onClose={vi.fn()}
+        initialTab="connections"
+        version="0.5.0-preview"
+        onCheckForUpdates={vi.fn()}
+        checkingForUpdates={false}
+        updateMessage={null}
+        updateMessageTone="info"
+      />
+    ));
+
+    expect(
+      screen.getByText("Manage how connections appear in the start menu"),
+    ).toBeInTheDocument();
+  });
 });
 

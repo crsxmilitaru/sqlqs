@@ -84,6 +84,7 @@ import type {
   SavedConnection,
   UpdateMessageTone,
 } from "../../lib/types";
+import { summarizeConnection } from "../../lib/connections";
 import ConnectionDialog from "../dialogs/ConnectionDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import ThemeDialog from "../dialogs/ThemeDialog";
@@ -114,6 +115,7 @@ import ReleaseChangelog from "./ReleaseChangelog";
 
 interface Props {
   onClose: () => void;
+  initialTab?: SettingsTab;
   version: string | null;
   onCheckForUpdates: () => void | Promise<unknown>;
   checkingForUpdates: boolean;
@@ -138,6 +140,8 @@ type Tab =
   | "developer"
   | "about";
 
+export type SettingsTab = Tab;
+
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "fa-solid fa-gear" },
   { id: "editor", label: "Editor", icon: "fa-solid fa-code" },
@@ -158,19 +162,13 @@ function tabLabel(id: Tab): string {
   return TABS.find((t) => t.id === id)?.label ?? id;
 }
 
-function summarizeConnection(c: SavedConnection): string {
-  const cfg = c.config;
-  if (cfg.connection_string) return "Connection string";
-  const auth = cfg.use_windows_auth ? "Windows Auth" : cfg.username || "sa";
-  const host = cfg.server || "(no server)";
-  return cfg.database ? `${auth}@${host} · ${cfg.database}` : `${auth}@${host}`;
-}
-
 export default function SettingsView(props: Props) {
   const currentTheme = loadTheme();
   const prefs = loadPreferences();
   const isPreviewBuild = createMemo(() => props.version?.includes("-preview") ?? false);
-  const [activeTab, setActiveTab] = createSignal<Tab>("general");
+  const [activeTab, setActiveTab] = createSignal<Tab>(
+    props.initialTab ?? "general",
+  );
   const [backStack, setBackStack] = createSignal<Tab[]>([]);
   const [forwardStack, setForwardStack] = createSignal<Tab[]>([]);
   const [search, setSearch] = createSignal("");

@@ -5,9 +5,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
 import { getGoBackShortcutLabel, getGoForwardShortcutLabel } from "../../lib/editor-navigation";
 import { isMacOS } from "../../lib/platform";
-import type { ServerObjectIndexStatus } from "../../lib/types";
+import type { SavedConnection, ServerObjectIndexStatus } from "../../lib/types";
+import type { SettingsTab } from "../settings/SettingsView";
 import Tooltip from "../ui/Tooltip";
 import { Loader } from "../ui/Loader";
+import ServerSwitcher from "./ServerSwitcher";
 
 function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
   return (
@@ -23,15 +25,17 @@ function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
 interface Props {
   connected: boolean;
   isInitializing?: boolean;
+  isSwitchingConnection?: boolean;
   serverName: string;
   onConnect: () => void;
   onDisconnect: () => void;
+  onSwitchConnection: (connection: SavedConnection) => void;
   onOpenSqlFile: () => void;
   onShowBackupRestore?: () => void;
   onToggleObjectJump?: () => void;
   objectJumpOpen?: boolean;
   objectJumpIndexStatus?: ServerObjectIndexStatus;
-  onShowSettings: () => void;
+  onShowSettings: (tab?: SettingsTab) => void;
   onHideSettings?: () => void;
   settingsDisabled?: boolean;
   onToggleSidebar?: () => void;
@@ -55,6 +59,8 @@ interface Props {
 export default function TitleBar(props: Props) {
   const isMac = isMacOS();
   const [isMaximized, setIsMaximized] = createSignal(false);
+  const [serverSwitcherOpen, setServerSwitcherOpen] = createSignal(false);
+  let serverSwitcherAnchor: HTMLButtonElement | undefined;
   const win = getCurrentWindow();
 
   onMount(() => {
@@ -261,7 +267,7 @@ export default function TitleBar(props: Props) {
               )}
               <Tooltip content="Settings" placement="bottom">
                 <button
-                  onClick={props.onShowSettings}
+                  onClick={() => props.onShowSettings()}
                   disabled={
                     (props.settingsDisabled ?? false) ||
                     (props.dialogOpen ?? false) ||
@@ -296,18 +302,31 @@ export default function TitleBar(props: Props) {
               <div class="ui-divider mx-1" />
 
               {props.connected ? (
-                <Tooltip content="Click to disconnect" placement="bottom">
-                  <button
-                    onClick={props.onDisconnect}
-                    disabled={props.dialogOpen ?? false}
-                    class="titlebar-text-btn"
-                  >
-                    <i class="fa-solid fa-server text-s" />
-                    <span class="text-s font-medium tracking-wide truncate max-w-[120px]">
-                      {props.serverName}
-                    </span>
-                  </button>
-                </Tooltip>
+                (props.isSwitchingConnection ?? false) ? (
+                  <Loader variant="inline" text="Connecting…" class="px-2.5 h-8" />
+                ) : (
+                  <Tooltip content="Server Connections" placement="bottom">
+                    <button
+                      type="button"
+                      ref={serverSwitcherAnchor}
+                      onClick={() =>
+                        setServerSwitcherOpen((open) => !open)
+                      }
+                      disabled={props.dialogOpen ?? false}
+                      aria-haspopup="menu"
+                      aria-expanded={serverSwitcherOpen()}
+                      class="titlebar-text-btn"
+                    >
+                      <i class="fa-solid fa-server text-s" />
+                      <span class="text-s font-medium tracking-wide truncate max-w-[120px]">
+                        {props.serverName}
+                      </span>
+                      <i
+                        class={`fa-solid fa-chevron-down text-2xs opacity-60 transition-transform ${serverSwitcherOpen() ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </Tooltip>
+                )
               ) : (props.isInitializing ?? false) ? (
                 <Loader variant="inline" text="Connecting…" class="px-2.5 h-8" />
               ) : (
@@ -476,6 +495,28 @@ export default function TitleBar(props: Props) {
           )}
         </div>
       </div>
+
+      <Show when={serverSwitcherOpen() ? serverSwitcherAnchor : null}>
+        {(anchor) => (
+          <ServerSwitcher
+            anchor={anchor()}
+            serverName={props.serverName}
+            onSelect={(connection) => {
+              setServerSwitcherOpen(false);
+              props.onSwitchConnection(connection);
+            }}
+            onDisconnect={() => {
+              setServerSwitcherOpen(false);
+              props.onDisconnect();
+            }}
+            onManageConnections={() => {
+              setServerSwitcherOpen(false);
+              props.onShowSettings("connections");
+            }}
+            onClose={() => setServerSwitcherOpen(false)}
+          />
+        )}
+      </Show>
     </>
   );
 }
