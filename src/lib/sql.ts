@@ -1,3 +1,4 @@
+import { AiService } from "./ai";
 import { loadPreferences } from "./settings";
 
 const MAX_TAB_TITLE_LENGTH = 80;
@@ -16,10 +17,10 @@ export async function resolveAutoTabTitle(sql: string): Promise<string> {
   const fallback = generateTabTitle(sql);
   if (loadPreferences().tabAutoNaming !== "ai") return fallback;
   try {
-    const { AiService } = await import("./ai");
     const aiTitle = await AiService.generateTabTitle(sql);
     return aiTitle || fallback;
   } catch {
     return fallback;
   }
 }
+

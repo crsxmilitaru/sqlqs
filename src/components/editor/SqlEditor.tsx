@@ -16,6 +16,11 @@ import {
   indentMore,
   moveLineDown,
   moveLineUp,
+  redo,
+  redoDepth,
+  toggleComment,
+  undo,
+  undoDepth,
 } from "@codemirror/commands";
 import { MSSQL, sql } from "@codemirror/lang-sql";
 import {
@@ -267,6 +272,8 @@ interface Props {
   onRef?: (handle: SqlEditorHandle) => void;
   onSearchPanelChange?: (open: boolean) => void;
   onNavigationPoint?: (point: EditorNavigationPoint) => void;
+  onSelectionChange?: (hasSelection: boolean) => void;
+  onHistoryDepthChange?: (historyState: { canUndo: boolean; canRedo: boolean }) => void;
   wrapLines?: boolean;
 }
 
@@ -283,6 +290,46 @@ export interface SqlEditorHandle {
   selectAll: () => void;
   scrollToBottom: () => void;
   retainStates: (tabIds: string[]) => void;
+  undo: () => boolean;
+  redo: () => boolean;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  toggleComment: () => boolean;
+  toUpperCase: () => boolean;
+  toLowerCase: () => boolean;
+}
+
+function changeCaseInEditor(
+  view: EditorView,
+  targetCase: "upper" | "lower",
+): boolean {
+  const { state } = view;
+  const tr = state.changeByRange((range) => {
+    if (!range.empty) {
+      const text = state.sliceDoc(range.from, range.to);
+      const converted =
+        targetCase === "upper" ? text.toUpperCase() : text.toLowerCase();
+      return {
+        changes: { from: range.from, to: range.to, insert: converted },
+        range,
+      };
+    }
+    const word = state.wordAt(range.head);
+    if (word) {
+      const text = state.sliceDoc(word.from, word.to);
+      const converted =
+        targetCase === "upper" ? text.toUpperCase() : text.toLowerCase();
+      return {
+        changes: { from: word.from, to: word.to, insert: converted },
+        range,
+      };
+    }
+    return { range };
+  });
+
+  if (tr.changes.empty) return false;
+  view.dispatch(tr);
+  return true;
 }
 
 function createFoldMarker(open: boolean): HTMLElement {
@@ -497,10 +544,14 @@ type FillMinimapMetrics = {
 function buildFontTheme(family: string, size: number) {
   const resolvedFamily = family || "var(--font-mono)";
   return EditorView.theme({
-    "&": { fontSize: `${size}px` },
+    "&": {
+      fontSize: `${size}px`,
+      fontFamily: resolvedFamily,
+    },
     ".cm-scroller": { fontFamily: resolvedFamily },
     ".cm-content": { fontFamily: resolvedFamily },
     ".cm-gutters": { fontFamily: resolvedFamily },
+    ".cm-line": { fontFamily: resolvedFamily },
   });
 }
 
@@ -1112,6 +1163,47 @@ export default function SqlEditor(props: Props) {
         scrollIntoView: true,
       });
     },
+    undo() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      const res = undo(viewRef);
+      props.onHistoryDepthChange?.({
+        canUndo: undoDepth(viewRef.state) > 0,
+        canRedo: redoDepth(viewRef.state) > 0,
+      });
+      return res;
+    },
+    redo() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      const res = redo(viewRef);
+      props.onHistoryDepthChange?.({
+        canUndo: undoDepth(viewRef.state) > 0,
+        canRedo: redoDepth(viewRef.state) > 0,
+      });
+      return res;
+    },
+    canUndo() {
+      return viewRef ? undoDepth(viewRef.state) > 0 : false;
+    },
+    canRedo() {
+      return viewRef ? redoDepth(viewRef.state) > 0 : false;
+    },
+    toggleComment() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      return toggleComment(viewRef);
+    },
+    toUpperCase() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      return changeCaseInEditor(viewRef, "upper");
+    },
+    toLowerCase() {
+      if (!viewRef) return false;
+      viewRef.focus();
+      return changeCaseInEditor(viewRef, "lower");
+    },
     retainStates(tabIds: string[]) {
       const keep = new Set(tabIds);
       for (const id of tabEditorStateCache.keys()) {
@@ -1303,7 +1395,19 @@ export default function SqlEditor(props: Props) {
     ]);
 
     const updateListener = EditorView.updateListener.of((update) => {
+      if (update.selectionSet || update.docChanged) {
+        const hasSelection = update.state.selection.ranges.some(
+          (range) => !range.empty,
+        );
+        props.onSelectionChange?.(hasSelection);
+      }
+
       if (update.docChanged) {
+        props.onHistoryDepthChange?.({
+          canUndo: undoDepth(update.state) > 0,
+          canRedo: redoDepth(update.state) > 0,
+        });
+
         const isExternalSync = update.transactions.some((transaction) =>
           transaction.annotation(externalSyncAnnotation) === true,
         );
@@ -1557,6 +1661,18 @@ export default function SqlEditor(props: Props) {
               return false;
             },
           },
+          {
+            key: "Mod-/",
+            run: (view) => toggleComment(view),
+          },
+          {
+            key: "Mod-Shift-u",
+            run: (view) => changeCaseInEditor(view, "upper"),
+          },
+          {
+            key: "Mod-Shift-l",
+            run: (view) => changeCaseInEditor(view, "lower"),
+          },
           ...defaultKeymap,
           ...historyKeymap,
           ...completionKeymap,
@@ -1606,6 +1722,10 @@ export default function SqlEditor(props: Props) {
     restoreTabState(lastTabId, untrack(() => props.value), () => {
       if (mountGeneration !== tabStateApplyGeneration) return;
       applyingTabState = false;
+      props.onHistoryDepthChange?.({
+        canUndo: viewRef ? undoDepth(viewRef.state) > 0 : false,
+        canRedo: viewRef ? redoDepth(viewRef.state) > 0 : false,
+      });
     });
     applyQueuedRestore(lastTabId);
     props.onRef?.(handle);
@@ -1777,6 +1897,14 @@ export default function SqlEditor(props: Props) {
       restoreTabState(tabId, value, () => {
         if (generation !== tabStateApplyGeneration) return;
         applyingTabState = false;
+        const hasSelection =
+          viewRef?.state.selection.ranges.some((range) => !range.empty) ??
+          false;
+        props.onSelectionChange?.(hasSelection);
+        props.onHistoryDepthChange?.({
+          canUndo: viewRef ? undoDepth(viewRef.state) > 0 : false,
+          canRedo: viewRef ? redoDepth(viewRef.state) > 0 : false,
+        });
       });
       lastTabId = tabId;
       applyQueuedRestore(tabId);

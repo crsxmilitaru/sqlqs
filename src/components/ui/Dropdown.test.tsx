@@ -225,4 +225,49 @@ describe("Dropdown", () => {
       expect(listbox.style.top).toBe("138px");
     });
   });
+
+  it("renders option icons, badges, and dividers", async () => {
+    renderDropdown({
+      options: [
+        { value: "opt1", label: "Option 1", icon: "fa-bolt", dividerAfter: true },
+        { value: "opt2", label: "Option 2", badge: "New" },
+      ],
+    });
+
+    const trigger = screen.getByRole("combobox");
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+    });
+
+    expect(document.querySelector(".fa-bolt")).toBeInTheDocument();
+    expect(screen.getByText("New")).toBeInTheDocument();
+  });
+
+  it("deduplicates option values when filtering", async () => {
+    renderDropdown({
+      filterable: true,
+      options: [
+        { value: "dup", label: "Duplicate Name 1" },
+        { value: "dup", label: "Duplicate Name 2" },
+        { value: "unique", label: "Unique" },
+      ],
+    });
+
+    const trigger = screen.getByRole("combobox");
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+    });
+
+    const filterInput = screen.getByRole("textbox");
+    fireEvent.input(filterInput, { target: { value: "dup" } });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+    });
+  });
 });
+

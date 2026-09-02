@@ -104,11 +104,48 @@ export function IconSearch(props: { class?: string }) {
 }
 
 export function IconWrapText(props: { class?: string }) {
-  return <Icon name="paragraph" class={props.class} />;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="2 0 20 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={props.class}
+      aria-hidden="true"
+    >
+      <path d="m16 16-3 3 3 3" />
+      <path d="M3 12h14.5a1 1 0 0 1 0 7H13" />
+      <path d="M3 19h6" />
+      <path d="M3 5h18" />
+    </svg>
+  );
 }
 
 export function IconHistory(props: { class?: string }) {
   return <Icon name="clock-rotate-left" class={props.class} />;
+}
+
+export function IconUndo(props: { class?: string }) {
+  return <Icon name="rotate-left" class={props.class} />;
+}
+
+export function IconRedo(props: { class?: string }) {
+  return <Icon name="rotate-right" class={props.class} />;
+}
+
+export function IconComment(props: { class?: string }) {
+  return <Icon name="comment-dots" class={props.class} />;
+}
+
+export function IconCaseUpper(props: { class?: string }) {
+  return <Icon name="arrow-up-a-z" class={props.class} />;
+}
+
+export function IconCaseLower(props: { class?: string }) {
+  return <Icon name="arrow-down-a-z" class={props.class} />;
 }
 
 export function Spinner(props: { class?: string; size?: number }) {

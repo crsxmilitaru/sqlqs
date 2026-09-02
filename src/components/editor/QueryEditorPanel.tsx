@@ -8,6 +8,7 @@ import {
   Show,
   Suspense,
   onCleanup,
+  type JSX,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -19,16 +20,26 @@ import type {
 } from "../../lib/types";
 import type { ApplyMode, PendingChatMessage } from "../ai/AIChatPanel";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
-import Dropdown from "../ui/Dropdown";
+import Dropdown, { type DropdownOption } from "../ui/Dropdown";
 import {
+  getMostUsedDatabases,
+  recordDatabaseUsage,
+} from "../../lib/database-usage";
+import {
+  Icon,
+  IconCaseLower,
+  IconCaseUpper,
+  IconComment,
   IconCopy,
   IconFloppy,
   IconFormat,
   IconHistory,
   IconPlay,
+  IconRedo,
   IconSave,
   IconSearch,
   IconStop,
+  IconUndo,
   IconWrapText,
 } from "../ui/Icons";
 import EditorHistoryDialog from "./EditorHistoryDialog";
@@ -47,6 +58,7 @@ import {
   hasNavigationRestore,
   type EditorNavigationPoint,
 } from "../../lib/editor-navigation";
+import { getModifierKeyLabel } from "../../lib/platform";
 
 const SqlEditor = lazy(() => import("./SqlEditor"));
 const loadAIChatPanel = () => import("../ai/AIChatPanel");
@@ -139,6 +151,7 @@ interface Props {
   onExecute: (id: string, customSql?: string) => void;
   onCancelQuery?: (id: string) => void;
   onConnect?: () => void;
+  serverName?: string;
   connected: boolean;
   isInitializing?: boolean;
   currentDatabase?: string;
@@ -379,8 +392,8 @@ export default function QueryEditorPanel(props: Props) {
   const [aiChatWidth, setAiChatWidth] = createSignal(
     (() => {
       const saved = localStorage.getItem("sqlqs_ai_chat_width");
-      const parsed = saved ? parseInt(saved, 10) : 350;
-      return Math.max(350, Number.isFinite(parsed) ? parsed : 350);
+      const parsed = saved ? parseInt(saved, 10) : 360;
+      return Math.max(360, Number.isFinite(parsed) ? parsed : 360);
     })(),
   );
 
@@ -388,9 +401,40 @@ export default function QueryEditorPanel(props: Props) {
     localStorage.setItem("sqlqs_ai_chat_width", aiChatWidth().toString());
   });
 
-  const databaseOptions = createMemo(() =>
-    (props.databases ?? []).map((db) => ({ value: db, label: db })),
-  );
+  const [databaseUsageRevision, setDatabaseUsageRevision] = createSignal(0);
+
+  const databaseOptions = createMemo<DropdownOption[]>(() => {
+    databaseUsageRevision();
+    const allDbs = props.databases ?? [];
+    if (allDbs.length === 0) return [];
+
+    const top3 = getMostUsedDatabases(
+      allDbs,
+      props.executedQueries,
+      props.serverName,
+      3,
+    );
+    if (top3.length > 0 && allDbs.length > 3) {
+      const top3Set = new Set(top3);
+      const remainingDbs = allDbs.filter((db) => !top3Set.has(db));
+
+      const topOptions: DropdownOption[] = top3.map((db, idx) => ({
+        value: db,
+        label: db,
+        icon: "fa-bolt",
+        dividerAfter: idx === top3.length - 1 && remainingDbs.length > 0,
+      }));
+
+      const allOptions: DropdownOption[] = remainingDbs.map((db) => ({
+        value: db,
+        label: db,
+      }));
+
+      return [...topOptions, ...allOptions];
+    }
+
+    return allDbs.map((db) => ({ value: db, label: db }));
+  });
 
   const [queryCopied, setQueryCopied] = createSignal(false);
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -406,6 +450,60 @@ export default function QueryEditorPanel(props: Props) {
   const [resultTableViewStates, setResultTableViewStates] = createSignal<
     Record<string, Record<number, ResultsTableViewState>>
   >({});
+  const [toolbarEl, setToolbarEl] = createSignal<HTMLDivElement | null>(null);
+  const [toolbarWidth, setToolbarWidth] = createSignal(1000);
+  const [toolbarMoreMenu, setToolbarMoreMenu] = createSignal<{
+    visible: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [hasEditorSelection, setHasEditorSelection] = createSignal(false);
+  const [canUndo, setCanUndo] = createSignal(false);
+  const [canRedo, setCanRedo] = createSignal(false);
+
+  createEffect(
+    on(
+      () => props.activeTabId,
+      () => {
+        setCanUndo(false);
+        setCanRedo(false);
+      },
+    ),
+  );
+
+  createEffect(() => {
+    const el = toolbarEl();
+    if (!el) return;
+
+    let rafId: number | null = null;
+    let lastWidth = Math.round(el.getBoundingClientRect().width);
+    if (lastWidth > 0) {
+      setToolbarWidth(lastWidth);
+    }
+
+    const ro = new ResizeObserver((entries) => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const entryWidth = entries[0]?.contentRect.width;
+        const width =
+          typeof entryWidth === "number" && entryWidth > 0
+            ? Math.round(entryWidth)
+            : Math.round(el.getBoundingClientRect().width);
+        if (width > 0 && Math.abs(width - lastWidth) >= 1) {
+          lastWidth = width;
+          setToolbarWidth(width);
+        }
+      });
+    });
+
+    ro.observe(el);
+
+    onCleanup(() => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    });
+  });
+
   let editorRef: SqlEditorHandle | null = null;
   onCleanup(() => props.onEditorHandle?.(null));
 
@@ -596,6 +694,11 @@ export default function QueryEditorPanel(props: Props) {
   function handleExecute(selectedSql?: string) {
     if (!props.activeTabId || !hasDatabaseSelected()) return;
     if (activeTab()?.isExecuting) return;
+    const db = props.currentDatabase;
+    if (db) {
+      recordDatabaseUsage(db, props.serverName);
+      setDatabaseUsageRevision((prev) => prev + 1);
+    }
     setResultsCollapsed(false);
     setResultTableViewStates((prev) => {
       const next = { ...prev };
@@ -804,6 +907,8 @@ export default function QueryEditorPanel(props: Props) {
     const selectedText = editorRef?.getSelectedText() ?? "";
     const hasSelectedText = Boolean(selectedText.trim());
     const tab = activeTab();
+    const mod = getModifierKeyLabel();
+    const canAct = Boolean(hasDatabaseSelected() && tab?.sql);
     return [
       {
         id: "execute",
@@ -819,10 +924,27 @@ export default function QueryEditorPanel(props: Props) {
       },
       { id: "sep-1", separator: true },
       {
+        id: "undo",
+        label: "Undo",
+        icon: <IconUndo />,
+        shortcut: `${mod}+Z`,
+        onClick: () => editorRef?.undo(),
+        disabled: !canAct || !canUndo(),
+      },
+      {
+        id: "redo",
+        label: "Redo",
+        icon: <IconRedo />,
+        shortcut: `${mod}+Y`,
+        onClick: () => editorRef?.redo(),
+        disabled: !canAct || !canRedo(),
+      },
+      { id: "sep-undo", separator: true },
+      {
         id: "cut-selection",
         label: "Cut",
         icon: <i class="fa-solid fa-scissors" />,
-        shortcut: "Ctrl+X",
+        shortcut: `${mod}+X`,
         onClick: () => void handleCutSelection(),
         disabled: !hasSelectedText,
       },
@@ -830,7 +952,7 @@ export default function QueryEditorPanel(props: Props) {
         id: "copy-selection",
         label: "Copy",
         icon: <i class="fa-solid fa-copy" />,
-        shortcut: "Ctrl+C",
+        shortcut: `${mod}+C`,
         onClick: () => void handleCopySelection(),
         disabled: !hasSelectedText,
       },
@@ -838,7 +960,7 @@ export default function QueryEditorPanel(props: Props) {
         id: "paste",
         label: "Paste",
         icon: <i class="fa-solid fa-paste" />,
-        shortcut: "Ctrl+V",
+        shortcut: `${mod}+V`,
         onClick: () => void handlePaste(),
         disabled: !tab,
       },
@@ -853,8 +975,17 @@ export default function QueryEditorPanel(props: Props) {
         id: "select-all",
         label: "Select All",
         icon: <i class="fa-solid fa-check-double" />,
-        shortcut: "Ctrl+A",
+        shortcut: `${mod}+A`,
         onClick: () => editorRef?.selectAll(),
+        disabled: !tab?.sql,
+      },
+      { id: "sep-edit-utils", separator: true },
+      {
+        id: "comment",
+        label: "Toggle Comment",
+        icon: <IconComment />,
+        shortcut: `${mod}+/`,
+        onClick: () => editorRef?.toggleComment(),
         disabled: !tab?.sql,
       },
       {
@@ -865,6 +996,22 @@ export default function QueryEditorPanel(props: Props) {
         onClick: handleFormatSelection,
         disabled: !hasDatabaseSelected() || !tab?.sql.trim(),
       },
+      {
+        id: "case-upper",
+        label: "UPPERCASE",
+        icon: <IconCaseUpper />,
+        shortcut: `${mod}+Shift+U`,
+        onClick: () => editorRef?.toUpperCase(),
+        disabled: !hasSelectedText || !tab?.sql,
+      },
+      {
+        id: "case-lower",
+        label: "lowercase",
+        icon: <IconCaseLower />,
+        shortcut: `${mod}+Shift+L`,
+        onClick: () => editorRef?.toLowerCase(),
+        disabled: !hasSelectedText || !tab?.sql,
+      },
       { id: "sep-copy", separator: true },
       {
         id: "send-selection-to-chat",
@@ -874,6 +1021,227 @@ export default function QueryEditorPanel(props: Props) {
         disabled: !hasSelectedText,
       },
     ];
+  };
+
+  interface ToolbarActionItem {
+    id: string;
+    label: string;
+    tooltip: string;
+    icon: JSX.Element;
+    moreIcon?: JSX.Element;
+    shortcut?: string;
+    onClick: () => void;
+    disabled?: boolean;
+    toggled?: boolean;
+    hasSeparatorBefore?: boolean;
+  }
+
+  const toolbarActions = createMemo((): ToolbarActionItem[] => {
+    const tab = activeTab();
+    const mod = getModifierKeyLabel();
+    const canAct = Boolean(hasDatabaseSelected() && tab?.sql.trim());
+    const items: ToolbarActionItem[] = [
+      {
+        id: "undo",
+        label: "Undo",
+        tooltip: `Undo (${mod}+Z)`,
+        icon: <IconUndo class="w-3 h-3" />,
+        moreIcon: <IconUndo class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+Z`,
+        onClick: () => editorRef?.undo(),
+        disabled: !canAct || !canUndo(),
+      },
+      {
+        id: "redo",
+        label: "Redo",
+        tooltip: `Redo (${mod}+Y)`,
+        icon: <IconRedo class="w-3 h-3" />,
+        moreIcon: <IconRedo class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+Y`,
+        onClick: () => editorRef?.redo(),
+        disabled: !canAct || !canRedo(),
+      },
+      {
+        id: "comment",
+        hasSeparatorBefore: true,
+        label: "Toggle Comment",
+        tooltip: `Toggle Comment (${mod}+/)`,
+        icon: <IconComment class="w-3 h-3" />,
+        moreIcon: <IconComment class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+/`,
+        onClick: () => editorRef?.toggleComment(),
+        disabled: !canAct,
+      },
+      {
+        id: "copy",
+        label: "Copy SQL",
+        tooltip: queryCopied() ? "SQL copied" : "Copy SQL",
+        icon: (
+          <IconCopy
+            class={`w-3 h-3 ${queryCopied() ? "text-success" : ""}`}
+          />
+        ),
+        moreIcon: (
+          <IconCopy
+            class={`w-3.5 h-3.5 ${queryCopied() ? "text-success" : ""}`}
+          />
+        ),
+        onClick: handleCopyQuery,
+        disabled: !canAct,
+      },
+      {
+        id: "format",
+        label: "Format SQL",
+        tooltip: "Format SQL (Alt+Shift+F)",
+        icon: <IconFormat class="w-3 h-3" />,
+        moreIcon: <IconFormat class="w-3.5 h-3.5" />,
+        shortcut: "Alt+Shift+F",
+        onClick: handleFormatSql,
+        disabled: !canAct,
+      },
+      {
+        id: "case-upper",
+        label: "UPPERCASE",
+        tooltip: `UPPERCASE (${mod}+Shift+U)`,
+        icon: <IconCaseUpper class="w-3 h-3" />,
+        moreIcon: <IconCaseUpper class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+Shift+U`,
+        onClick: () => editorRef?.toUpperCase(),
+        disabled: !canAct || !hasEditorSelection(),
+      },
+      {
+        id: "case-lower",
+        label: "lowercase",
+        tooltip: `lowercase (${mod}+Shift+L)`,
+        icon: <IconCaseLower class="w-3 h-3" />,
+        moreIcon: <IconCaseLower class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+Shift+L`,
+        onClick: () => editorRef?.toLowerCase(),
+        disabled: !canAct || !hasEditorSelection(),
+      },
+      {
+        id: "word-wrap",
+        label: wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap",
+        tooltip: wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap",
+        icon: <IconWrapText class="w-4 h-4" />,
+        moreIcon: <IconWrapText class="w-4 h-4 translate-y-[1px]" />,
+        toggled: wrapLines(),
+        onClick: () => setWrapLines(!wrapLines()),
+        disabled: !canAct,
+      },
+    ];
+
+    if (props.onSave && tab) {
+      items.push({
+        id: "save",
+        hasSeparatorBefore: true,
+        label: "Save SQL",
+        tooltip: "Save SQL",
+        icon: <IconSave class="w-3 h-3" />,
+        moreIcon: <IconSave class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+S`,
+        onClick: () => props.onSave!(tab.id),
+        disabled: !canAct,
+      });
+    }
+
+    if (props.onSaveToFile && tab) {
+      items.push({
+        id: "save-to-file",
+        hasSeparatorBefore: !props.onSave,
+        label: "Save SQL to file",
+        tooltip: "Save SQL to file",
+        icon: <IconFloppy class="w-3 h-3" />,
+        moreIcon: <IconFloppy class="w-3.5 h-3.5" />,
+        shortcut: `${mod}+Shift+S`,
+        onClick: () => props.onSaveToFile!(tab.id),
+        disabled: !canAct,
+      });
+    }
+
+    items.push({
+      id: "find",
+      hasSeparatorBefore: true,
+      label: "Find",
+      tooltip: "Find",
+      icon: <IconSearch class="w-3 h-3" />,
+      moreIcon: <IconSearch class="w-3.5 h-3.5" />,
+      shortcut: `${mod}+F`,
+      toggled: searchOpen(),
+      onClick: () => editorRef?.openSearch(),
+      disabled: !canAct,
+    });
+
+    const historyDisabled =
+      !hasDatabaseSelected() || !tab || !hasRestorableHistory(tab);
+    const count = tab ? restorableHistoryCount(tab) : 0;
+    items.push({
+      id: "history",
+      label: count > 0 ? `History (${count})` : "History",
+      tooltip: !hasDatabaseSelected()
+        ? "Choose a database to restore text history"
+        : (tab?.history?.length ?? 0) > 0
+          ? tab && hasRestorableHistory(tab)
+            ? "Text History"
+            : "No previous text to restore"
+          : "No text history yet",
+      icon: <IconHistory class="w-3 h-3" />,
+      moreIcon: <IconHistory class="w-3.5 h-3.5" />,
+      onClick: () => setHistoryOpen(true),
+      disabled: historyDisabled,
+    });
+
+    return items;
+  });
+
+  const visibleToolbarActionCount = createMemo(() => {
+    const width = toolbarWidth();
+    const actions = toolbarActions();
+    const BASE_LEFT_WIDTH = 290;
+    const BUTTON_STEP = 32;
+    const SEP_WIDTH = 9;
+    const MORE_BTN_WIDTH = 32;
+
+    let currentWidth = BASE_LEFT_WIDTH;
+    let count = 0;
+
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const cost = BUTTON_STEP + (action.hasSeparatorBefore ? SEP_WIDTH : 0);
+      const isLast = i === actions.length - 1;
+      const needed = currentWidth + cost + (isLast ? 0 : MORE_BTN_WIDTH);
+      if (width >= needed) {
+        currentWidth += cost;
+        count = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    return count;
+  });
+
+  const visibleActions = createMemo(() => {
+    return toolbarActions().slice(0, visibleToolbarActionCount());
+  });
+
+  const getToolbarMoreMenuItems = (): ContextMenuItem[] => {
+    const hiddenActions = toolbarActions().slice(visibleToolbarActionCount());
+    const items: ContextMenuItem[] = [];
+    for (const action of hiddenActions) {
+      if (action.hasSeparatorBefore && items.length > 0) {
+        items.push({ id: `sep-${action.id}`, separator: true });
+      }
+      items.push({
+        id: action.id,
+        label: action.label,
+        icon: action.moreIcon ?? action.icon,
+        shortcut: action.shortcut,
+        onClick: action.onClick,
+        disabled: action.disabled,
+      });
+    }
+    return items;
   };
 
   function handleEditorResizerDoubleClick(e: MouseEvent) {
@@ -1098,16 +1466,23 @@ export default function QueryEditorPanel(props: Props) {
                   squareEditorTopLeft() ? "rounded-tl-none" : ""
                 }`}
               >
-                <div class="editor-toolbar-frame flex items-center gap-6 p-2 flex-shrink-0 min-w-0 mx-3 mt-3 mb-2">
+                <div
+                  ref={setToolbarEl}
+                  class="editor-toolbar-frame flex items-center justify-between gap-4 p-2 flex-shrink-0 min-w-0 mx-3 mt-3 mb-2"
+                >
                   <div class="flex items-center gap-2 flex-shrink-0">
                     {(props.databases ?? []).length > 0 &&
                       props.onDatabaseChange && (
                         <Dropdown
                           value={props.currentDatabase || ""}
                           options={databaseOptions()}
-                          onChange={props.onDatabaseChange!}
+                          onChange={(db) => {
+                            recordDatabaseUsage(db, props.serverName);
+                            setDatabaseUsageRevision((prev) => prev + 1);
+                            props.onDatabaseChange!(db);
+                          }}
                           placeholder="Select database"
-                          class="w-48"
+                          class="w-52"
                           filterable
                           compact
                           disabled={isActiveExecuting()}
@@ -1160,132 +1535,56 @@ export default function QueryEditorPanel(props: Props) {
                     </Show>
                   </div>
 
-                  <div class="grow shrink-0 flex items-center gap-1 justify-center">
-                    <Tooltip content="Copy SQL" placement="bottom">
-                      <button
-                        type="button"
-                        aria-label={queryCopied() ? "SQL copied" : "Copy SQL"}
-                        onClick={handleCopyQuery}
-                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                        class="btn btn-icon"
-                      >
-                        <IconCopy
-                          class={`w-3 h-3 ${queryCopied() ? "text-success" : ""}`}
-                        />
-                      </button>
-                    </Tooltip>
-
-                    <div class="toolbar-sep" />
-
-                    <Tooltip content="Format SQL" placement="bottom">
-                      <button
-                        type="button"
-                        aria-label="Format SQL"
-                        onClick={handleFormatSql}
-                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                        class="btn btn-icon"
-                      >
-                        <IconFormat class="w-3 h-3" />
-                      </button>
-                    </Tooltip>
-
-                    <Tooltip
-                      content={
-                        wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
-                      }
-                      placement="bottom"
-                    >
-                      <button
-                        type="button"
-                        aria-label={
-                          wrapLines() ? "Disable Word Wrap" : "Enable Word Wrap"
-                        }
-                        onClick={() => setWrapLines(!wrapLines())}
-                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                        class={`btn btn-icon ${wrapLines() ? "btn-toggled" : ""}`}
-                      >
-                        <IconWrapText class="w-3 h-3" />
-                      </button>
-                    </Tooltip>
-
-                    {(props.onSave || props.onSaveToFile) && (
-                      <>
-                        <div class="toolbar-sep" />
-                        {props.onSave && (
-                          <Tooltip content="Save SQL" placement="bottom">
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <For each={visibleActions()}>
+                      {(action) => (
+                        <>
+                          <Show when={action.hasSeparatorBefore}>
+                            <div class="toolbar-sep" />
+                          </Show>
+                          <Tooltip content={action.tooltip} placement="bottom">
                             <button
                               type="button"
-                              aria-label="Save SQL"
-                              onClick={() => props.onSave!(tab.id)}
-                              disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                              class="btn btn-icon"
+                              aria-label={action.label}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={action.onClick}
+                              disabled={action.disabled}
+                              class={`btn btn-icon ${action.toggled ? "btn-toggled" : ""}`}
                             >
-                              <IconSave class="w-3 h-3" />
+                              {action.icon}
                             </button>
                           </Tooltip>
-                        )}
+                        </>
+                      )}
+                    </For>
 
-                        {props.onSaveToFile && (
-                          <Tooltip
-                            content="Save SQL to file"
-                            placement="bottom"
-                          >
-                            <button
-                              type="button"
-                              aria-label="Save SQL to file"
-                              onClick={() => props.onSaveToFile!(tab.id)}
-                              disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                              class="btn btn-icon"
-                            >
-                              <IconFloppy class="w-3 h-3" />
-                            </button>
-                          </Tooltip>
-                        )}
-                      </>
-                    )}
-
-                    <Tooltip content="Find" placement="bottom">
-                      <button
-                        type="button"
-                        aria-label="Find"
-                        onClick={() => editorRef?.openSearch()}
-                        disabled={!hasDatabaseSelected() || !tab.sql.trim()}
-                        class={`btn btn-icon ${searchOpen() ? "btn-toggled" : ""}`}
-                      >
-                        <IconSearch class="w-3 h-3" />
-                      </button>
-                    </Tooltip>
-                  </div>
-
-                  <div class="w-[280px] shrink flex items-center justify-end">
-                    <Tooltip
-                      content={
-                        !hasDatabaseSelected()
-                          ? "Choose a database to restore text history"
-                          : (tab.history?.length ?? 0) > 0
-                            ? hasRestorableHistory(tab)
-                            ? "Text History"
-                            : "No previous text to restore"
-                            : "No text history yet"
+                    <Show
+                      when={
+                        visibleToolbarActionCount() < toolbarActions().length
                       }
-                      placement="bottom"
                     >
-                      <button
-                        type="button"
-                        aria-label={`History ${restorableHistoryCount(tab)}`}
-                        onClick={() => setHistoryOpen(true)}
-                        disabled={
-                          !hasDatabaseSelected() || !hasRestorableHistory(tab)
-                        }
-                        class="btn btn-secondary btn-compact"
-                      >
-                        <IconHistory class="w-3 h-3" />
-                        <span>History</span>
-                        <span class="btn-table-badge">
-                          {restorableHistoryCount(tab)}
-                        </span>
-                      </button>
-                    </Tooltip>
+                      <Tooltip content="More actions" placement="bottom">
+                        <button
+                          type="button"
+                          aria-label="More actions"
+                          onClick={(e) => {
+                            const rect =
+                              e.currentTarget.getBoundingClientRect();
+                            setToolbarMoreMenu({
+                              visible: true,
+                              x: rect.left,
+                              y: rect.bottom + 4,
+                            });
+                          }}
+                          disabled={
+                            !hasDatabaseSelected() || !tab.sql.trim()
+                          }
+                          class={`btn btn-secondary btn-icon ${toolbarMoreMenu()?.visible ? "btn-toggled" : ""}`}
+                        >
+                          <Icon name="ellipsis" class="w-3 h-3" />
+                        </button>
+                      </Tooltip>
+                    </Show>
                   </div>
                 </div>
 
@@ -1312,6 +1611,11 @@ export default function QueryEditorPanel(props: Props) {
                       onNavigationPoint={(point) => {
                         if (tabBarRenaming()) return;
                         props.onNavigationPoint?.(point);
+                      }}
+                      onSelectionChange={setHasEditorSelection}
+                      onHistoryDepthChange={({ canUndo: u, canRedo: r }) => {
+                        setCanUndo(u);
+                        setCanRedo(r);
                       }}
                       wrapLines={wrapLines()}
                     />
@@ -1572,6 +1876,15 @@ export default function QueryEditorPanel(props: Props) {
           x={editorContextMenu()!.x}
           y={editorContextMenu()!.y}
           onClose={() => setEditorContextMenu(null)}
+        />
+      )}
+
+      {toolbarMoreMenu()?.visible && (
+        <ContextMenu
+          items={getToolbarMoreMenuItems()}
+          x={toolbarMoreMenu()!.x}
+          y={toolbarMoreMenu()!.y}
+          onClose={() => setToolbarMoreMenu(null)}
         />
       )}
 

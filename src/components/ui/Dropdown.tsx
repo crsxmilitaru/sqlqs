@@ -10,9 +10,12 @@ import { Portal } from "solid-js/web";
 import type { JSX } from "solid-js";
 import { Icon } from "./Icons";
 
-interface DropdownOption {
+export interface DropdownOption {
   value: string;
   label: string;
+  icon?: string;
+  badge?: string;
+  dividerAfter?: boolean;
 }
 
 interface Props {
@@ -25,7 +28,6 @@ interface Props {
   filterable?: boolean;
   openUpwards?: boolean;
   compact?: boolean;
-  title?: string;
 }
 
 export default function Dropdown(props: Props) {
@@ -54,8 +56,6 @@ export default function Dropdown(props: Props) {
   const className = () => props.class ?? "";
   const filterable = () => props.filterable ?? false;
   const compact = () => props.compact ?? false;
-  const title = () =>
-    props.title !== undefined ? props.title : selectedOption()?.label;
   const listboxId = `dropdown-listbox-${Math.random().toString(36).slice(2)}`;
   const accessibleLabel = () => props.placeholder ?? "Select option";
 
@@ -63,15 +63,23 @@ export default function Dropdown(props: Props) {
     props.options.find((opt) => opt.value === props.value),
   );
 
-  const filteredOptions = createMemo(() =>
-    filterable() && filter()
-      ? props.options.filter(
+  const filteredOptions = createMemo(() => {
+    if (filterable() && filter()) {
+      const q = filter().toLowerCase();
+      const matches = props.options.filter(
         (opt) =>
-          opt.label.toLowerCase().includes(filter().toLowerCase()) ||
-          opt.value.toLowerCase().includes(filter().toLowerCase()),
-      )
-      : props.options,
-  );
+          opt.label.toLowerCase().includes(q) ||
+          opt.value.toLowerCase().includes(q),
+      );
+      const seen = new Set<string>();
+      return matches.filter((opt) => {
+        if (seen.has(opt.value)) return false;
+        seen.add(opt.value);
+        return true;
+      });
+    }
+    return props.options;
+  });
 
   function close() {
     setIsOpen(false);
@@ -82,8 +90,8 @@ export default function Dropdown(props: Props) {
 
   const VIEWPORT_PAD = 8;
   const POPUP_GAP = 4;
-  const DEFAULT_MAX_HEIGHT = 208;
-  const MIN_PREFERRED_SPACE = 160;
+  const DEFAULT_MAX_HEIGHT = 242;
+  const MIN_PREFERRED_SPACE = 180;
 
   function updatePosition() {
     if (!buttonRef) return;
@@ -183,6 +191,15 @@ export default function Dropdown(props: Props) {
 
     const idx = filteredOptions().findIndex((opt) => opt.value === props.value);
     setHighlightedIndex(idx >= 0 ? idx : 0);
+    if (idx > 0) {
+      const afterRender =
+        typeof requestAnimationFrame === "function"
+          ? requestAnimationFrame
+          : (cb: () => void) => window.setTimeout(cb, 0);
+      afterRender(() => {
+        itemRefs[idx]?.scrollIntoView({ block: "nearest" });
+      });
+    }
 
     const handleReposition = () => updatePosition();
     window.addEventListener("resize", handleReposition);
@@ -204,6 +221,7 @@ export default function Dropdown(props: Props) {
 
   createEffect(() => {
     const idx = highlightedIndex();
+    if (!isKeyboardNavigating()) return;
     if (idx >= 0 && itemRefs[idx]) {
       itemRefs[idx]?.scrollIntoView({ block: "nearest" });
     }
@@ -229,6 +247,7 @@ export default function Dropdown(props: Props) {
       ) {
         e.preventDefault();
         e.stopPropagation();
+        setIsKeyboardNavigating(true);
         updatePosition();
         setIsOpen(true);
       }
@@ -283,7 +302,6 @@ export default function Dropdown(props: Props) {
       <button
         ref={buttonRef}
         type="button"
-        title={title()}
         onClick={() => {
           if (disabled()) return;
           if (!isOpen()) updatePosition();
@@ -360,26 +378,47 @@ export default function Dropdown(props: Props) {
               >
                 <For each={filteredOptions()}>
                   {(option, index) => (
-                    <button
-                      ref={(el) => {
-                        itemRefs[index()] = el;
-                      }}
-                      type="button"
-                      role="option"
-                      aria-selected={option.value === props.value}
-                      onClick={() => handleSelect(option.value)}
-                      onPointerMove={() => {
-                        setIsKeyboardNavigating(false);
-                        setHighlightedIndex(index());
-                      }}
-                      class={`
-                        dropdown-option w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
-                        ${index() === highlightedIndex() ? "dropdown-option--active" : ""}
-                        ${option.value === props.value ? "dropdown-option--selected" : ""}
-                      `}
-                    >
-                      {option.label}
-                    </button>
+                    <>
+                      <button
+                        ref={(el) => {
+                          itemRefs[index()] = el;
+                        }}
+                        type="button"
+                        role="option"
+                        aria-selected={option.value === props.value}
+                        onClick={() => handleSelect(option.value)}
+                        onPointerMove={() => {
+                          setIsKeyboardNavigating(false);
+                          setHighlightedIndex(index());
+                        }}
+                        class={`
+                          dropdown-option flex items-center justify-between w-[calc(100%-8px)] mx-1 px-2.5 py-1.5 text-m text-left transition-colors rounded-sm cursor-pointer
+                          ${index() === highlightedIndex() ? "dropdown-option--active" : ""}
+                          ${option.value === props.value ? "dropdown-option--selected" : ""}
+                        `}
+                      >
+                        <span class="truncate">{option.label}</span>
+                        <Show when={option.icon}>
+                          <Icon
+                            name={option.icon!}
+                            class="text-3xs opacity-40 ml-1.5 flex-shrink-0"
+                          />
+                        </Show>
+                        <Show when={option.badge}>
+                          <span class="ml-2 px-1.5 py-0.5 text-3xs font-medium rounded text-accent bg-accent/10 flex-shrink-0">
+                            {option.badge}
+                          </span>
+                        </Show>
+                      </button>
+                      <Show
+                        when={
+                          option.dividerAfter &&
+                          index() < filteredOptions().length - 1
+                        }
+                      >
+                        <div class="my-1 border-t border-border/10" />
+                      </Show>
+                    </>
                   )}
                 </For>
               </Show>

@@ -168,8 +168,7 @@ export function useSavedQueries() {
         path: filePath,
       });
       return result.content;
-    } catch (err) {
-      console.error("Failed to load query content:", err);
+    } catch {
       return null;
     }
   };

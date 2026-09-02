@@ -688,7 +688,6 @@ export default function ObjectJumpPalette(props: Props) {
                       class="w-56"
                       filterable
                       compact
-                      title=""
                     />
                   </Tooltip>
                   <Tooltip content="Type" placement="bottom">
@@ -702,7 +701,6 @@ export default function ObjectJumpPalette(props: Props) {
                       placeholder="All types"
                       class="w-36"
                       compact
-                      title=""
                     />
                   </Tooltip>
                   <Show when={hasActiveFilter()}>
