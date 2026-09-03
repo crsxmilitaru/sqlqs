@@ -23,6 +23,17 @@ describe("getAppShortcutCategories", () => {
     });
   });
 
+  it("lists the AI inline suggestion trigger", () => {
+    const queryEditor = getAppShortcutCategories(false).find(
+      (category) => category.title === "Query editor",
+    );
+
+    expect(queryEditor?.shortcuts).toContainEqual({
+      label: "Trigger AI suggestion",
+      keys: ["Alt+\\"],
+    });
+  });
+
   it("includes developer shortcuts only for preview builds", () => {
     expect(
       getAppShortcutCategories(false).some(

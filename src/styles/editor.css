@@ -109,12 +109,19 @@
   color: var(--color-accent-text) !important;
 }
 
-.cm-sql-ghost {
+.cm-sql-ghost,
+.cm-ai-ghost {
   color: var(--color-text-muted);
   font-style: italic;
   opacity: 0.55;
   pointer-events: none;
   user-select: none;
+}
+
+.cm-ai-ghost-block {
+  display: block;
+  white-space: pre;
+  line-height: inherit;
 }
 
 .cm-completionIcon {

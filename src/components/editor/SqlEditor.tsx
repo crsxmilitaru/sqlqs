@@ -60,8 +60,20 @@ import {
   onMount,
   untrack,
 } from "solid-js";
-import { loadEditorPreferences, loadFormatPreferences } from "../../lib/settings";
+import {
+  loadAiAutocompleteActive,
+  loadEditorPreferences,
+  loadFormatPreferences,
+} from "../../lib/settings";
 import type { EditorSuggestionStyle } from "../../lib/settings";
+import { AiService } from "../../lib/ai";
+import {
+  acceptAiSuggestion,
+  aiInlineCompletion,
+  clearAiSuggestion,
+  hasAiSuggestion,
+  requestAiSuggestion,
+} from "../../lib/ai-inline-completion";
 import { preloadSchemaCatalog } from "../../lib/schema-catalog";
 import { buildAutocompletionExt, sqlCompletionSource } from "../../lib/sql-completion";
 import {
@@ -1074,6 +1086,7 @@ export default function SqlEditor(props: Props) {
   const lineNumbersCompartment = new Compartment();
   const minimapCompartment = new Compartment();
   const autocompleteCompartment = new Compartment();
+  const aiCompletionCompartment = new Compartment();
   const fontThemeCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
@@ -1230,6 +1243,18 @@ export default function SqlEditor(props: Props) {
     ];
   }
 
+  function buildAiCompletionExtension(): Extension {
+    return aiInlineCompletion({
+      fetch: ({ prefix, suffix, signal }) =>
+        AiService.generateInlineCompletion({
+          prefix,
+          suffix,
+          signal,
+          database: props.currentDatabase,
+        }),
+    });
+  }
+
   function applyLiveCompartments(view: EditorView) {
     untrack(() => {
       const prefs = loadEditorPreferences();
@@ -1248,6 +1273,11 @@ export default function SqlEditor(props: Props) {
           autocompleteCompartment.reconfigure(
             prefs.autocomplete
               ? buildAutocompleteExtensions(prefs.suggestionStyle)
+              : [],
+          ),
+          aiCompletionCompartment.reconfigure(
+            loadAiAutocompleteActive()
+              ? buildAiCompletionExtension()
               : [],
           ),
           fontThemeCompartment.reconfigure(
@@ -1570,6 +1600,7 @@ export default function SqlEditor(props: Props) {
     });
 
     const initialPrefs = loadEditorPreferences();
+    const initialAiAutocomplete = loadAiAutocompleteActive();
 
     const pasteHandler = EditorView.domEventHandlers({
       paste(event, view) {
@@ -1607,6 +1638,9 @@ export default function SqlEditor(props: Props) {
             ? buildAutocompleteExtensions(initialPrefs.suggestionStyle)
             : [],
         ),
+        aiCompletionCompartment.of(
+          initialAiAutocomplete ? buildAiCompletionExtension() : [],
+        ),
         sql({ dialect: MSSQL, upperCaseKeywords: true }),
         search(),
         highlightSelectionMatches(),
@@ -1626,6 +1660,7 @@ export default function SqlEditor(props: Props) {
             key: "Tab",
             run: (view) => {
               if (acceptCompletion(view)) return true;
+              if (acceptAiSuggestion(view)) return true;
               if (acceptInlineSuggestion(view)) return true;
               const hasSelection = view.state.selection.ranges.some(
                 (range) => !range.empty,
@@ -1637,6 +1672,14 @@ export default function SqlEditor(props: Props) {
             shift: indentLess,
           },
           {
+            key: "Alt-\\",
+            run: (view) => {
+              clearInlineSuggestion(view);
+              requestAiSuggestion(view);
+              return true;
+            },
+          },
+          {
             key: "ArrowDown",
             run: (view) => {
               if (completionStatus(view.state) === "active") return false;
@@ -1645,11 +1688,13 @@ export default function SqlEditor(props: Props) {
                 pos > 0 ? view.state.doc.sliceString(pos - 1, pos) : "";
               if (
                 !hasInlineSuggestion(view) &&
+                !hasAiSuggestion(view) &&
                 !/[\w@$#[\]".]/.test(before)
               ) {
                 return false;
               }
               clearInlineSuggestion(view);
+              clearAiSuggestion(view);
               startCompletion(view);
               return true;
             },
@@ -1658,6 +1703,7 @@ export default function SqlEditor(props: Props) {
             key: "Escape",
             run: (view) => {
               clearInlineSuggestion(view);
+              clearAiSuggestion(view);
               return false;
             },
           },

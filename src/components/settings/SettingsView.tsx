@@ -2,7 +2,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { createEffect, createMemo, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
-import { AiService, BraveSearchService } from "../../lib/ai";
+import { AiService, BraveSearchService, type GeminiModelOption } from "../../lib/ai";
 import {
   DATE_FORMAT_OPTIONS,
   DEFAULT_DATE_FORMAT,
@@ -17,14 +17,15 @@ import {
   DEFAULT_FORMAT_STYLE,
   DEFAULT_MAX_HISTORY,
   DEFAULT_RESULTS_SHOW_FILTERS,
-  DEFAULT_TAB_AUTO_NAMING,
+  DEFAULT_AI_AUTOCOMPLETE,
+  DEFAULT_AI_ENABLED,
+  DEFAULT_AI_FILE_NAMING,
   DEFAULT_UPDATE_CHANNEL,
   EDITOR_FONT_FAMILY_OPTIONS,
   EDITOR_SUGGESTION_STYLE_OPTIONS,
   FORMAT_INDENT_OPTIONS,
   FORMAT_KEYWORD_CASE_OPTIONS,
   FORMAT_STYLE_OPTIONS,
-  TAB_AUTO_NAMING_OPTIONS,
   UPDATE_CHANNEL_OPTIONS,
   loadPreferences,
   MAX_EDITOR_FONT_SIZE,
@@ -33,6 +34,8 @@ import {
   MIN_EDITOR_FONT_SIZE,
   MIN_MAX_HISTORY,
   normalizeEditorSuggestionStyle,
+  saveAiAutocomplete,
+  saveAiEnabled,
   saveAiNotifications,
   saveAutoCheckUpdates,
   saveAutoConnectStartup,
@@ -56,14 +59,13 @@ import {
   saveMaxHistoryItems,
   savePersistTabs,
   saveRevealCurrentDatabaseInExplorer,
-  saveTabAutoNaming,
+  saveAiFileNaming,
   saveUpdateChannel,
   saveOpenLastChatStartup,
   type DateFormat,
   type EditorSuggestionStyle,
   type SqlFormatStyle,
   type SqlKeywordCase,
-  type TabAutoNamingMode,
   type UpdateChannel,
 } from "../../lib/settings";
 import {
@@ -191,9 +193,6 @@ export default function SettingsView(props: Props) {
   const [confirmCloseUnsaved, setConfirmCloseUnsaved] = createSignal(
     prefs.confirmCloseUnsaved,
   );
-  const [tabAutoNaming, setTabAutoNaming] = createSignal<TabAutoNamingMode>(
-    prefs.tabAutoNaming,
-  );
   const [autoConnectStartup, setAutoConnectStartup] = createSignal(
     prefs.autoConnectStartup,
   );
@@ -201,6 +200,17 @@ export default function SettingsView(props: Props) {
   const [aiNotifications, setAiNotifications] = createSignal(
     prefs.aiNotifications,
   );
+  const [aiEnabled, setAiEnabled] = createSignal(prefs.aiEnabled);
+  const [aiAutocomplete, setAiAutocomplete] = createSignal(
+    prefs.aiAutocomplete,
+  );
+  const [aiFileNaming, setAiFileNaming] = createSignal(prefs.aiFileNaming);
+  const [aiAutocompleteModel, setAiAutocompleteModel] = createSignal(
+    AiService.getAutocompleteModel() ?? "",
+  );
+  const [aiAutocompleteModels, setAiAutocompleteModels] = createSignal<
+    GeminiModelOption[]
+  >(AiService.getCachedModels());
   const [openLastChatStartup, setOpenLastChatStartup] = createSignal(
     prefs.openLastChatStartup,
   );
@@ -411,6 +421,9 @@ export default function SettingsView(props: Props) {
       if (key) setApiKey(key);
     });
     AiService.getStatus().then(setGeminiStatus);
+    void AiService.listAvailableModels().then((models) => {
+      if (models.length > 0) setAiAutocompleteModels(models);
+    });
     BraveSearchService.getApiKey().then((key) => {
       if (key) {
         setBraveKey(key);
@@ -438,7 +451,9 @@ export default function SettingsView(props: Props) {
       const themes = await invoke<ThemeOption[]>("list_custom_themes");
       setCustomThemes(themes);
       registerCustomThemes(themes);
-    } catch { }
+    } catch (err) {
+      toast.error(`Failed to load custom themes: ${String(err)}`);
+    }
   }
 
   async function handleOpenThemesFolder() {
@@ -483,7 +498,9 @@ export default function SettingsView(props: Props) {
     try {
       const settings: AppSettings = await invoke("load_connections");
       setConnections(settings.connections);
-    } catch { }
+    } catch (err) {
+      toast.error(`Failed to load connections: ${String(err)}`);
+    }
   }
 
   async function moveConnection(index: number, direction: -1 | 1) {
@@ -511,7 +528,7 @@ export default function SettingsView(props: Props) {
       });
       setConnections(fresh);
     } catch (err) {
-      console.error("Failed to reorder connections:", err);
+      toast.error(`Failed to reorder connections: ${String(err)}`);
       void refreshConnections();
     }
   }
@@ -525,7 +542,7 @@ export default function SettingsView(props: Props) {
       });
       setConnections(updated.connections);
     } catch (err) {
-      console.error("Failed to delete connection:", err);
+      toast.error(`Failed to delete connection: ${String(err)}`);
     } finally {
       setDeletingConnection(null);
     }
@@ -545,15 +562,18 @@ export default function SettingsView(props: Props) {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `sqlqs-connections-${new Date()
-        .toISOString()
-        .slice(0, 10)}.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
+      try {
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `sqlqs-connections-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
       setImportMessage({
         text: `Exported ${connections().length} connection(s) (passwords excluded).`,
         tone: "success",
@@ -720,27 +740,6 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "tab-auto-naming",
-      tab: "general",
-      title: "Tab auto naming",
-      keywords: "tab auto naming title first line sql generate ai flash lite",
-      render: () => (
-        <DropdownSetting
-          title="Tab auto naming"
-          description="Untitled tabs use the first line of SQL, or a short name from AI."
-          value={tabAutoNaming()}
-          defaultValue={DEFAULT_TAB_AUTO_NAMING}
-          options={TAB_AUTO_NAMING_OPTIONS}
-          minWidth="min-w-[160px]"
-          onChange={(val) => {
-            const next = val as TabAutoNamingMode;
-            setTabAutoNaming(next);
-            saveTabAutoNaming(next);
-          }}
-        />
-      ),
-    },
-    {
       id: "auto-connect-startup",
       tab: "general",
       title: "Auto-connect on startup",
@@ -762,7 +761,7 @@ export default function SettingsView(props: Props) {
                 payload: settings,
               });
             } catch (err) {
-              console.error("Failed to save auto-connect setting", err);
+              toast.error(`Failed to save auto-connect setting: ${String(err)}`);
             }
           }}
           onReset={async () => {
@@ -775,7 +774,7 @@ export default function SettingsView(props: Props) {
                 payload: settings,
               });
             } catch (err) {
-              console.error("Failed to save auto-connect setting", err);
+              toast.error(`Failed to save auto-connect setting: ${String(err)}`);
             }
           }}
         />
@@ -1383,6 +1382,30 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
+      id: "ai-enabled",
+      tab: "ai",
+      title: "Enable AI",
+      keywords:
+        "ai enable disable master switch features chat suggestions naming",
+      render: () => (
+        <ToggleSetting
+          title="Enable AI"
+          description="Master switch for AI features: chat, inline suggestions, and AI tab naming"
+          checked={aiEnabled()}
+          defaultValue={DEFAULT_AI_ENABLED}
+          onToggle={() => {
+            const next = !aiEnabled();
+            setAiEnabled(next);
+            saveAiEnabled(next);
+          }}
+          onReset={() => {
+            setAiEnabled(DEFAULT_AI_ENABLED);
+            saveAiEnabled(DEFAULT_AI_ENABLED);
+          }}
+        />
+      ),
+    },
+    {
       id: "ai-api",
       tab: "ai",
       title: "Configuration",
@@ -1544,6 +1567,81 @@ export default function SettingsView(props: Props) {
             </div>
           </div>
         </div>
+      ),
+    },
+    {
+      id: "ai-inline-suggestions",
+      tab: "ai",
+      title: "Inline suggestions",
+      keywords:
+        "ai autocomplete inline ghost suggestion completion copilot flash lite editor",
+      render: () => (
+        <ToggleSetting
+          title="Inline suggestions"
+          description="Continue SQL with ghost text from AI as you pause typing."
+          checked={aiAutocomplete()}
+          defaultValue={DEFAULT_AI_AUTOCOMPLETE}
+          onToggle={() => {
+            const next = !aiAutocomplete();
+            setAiAutocomplete(next);
+            saveAiAutocomplete(next);
+          }}
+          onReset={() => {
+            setAiAutocomplete(DEFAULT_AI_AUTOCOMPLETE);
+            saveAiAutocomplete(DEFAULT_AI_AUTOCOMPLETE);
+          }}
+        />
+      ),
+    },
+    {
+      id: "ai-autocomplete-model",
+      tab: "ai",
+      title: "Autocomplete model",
+      keywords:
+        "ai autocomplete model gemini flash lite pro select engine inline suggestions",
+      render: () => (
+        <DropdownSetting
+          title="Autocomplete model"
+          description="Gemini model used for inline suggestions. Auto picks the smallest and fastest model."
+          disabled={!aiAutocomplete()}
+          value={aiAutocompleteModel()}
+          defaultValue=""
+          options={[
+            { value: "", label: "Auto" },
+            ...aiAutocompleteModels().map((model) => ({
+              value: model.id,
+              label: model.label,
+            })),
+          ]}
+          onChange={(value) => {
+            setAiAutocompleteModel(value);
+            AiService.setAutocompleteModel(value || null);
+          }}
+        />
+      ),
+    },
+    {
+      id: "ai-file-naming",
+      tab: "ai",
+      title: "Naming on save",
+      keywords:
+        "ai file name naming save sql file export queries generate title flash lite",
+      render: () => (
+        <ToggleSetting
+          title="Naming on save"
+          description="Generate a descriptive title from the SQL when saving to a .sql file or to Queries"
+          checked={aiFileNaming()}
+          defaultValue={DEFAULT_AI_FILE_NAMING}
+          onToggle={() => {
+            const next = !aiFileNaming();
+            setAiFileNaming(next);
+            saveAiFileNaming(next);
+          }}
+          onReset={() => {
+            setAiFileNaming(DEFAULT_AI_FILE_NAMING);
+            saveAiFileNaming(DEFAULT_AI_FILE_NAMING);
+          }}
+        />
       ),
     },
     {
@@ -1867,16 +1965,21 @@ export default function SettingsView(props: Props) {
     return tokens.every((t) => haystack.includes(t));
   }
 
-  const visibleSections = createMemo(() => {
-    const availableSections = isPreviewBuild()
+  const availableSections = createMemo(() => {
+    const base = isPreviewBuild()
       ? sections
       : sections.filter((s) => s.tab !== "developer");
+    if (aiEnabled()) return base;
+    return base.filter((s) => !(s.tab === "ai" && s.id !== "ai-enabled"));
+  });
+
+  const visibleSections = createMemo(() => {
     if (isSearching()) {
-      const matched = availableSections.filter(sectionMatches);
+      const matched = availableSections().filter(sectionMatches);
       const tab = searchTab();
       return tab ? matched.filter((s) => s.tab === tab) : matched;
     }
-    return availableSections.filter((s) => s.tab === activeTab());
+    return availableSections().filter((s) => s.tab === activeTab());
   });
 
   const groupedSearchResults = createMemo(() => {
@@ -1891,10 +1994,9 @@ export default function SettingsView(props: Props) {
 
   const tabsWithMatches = createMemo<Set<Tab> | null>(() => {
     if (!isSearching()) return null;
-    const available = isPreviewBuild()
-      ? sections
-      : sections.filter((s) => s.tab !== "developer");
-    return new Set(available.filter(sectionMatches).map((s) => s.tab));
+    return new Set(
+      availableSections().filter(sectionMatches).map((s) => s.tab),
+    );
   });
 
   const visibleTabs = createMemo(() => {

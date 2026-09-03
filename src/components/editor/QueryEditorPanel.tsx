@@ -50,7 +50,7 @@ import { Loader } from "../ui/Loader";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { AiService } from "../../lib/ai";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import { loadPreferences } from "../../lib/settings";
+import { loadAiEnabled, loadPreferences } from "../../lib/settings";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
 import EditorTabBar from "./EditorTabBar";
@@ -160,6 +160,7 @@ interface Props {
   theme: ThemeSelection;
   aiChatOpen: boolean;
   onAiChatOpenChange: (open: boolean) => void;
+  onOpenAiSettings?: () => void;
   onSave?: (id: string) => void;
   onSaveToFile?: (id: string) => void;
   executedQueries?: ExecutedQuery[];
@@ -517,6 +518,7 @@ export default function QueryEditorPanel(props: Props) {
   createEffect(() => {
     if (!props.connected) return;
     void import("./SqlEditor");
+    if (!loadAiEnabled()) return;
     const preloadAi = () => {
       void loadAIChatPanel();
       void AiService.listAvailableModels();
@@ -1012,14 +1014,18 @@ export default function QueryEditorPanel(props: Props) {
         onClick: () => editorRef?.toLowerCase(),
         disabled: !hasSelectedText || !tab?.sql,
       },
-      { id: "sep-copy", separator: true },
-      {
-        id: "send-selection-to-chat",
-        label: "Send to Chat",
-        icon: <i class="fa-solid fa-comment-dots" />,
-        onClick: handleSendSelectionToChat,
-        disabled: !hasSelectedText,
-      },
+      ...(loadAiEnabled()
+        ? [
+            { id: "sep-copy", separator: true },
+            {
+              id: "send-selection-to-chat",
+              label: "Send to Chat",
+              icon: <i class="fa-solid fa-comment-dots" />,
+              onClick: handleSendSelectionToChat,
+              disabled: !hasSelectedText,
+            },
+          ]
+        : []),
     ];
   };
 
@@ -1739,8 +1745,16 @@ export default function QueryEditorPanel(props: Props) {
                     }
                     onGenerateSql={handleGeneratedRowSql}
                     onReExecute={() => handleExecute()}
-                    onSendErrorToChat={handleSendResultErrorToChat}
-                    onSendResultToChat={handleSendResultToChat}
+                    onSendErrorToChat={
+                      loadAiEnabled()
+                        ? handleSendResultErrorToChat
+                        : undefined
+                    }
+                    onSendResultToChat={
+                      loadAiEnabled()
+                        ? handleSendResultToChat
+                        : undefined
+                    }
                   />
                 </div>
               )}
@@ -1834,7 +1848,14 @@ export default function QueryEditorPanel(props: Props) {
           </div>
         );
       })()}
-      <Show when={props.aiChatOpen && props.connected && !!activeTab()}>
+      <Show
+        when={
+          loadAiEnabled() &&
+          props.aiChatOpen &&
+          props.connected &&
+          !!activeTab()
+        }
+      >
         <Suspense
           fallback={
             <div
@@ -1866,6 +1887,7 @@ export default function QueryEditorPanel(props: Props) {
                 current?.id === id ? null : current,
               );
             }}
+            onOpenAiSettings={props.onOpenAiSettings}
           />
         </Suspense>
       </Show>

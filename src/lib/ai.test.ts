@@ -65,8 +65,8 @@ describe("AI helpers", () => {
     expect(AiService.getThinkingLevel()).toBe("high");
   });
 
-  it("skips AI tab naming when no API key is available", async () => {
-    await expect(AiService.generateTabTitle("SELECT 1")).resolves.toBe("");
+  it("skips AI title naming when no API key is available", async () => {
+    await expect(AiService.generateSqlTitle("SELECT 1")).resolves.toBe("");
 
     expect(invoke).toHaveBeenCalledWith("load_api_key");
   });

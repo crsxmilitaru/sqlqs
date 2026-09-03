@@ -3,6 +3,7 @@ import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
+import { loadAiEnabled } from "../../lib/settings";
 import { getGoBackShortcutLabel, getGoForwardShortcutLabel } from "../../lib/editor-navigation";
 import { isMacOS } from "../../lib/platform";
 import type { SavedConnection, ServerObjectIndexStatus } from "../../lib/types";
@@ -48,7 +49,6 @@ interface Props {
   onViewUpdateDetails?: () => void;
   hideAppContent?: boolean;
   hasTabs: boolean;
-  hasAiKey: boolean;
   onRequestClose?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -134,6 +134,8 @@ export default function TitleBar(props: Props) {
         ? `Jump to Object - Indexing ${processedDatabaseCount()}/${databaseCount()} DBs${failedDatabaseCount() > 0 ? ` - ${failedDatabaseCount()} failed` : ""}`
         : "Jump to Object - Indexing server objects…"
       : "Jump to Object";
+  const aiChatTooltip = () =>
+    props.connected ? "AI Chat" : "AI Chat • Connect to a server";
 
   async function handleMinimize() {
     try {
@@ -421,25 +423,16 @@ export default function TitleBar(props: Props) {
               <div class="ui-divider mx-2" />
             </div>
           )}
-          {!props.hideAppContent && (
+          {!props.hideAppContent && loadAiEnabled() && (
             <div class="flex items-center self-center">
-              <Tooltip
-                content={
-                  !props.hasAiKey
-                    ? "AI Chat • Add a Gemini API key in Settings"
-                    : !props.connected
-                      ? "AI Chat • Connect to a server"
-                      : "AI Chat"
-                }
-                placement="bottom"
-              >
+              <Tooltip content={aiChatTooltip()} placement="bottom">
                 <button
                   onClick={props.onToggleAiChat}
                   onPointerEnter={() => {
                     void import("../ai/AIChatPanel");
                     void AiService.listAvailableModels();
                   }}
-                  disabled={!props.hasAiKey || !props.connected || !props.hasTabs}
+                  disabled={!props.connected || !props.hasTabs}
                   class={`control-icon-btn titlebar-icon-btn ${
                     props.aiChatOpen ? "is-active" : ""
                     }`}
@@ -449,7 +442,9 @@ export default function TitleBar(props: Props) {
               </Tooltip>
             </div>
           )}
-          {!isMac && !props.hideAppContent && <div class="ui-divider mx-2.5 self-center" />}
+          {!isMac && !props.hideAppContent && loadAiEnabled() && (
+            <div class="ui-divider mx-2.5 self-center" />
+          )}
           {!isMac && (
             <div
               class="flex h-full relative z-[9999] no-drag"

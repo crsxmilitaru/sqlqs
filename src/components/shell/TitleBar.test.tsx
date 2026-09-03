@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import TitleBar from "./TitleBar";
 import { setInvokeHandler } from "../../test/tauri";
 import { CONNECTION_SETTINGS as SETTINGS } from "../../test/fixtures";
+import { saveAiEnabled } from "../../lib/settings";
 
 function renderTitleBar(overrides: Partial<Parameters<typeof TitleBar>[0]> = {}) {
   const props: Parameters<typeof TitleBar>[0] = {
@@ -16,14 +17,17 @@ function renderTitleBar(overrides: Partial<Parameters<typeof TitleBar>[0]> = {})
     aiChatOpen: false,
     onToggleAiChat: vi.fn(),
     hasTabs: false,
-    hasAiKey: false,
     ...overrides,
   };
-  render(() => <TitleBar {...props} />);
-  return props;
+  const result = render(() => <TitleBar {...props} />);
+  return { props, ...result };
 }
 
 describe("TitleBar", () => {
+  beforeEach(() => {
+    saveAiEnabled(true);
+  });
+
   it("opens the connection dialog", () => {
     const onConnect = vi.fn();
     renderTitleBar({ onConnect });
@@ -31,6 +35,19 @@ describe("TitleBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Server" }));
 
     expect(onConnect).toHaveBeenCalledOnce();
+  });
+
+  it("shows the AI chat button when AI is enabled", () => {
+    const { container } = renderTitleBar();
+
+    expect(container.querySelector(".fa-message")).not.toBeNull();
+  });
+
+  it("hides the AI chat button when AI is disabled", () => {
+    saveAiEnabled(false);
+    const { container } = renderTitleBar();
+
+    expect(container.querySelector(".fa-message")).toBeNull();
   });
 
   it("runs enabled navigation actions", () => {

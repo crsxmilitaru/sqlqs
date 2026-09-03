@@ -24,7 +24,10 @@ describe("settings", () => {
     expect(preferences.editor.suggestionStyle).toBe(
       settings.DEFAULT_EDITOR_SUGGESTION_STYLE,
     );
-    expect(preferences.tabAutoNaming).toBe(settings.DEFAULT_TAB_AUTO_NAMING);
+    expect(preferences.aiEnabled).toBe(settings.DEFAULT_AI_ENABLED);
+    expect(settings.DEFAULT_AI_ENABLED).toBe(true);
+    expect(preferences.aiAutocomplete).toBe(settings.DEFAULT_AI_AUTOCOMPLETE);
+    expect(settings.DEFAULT_AI_AUTOCOMPLETE).toBe(true);
     expect(preferences.execution.maxRows).toBe(
       settings.DEFAULT_EXEC_MAX_ROWS,
     );
@@ -75,6 +78,30 @@ describe("settings", () => {
       settings.MIN_MAX_HISTORY,
     );
     expect(localStorage.getItem("sqlqs_exec_max_rows")).toBe("0");
+  });
+
+  it("persists the AI autocomplete preference", async () => {
+    const settings = await loadSettings();
+
+    settings.saveAiAutocomplete(true);
+    expect(settings.loadPreferences().aiAutocomplete).toBe(true);
+    expect(localStorage.getItem("sqlqs_ai_autocomplete")).toBe("true");
+
+    settings.saveAiAutocomplete(false);
+    expect(settings.loadPreferences().aiAutocomplete).toBe(false);
+    expect(localStorage.getItem("sqlqs_ai_autocomplete")).toBe("false");
+  });
+
+  it("persists the AI enabled preference", async () => {
+    const settings = await loadSettings();
+
+    settings.saveAiEnabled(false);
+    expect(settings.loadPreferences().aiEnabled).toBe(false);
+    expect(localStorage.getItem("sqlqs_ai_enabled")).toBe("false");
+
+    settings.saveAiEnabled(true);
+    expect(settings.loadPreferences().aiEnabled).toBe(true);
+    expect(localStorage.getItem("sqlqs_ai_enabled")).toBe("true");
   });
 
   it("migrates the legacy application date-format key", async () => {
@@ -140,19 +167,19 @@ describe("settings", () => {
     expect(localStorage.getItem("sqlqs_saved_tabs_v1")).toBeNull();
   });
 
-  it("normalizes editor suggestions and tab auto-naming preferences", async () => {
+  it("normalizes editor suggestions and persists AI file naming", async () => {
     localStorage.setItem("sqlqs_editor_suggestion_style", "invalid");
-    localStorage.setItem("sqlqs_tab_auto_naming", "invalid");
     const settings = await loadSettings();
 
     expect(settings.loadEditorPreferences().suggestionStyle).toBe("ghost");
-    expect(settings.loadPreferences().tabAutoNaming).toBe("first-line");
+    expect(settings.loadPreferences().aiFileNaming).toBe(true);
 
     settings.saveEditorSuggestionStyle("popup");
-    settings.saveTabAutoNaming("ai");
+    settings.saveAiFileNaming(false);
 
     expect(settings.loadEditorPreferences().suggestionStyle).toBe("popup");
-    expect(settings.loadPreferences().tabAutoNaming).toBe("ai");
+    expect(settings.loadPreferences().aiFileNaming).toBe(false);
+    expect(localStorage.getItem("sqlqs_ai_file_naming")).toBe("false");
   });
 
   it("loads valid tab groups and replaces unknown colors", async () => {

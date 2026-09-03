@@ -1,23 +1,10 @@
-import { renderHook, waitFor } from "@solidjs/testing-library";
+import { renderHook } from "@solidjs/testing-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { saveTabAutoNaming } from "../lib/settings";
 import { useTabs } from "./useTabs";
-
-const { generateTabTitleMock } = vi.hoisted(() => ({
-  generateTabTitleMock: vi.fn(),
-}));
-
-vi.mock("../lib/ai", () => ({
-  AiService: {
-    generateTabTitle: generateTabTitleMock,
-  },
-}));
 
 describe("useTabs", () => {
   beforeEach(() => {
     localStorage.clear();
-    saveTabAutoNaming("first-line");
-    generateTabTitleMock.mockReset();
   });
 
   it("adds tabs, normalizes SQL, and reuses matching sources", () => {
@@ -212,29 +199,5 @@ describe("useTabs", () => {
     expect(result.groups()).toEqual([
       { id: groupId, name: "Grouped", color: "cyan" },
     ]);
-  });
-
-  it("applies AI-generated titles without overriding user titles", async () => {
-    saveTabAutoNaming("ai");
-    generateTabTitleMock.mockResolvedValue("Active users");
-    const { result } = renderHook(useTabs);
-
-    const automaticId = result.addTab("SELECT * FROM dbo.Users");
-    const manualId = result.addTab(
-      "SELECT * FROM dbo.Orders",
-      "Orders report",
-      undefined,
-      true,
-    );
-
-    await waitFor(() =>
-      expect(result.tabs().find((tab) => tab.id === automaticId)?.title).toBe(
-        "Active users",
-      ),
-    );
-    expect(result.tabs().find((tab) => tab.id === manualId)?.title).toBe(
-      "Orders report",
-    );
-    expect(generateTabTitleMock).toHaveBeenCalledOnce();
   });
 });

@@ -9,6 +9,8 @@ const STORAGE_KEY_MAX_HISTORY = "sqlqs_max_history_items";
 const STORAGE_KEY_SAVED_TABS = "sqlqs_saved_tabs_v1";
 const STORAGE_KEY_SAVED_TAB_GROUPS = "sqlqs_saved_tab_groups_v1";
 const STORAGE_KEY_AI_NOTIFICATIONS = "sqlqs_ai_notifications";
+const STORAGE_KEY_AI_ENABLED = "sqlqs_ai_enabled";
+const STORAGE_KEY_AI_AUTOCOMPLETE = "sqlqs_ai_autocomplete";
 const STORAGE_KEY_AUTO_CHECK_UPDATES = "sqlqs_auto_check_updates";
 const STORAGE_KEY_UPDATE_CHANNEL = "sqlqs_update_channel";
 const STORAGE_KEY_EXEC_MAX_ROWS = "sqlqs_exec_max_rows";
@@ -30,7 +32,7 @@ const STORAGE_KEY_EDITOR_SUGGESTION_STYLE =
 const STORAGE_KEY_EDITOR_FORMAT_ON_PASTE = "sqlqs_editor_format_on_paste";
 const STORAGE_KEY_REVEAL_DB_IN_EXPLORER = "sqlqs_reveal_current_db_in_explorer";
 const STORAGE_KEY_OPEN_LAST_CHAT_STARTUP = "sqlqs_open_last_chat_startup";
-const STORAGE_KEY_TAB_AUTO_NAMING = "sqlqs_tab_auto_naming";
+const STORAGE_KEY_AI_FILE_NAMING = "sqlqs_ai_file_naming";
 const STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER =
   "sqlqs_object_jump_database_filter";
 const STORAGE_KEY_OBJECT_JUMP_TYPE_FILTER = "sqlqs_object_jump_type_filter";
@@ -76,7 +78,6 @@ export type EditorSuggestionStyle = "ghost" | "popup";
 export type SqlKeywordCase = "upper" | "lower" | "preserve";
 export type SqlFormatStyle = "compact" | "expanded";
 export type UpdateChannel = "stable" | "preview";
-export type TabAutoNamingMode = "first-line" | "ai";
 export type DateFormat =
   | "local"
   | "YYYY-MM-DD HH:mm:ss"
@@ -107,24 +108,7 @@ export const MAX_EXEC_TIMEOUT_SECONDS = 3600;
 export const DEFAULT_DATE_FORMAT: DateFormat = "local";
 export const DEFAULT_RESULTS_DATE_FORMAT: DateFormat = "iso";
 export const DEFAULT_RESULTS_SHOW_FILTERS = true;
-
-export const DEFAULT_TAB_AUTO_NAMING: TabAutoNamingMode = "first-line";
-export const TAB_AUTO_NAMING_OPTIONS: {
-  value: TabAutoNamingMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "first-line",
-    label: "First line of text",
-    description: "Use the first non-empty line of the SQL as the tab name",
-  },
-  {
-    value: "ai",
-    label: "Generate with AI",
-    description: "Generate a short name with Flash Lite",
-  },
-];
+export const DEFAULT_AI_FILE_NAMING = true;
 
 export const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = [
   { value: "local", label: "Local Machine Format" },
@@ -160,6 +144,8 @@ export const FORMAT_KEYWORD_CASE_OPTIONS: {
     { value: "preserve", label: "Preserve" },
   ];
 export const DEFAULT_UPDATE_CHANNEL: UpdateChannel = "stable";
+export const DEFAULT_AI_ENABLED = true;
+export const DEFAULT_AI_AUTOCOMPLETE = true;
 
 export const UPDATE_CHANNEL_OPTIONS: {
   value: UpdateChannel;
@@ -190,7 +176,9 @@ export interface AppPreferences {
   openLastChatStartup: boolean;
   objectJumpDatabaseFilter: string;
   objectJumpTypeFilter: string;
-  tabAutoNaming: TabAutoNamingMode;
+  aiEnabled: boolean;
+  aiAutocomplete: boolean;
+  aiFileNaming: boolean;
   editor: EditorPreferences;
   execution: ExecutionPreferences;
   format: SqlFormatPreferences;
@@ -227,12 +215,6 @@ function readAiNotificationsFromStorage(): boolean {
 function readOpenLastChatStartupFromStorage(): boolean {
   const raw = localStorage.getItem(STORAGE_KEY_OPEN_LAST_CHAT_STARTUP);
   return raw === null ? false : raw === "true";
-}
-
-function readTabAutoNamingFromStorage(): TabAutoNamingMode {
-  const raw = localStorage.getItem(STORAGE_KEY_TAB_AUTO_NAMING);
-  if (raw === "first-line" || raw === "ai") return raw;
-  return DEFAULT_TAB_AUTO_NAMING;
 }
 
 function readBoolWithDefault(key: string, defaultValue: boolean): boolean {
@@ -384,7 +366,15 @@ function readPreferencesFromStorage(): AppPreferences {
       true,
     ),
     openLastChatStartup,
-    tabAutoNaming: readTabAutoNamingFromStorage(),
+    aiEnabled: readBoolWithDefault(STORAGE_KEY_AI_ENABLED, DEFAULT_AI_ENABLED),
+    aiAutocomplete: readBoolWithDefault(
+      STORAGE_KEY_AI_AUTOCOMPLETE,
+      DEFAULT_AI_AUTOCOMPLETE,
+    ),
+    aiFileNaming: readBoolWithDefault(
+      STORAGE_KEY_AI_FILE_NAMING,
+      DEFAULT_AI_FILE_NAMING,
+    ),
     objectJumpDatabaseFilter:
       localStorage.getItem(STORAGE_KEY_OBJECT_JUMP_DATABASE_FILTER) ?? "",
     objectJumpTypeFilter:
@@ -502,14 +492,40 @@ export function saveAiNotifications(value: boolean) {
   setPreferences((prev) => ({ ...prev, aiNotifications: value }));
 }
 
+export function loadAiAutocomplete(): boolean {
+  return preferences().aiAutocomplete;
+}
+
+export function saveAiAutocomplete(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_AI_AUTOCOMPLETE, String(value));
+  setPreferences((prev) => ({ ...prev, aiAutocomplete: value }));
+}
+
+export function loadAiAutocompleteActive(): boolean {
+  return preferences().aiEnabled && preferences().aiAutocomplete;
+}
+
+export function loadAiFileNaming(): boolean {
+  return preferences().aiFileNaming;
+}
+
+export function saveAiFileNaming(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_AI_FILE_NAMING, String(value));
+  setPreferences((prev) => ({ ...prev, aiFileNaming: value }));
+}
+
+export function loadAiEnabled(): boolean {
+  return preferences().aiEnabled;
+}
+
+export function saveAiEnabled(value: boolean) {
+  localStorage.setItem(STORAGE_KEY_AI_ENABLED, String(value));
+  setPreferences((prev) => ({ ...prev, aiEnabled: value }));
+}
+
 export function saveOpenLastChatStartup(value: boolean) {
   localStorage.setItem(STORAGE_KEY_OPEN_LAST_CHAT_STARTUP, String(value));
   setPreferences((prev) => ({ ...prev, openLastChatStartup: value }));
-}
-
-export function saveTabAutoNaming(value: TabAutoNamingMode) {
-  localStorage.setItem(STORAGE_KEY_TAB_AUTO_NAMING, value);
-  setPreferences((prev) => ({ ...prev, tabAutoNaming: value }));
 }
 
 export function loadObjectJumpDatabaseFilter(): string {
@@ -666,8 +682,7 @@ export function saveTabGroups(groups: TabGroup[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY_SAVED_TAB_GROUPS, JSON.stringify(groups));
     return true;
-  } catch (err) {
-    console.error("[sqlqs] failed to persist tab groups:", err);
+  } catch {
     return false;
   }
 }
@@ -699,9 +714,10 @@ export function loadTabGroups(): TabGroup[] {
   }
 }
 
-export function saveTabs(tabs: SavedTab[]) {
+export function saveTabs(tabs: SavedTab[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY_SAVED_TABS, JSON.stringify(tabs));
+    return true;
   } catch {
     try {
       const tabsWithoutHistory = tabs.map(
@@ -711,7 +727,10 @@ export function saveTabs(tabs: SavedTab[]) {
         STORAGE_KEY_SAVED_TABS,
         JSON.stringify(tabsWithoutHistory),
       );
-    } catch { }
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -720,21 +739,21 @@ function normalizeSavedHistoryEntry(
   index: number,
 ): QueryTabHistoryEntry {
   const trimmedLabel =
-    typeof entry.label === "string" ? entry.label.trim() : "";
+    typeof entry?.label === "string" ? entry.label.trim() : "";
   const label = trimmedLabel ? trimmedLabel.slice(0, 80) : undefined;
   const createdAt =
-    typeof entry.createdAt === "number" &&
+    typeof entry?.createdAt === "number" &&
     Number.isFinite(entry.createdAt) &&
     !Number.isNaN(new Date(entry.createdAt).getTime())
       ? entry.createdAt
       : Date.now();
-  const trimmedId = typeof entry.id === "string" ? entry.id.trim() : "";
+  const trimmedId = typeof entry?.id === "string" ? entry.id.trim() : "";
 
   return {
     id: trimmedId || `history-${createdAt}-${index}`,
-    sql: entry.sql.replace(/\r\n/g, "\n"),
+    sql: typeof entry?.sql === "string" ? entry.sql.replace(/\r\n/g, "\n") : "",
     createdAt,
-    type: entry.type === "action" ? "action" : "typing",
+    type: entry?.type === "action" ? "action" : "typing",
     label,
   };
 }

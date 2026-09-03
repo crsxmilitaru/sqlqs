@@ -76,21 +76,25 @@ const ghostField = StateField.define<GhostSuggestion | null>({
   },
 });
 
-class GhostWidget extends WidgetType {
-  constructor(readonly text: string) {
+export class GhostTextWidget extends WidgetType {
+  constructor(
+    readonly text: string,
+    readonly className: string,
+    readonly block = false,
+  ) {
     super();
   }
 
-  eq(other: GhostWidget) {
-    return other.text === this.text;
+  eq(other: GhostTextWidget) {
+    return other.text === this.text && other.className === this.className;
   }
 
   toDOM() {
-    const span = document.createElement("span");
-    span.className = "cm-sql-ghost";
-    span.setAttribute("aria-hidden", "true");
-    span.textContent = this.text;
-    return span;
+    const element = document.createElement(this.block ? "div" : "span");
+    element.className = this.className;
+    element.setAttribute("aria-hidden", "true");
+    element.textContent = this.text;
+    return element;
   }
 
   ignoreEvent() {
@@ -104,7 +108,7 @@ function buildGhostDecorations(state: EditorState): DecorationSet {
   if (!ghost) return Decoration.none;
   return Decoration.set([
     Decoration.widget({
-      widget: new GhostWidget(ghost.remainder),
+      widget: new GhostTextWidget(ghost.remainder, "cm-sql-ghost"),
       side: 1,
     }).range(ghost.at),
   ]);
@@ -154,7 +158,7 @@ function buildSuggestion(
   return null;
 }
 
-function canSuggest(state: EditorState): boolean {
+export function canSuggestInlineCompletion(state: EditorState): boolean {
   if (state.readOnly) return false;
   const selection = state.selection;
   if (selection.ranges.length !== 1 || !selection.main.empty) return false;
@@ -202,7 +206,7 @@ export function sqlInlineCompletion(
       private async query() {
         const generation = this.generation;
         const state = this.view.state;
-        if (!canSuggest(state)) return;
+        if (!canSuggestInlineCompletion(state)) return;
 
         const pos = state.selection.main.head;
         let result: CompletionResult | null;
@@ -217,7 +221,7 @@ export function sqlInlineCompletion(
         if (
           current.doc !== state.doc ||
           current.selection.main.head !== pos ||
-          !canSuggest(current)
+          !canSuggestInlineCompletion(current)
         ) {
           return;
         }
@@ -243,6 +247,10 @@ export function sqlInlineCompletion(
 
 export function hasInlineSuggestion(view: EditorView): boolean {
   return currentGhost(view.state) != null;
+}
+
+export function clearInlineSuggestionEffect() {
+  return setGhost.of(null);
 }
 
 export function clearInlineSuggestion(view: EditorView): void {

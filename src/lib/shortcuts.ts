@@ -41,6 +41,7 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
         { label: "Format SQL", keys: ["Alt+Shift+F"] },
         { label: "Show all suggestions", keys: ["Ctrl+Space", "↓"] },
         { label: "Accept inline suggestion", keys: ["Tab"] },
+        { label: "Trigger AI suggestion", keys: ["Alt+\\"] },
         { label: "Find in editor", keys: [`${mod}+F`] },
         { label: "Find next", keys: [`${mod}+G`] },
         { label: "Indent", keys: ["Tab"] },

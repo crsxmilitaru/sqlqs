@@ -8,6 +8,7 @@ import {
   type ToolExecutionContext,
 } from "./ai-tools";
 import type { GeminiStatus } from "./types";
+import { loadAiEnabled } from "./settings";
 
 let genaiModule: Promise<typeof import("@google/genai")> | undefined;
 
@@ -17,6 +18,7 @@ function loadGenAI() {
 }
 
 const GEMINI_MODEL_STORAGE_KEY = "sqlqs_gemini_model";
+const GEMINI_AUTOCOMPLETE_MODEL_STORAGE_KEY = "sqlqs_gemini_autocomplete_model";
 const GEMINI_MODELS_CACHE_KEY = "sqlqs_gemini_models";
 const GEMINI_THINKING_LEVEL_STORAGE_KEY = "sqlqs_gemini_thinking_level";
 const GEMINI_THINKING_ENABLED_STORAGE_KEY = "sqlqs_gemini_thinking_enabled";
@@ -150,9 +152,14 @@ function pickPreferredModel(models: GeminiModelOption[]): GeminiModelOption | un
 }
 
 const FLASH_LITE_FALLBACK_MODEL = "gemini-3.5-flash-lite";
-const MAX_TAB_TITLE_SQL_CHARS = 2000;
+const MAX_TITLE_SQL_CHARS = 2000;
+const MIN_INLINE_PREFIX_CHARS = 3;
+const MAX_INLINE_PREFIX_CHARS = 4000;
+const MAX_INLINE_SUFFIX_CHARS = 1000;
+const MAX_INLINE_OUTPUT_TOKENS = 256;
+const INLINE_COMPLETION_CACHE_LIMIT = 32;
 
-function sanitizeGeneratedTabTitle(text: string): string {
+function sanitizeGeneratedTitle(text: string): string {
   const cleaned = text
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+/g, " ")
@@ -163,6 +170,50 @@ function sanitizeGeneratedTabTitle(text: string): string {
   return cleaned;
 }
 
+export function sanitizeInlineCompletion(text: string): string | null {
+  let cleaned = text.replace(/\r\n/g, "\n");
+  const fenced = cleaned.match(/^```[a-zA-Z]*\n([\s\S]*?)\n?```$/);
+  if (fenced) {
+    cleaned = fenced[1];
+  } else if (cleaned.startsWith("```")) {
+    const firstNewline = cleaned.indexOf("\n");
+    cleaned = firstNewline >= 0 ? cleaned.slice(firstNewline + 1) : "";
+  }
+  const closingFence = cleaned.indexOf("```");
+  if (closingFence >= 0) {
+    cleaned = cleaned.slice(0, closingFence);
+  }
+  cleaned = cleaned.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+const inlineCompletionCache = new Map<string, string | null>();
+
+function cacheInlineCompletion(key: string, value: string | null) {
+  inlineCompletionCache.set(key, value);
+  while (inlineCompletionCache.size > INLINE_COMPLETION_CACHE_LIMIT) {
+    const oldest = inlineCompletionCache.keys().next().value;
+    if (oldest === undefined) break;
+    inlineCompletionCache.delete(oldest);
+  }
+}
+
+function buildInlineCompletionSystemPrompt(database: string): string {
+  return `You are an inline autocomplete engine for T-SQL (Microsoft SQL Server) in the SQL Query Studio editor.
+Current database: ${database}
+
+You receive the query text immediately before and after the cursor. Reply with ONLY the text to insert at the cursor position.
+
+RULES:
+- Continue naturally from the last characters before the cursor
+- Never repeat text that already appears before the cursor
+- Match the surrounding style: keyword case, indentation, line breaks
+- Stop at a natural boundary such as the end of a clause, line, or statement
+- Use T-SQL syntax: square brackets for identifiers, TOP not LIMIT, GETDATE() not NOW()
+- No markdown, no code fences, no explanations
+- If nothing useful can be added, reply with an empty message`;
+}
+
 async function resolveFlashLiteModelId(): Promise<string> {
   let models = AiService.getCachedModels();
   if (!models.some((model) => /flash-lite/.test(model.id))) {
@@ -170,6 +221,17 @@ async function resolveFlashLiteModelId(): Promise<string> {
   }
   return models.find((model) => /flash-lite/.test(model.id))?.id
     ?? FLASH_LITE_FALLBACK_MODEL;
+}
+
+async function resolveAutocompleteModelId(): Promise<string> {
+  const stored = AiService.getAutocompleteModel();
+  if (stored) {
+    const models = AiService.getCachedModels();
+    if (models.length === 0 || models.some((model) => model.id === stored)) {
+      return stored;
+    }
+  }
+  return resolveFlashLiteModelId();
 }
 
 function usesThinkingLevel(modelId: string): boolean {
@@ -542,6 +604,18 @@ export const AiService = {
     return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY);
   },
 
+  setAutocompleteModel(model: string | null) {
+    if (model) {
+      localStorage.setItem(GEMINI_AUTOCOMPLETE_MODEL_STORAGE_KEY, model);
+    } else {
+      localStorage.removeItem(GEMINI_AUTOCOMPLETE_MODEL_STORAGE_KEY);
+    }
+  },
+
+  getAutocompleteModel(): string | null {
+    return localStorage.getItem(GEMINI_AUTOCOMPLETE_MODEL_STORAGE_KEY);
+  },
+
   getCachedModels(): GeminiModelOption[] {
     return readCachedModels();
   },
@@ -608,11 +682,12 @@ export const AiService = {
     throw new Error("No Gemini text models are available for this API key.");
   },
 
-  async generateTabTitle(sql: string): Promise<string> {
+  async generateSqlTitle(sql: string): Promise<string> {
+    if (!loadAiEnabled()) return "";
     const apiKey = await this.getApiKey();
     if (!apiKey) return "";
 
-    const snippet = sql.trim().slice(0, MAX_TAB_TITLE_SQL_CHARS);
+    const snippet = sql.trim().slice(0, MAX_TITLE_SQL_CHARS);
     if (!snippet) return "";
 
     try {
@@ -630,7 +705,7 @@ export const AiService = {
 
       const response = await genAI.models.generateContent({
         model: modelId,
-        contents: `Name this SQL for an editor tab. Reply with only a short title of 3 to 8 words. No quotes, no punctuation, no explanation.\n\n\`\`\`sql\n${snippet}\n\`\`\``,
+        contents: `Name this SQL snippet. Reply with only a short title of 3 to 8 words. No quotes, no punctuation, no explanation.\n\n\`\`\`sql\n${snippet}\n\`\`\``,
         config: {
           temperature: 0.2,
           maxOutputTokens: 48,
@@ -638,9 +713,67 @@ export const AiService = {
         },
       });
 
-      return sanitizeGeneratedTabTitle(response.text ?? "");
+      return sanitizeGeneratedTitle(response.text ?? "");
     } catch {
       return "";
+    }
+  },
+
+  async generateInlineCompletion(options: {
+    prefix: string;
+    suffix: string;
+    database?: string;
+    signal?: AbortSignal;
+  }): Promise<string | null> {
+    if (!loadAiEnabled()) return null;
+    const prefix = options.prefix.slice(-MAX_INLINE_PREFIX_CHARS);
+    const suffix = options.suffix.slice(0, MAX_INLINE_SUFFIX_CHARS);
+    if (options.signal?.aborted) return null;
+    if (prefix.trim().length < MIN_INLINE_PREFIX_CHARS) return null;
+
+    const cacheKey = `${options.database ?? ""}\u0000${prefix}\u0000${suffix}`;
+    const cached = inlineCompletionCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const apiKey = await this.getApiKey();
+    if (!apiKey) return null;
+    if (options.signal?.aborted) return null;
+
+    try {
+      const { GoogleGenAI, ThinkingLevel } = await loadGenAI();
+      const genAI = new GoogleGenAI({ apiKey });
+      const modelId = await resolveAutocompleteModelId();
+      const thinkingConfig = usesThinkingLevel(modelId)
+        ? {
+          includeThoughts: false,
+          thinkingLevel: canUseMinimalThinking(modelId)
+            ? ThinkingLevel.MINIMAL
+            : ThinkingLevel.LOW,
+        }
+        : undefined;
+      const database = options.database
+        ? options.database.replace(/[\r\n]/g, "").slice(0, 128)
+        : "unknown";
+
+      const response = await genAI.models.generateContent({
+        model: modelId,
+        contents: `<before_cursor>\n${prefix}\n</before_cursor>\n<after_cursor>\n${suffix}\n</after_cursor>`,
+        config: {
+          systemInstruction: buildInlineCompletionSystemPrompt(database),
+          temperature: 0,
+          maxOutputTokens: MAX_INLINE_OUTPUT_TOKENS,
+          thinkingConfig,
+        },
+      });
+
+      const completion = sanitizeInlineCompletion(response.text ?? "");
+      cacheInlineCompletion(cacheKey, completion);
+      return completion;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return null;
+      }
+      return null;
     }
   },
 
@@ -673,6 +806,10 @@ RULES:
     callbacks: ChatStreamCallbacks,
     signal?: AbortSignal,
   ): Promise<void> {
+    if (!loadAiEnabled()) {
+      throw new Error("AI is disabled. Enable it in Settings → AI.");
+    }
+
     const apiKey = await this.getApiKey();
     if (!apiKey) {
       throw new Error(

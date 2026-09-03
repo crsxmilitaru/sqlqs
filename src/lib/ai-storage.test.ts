@@ -5,6 +5,7 @@ import {
   BRAVE_KEY_CHANGED_EVENT,
   GEMINI_KEY_CHANGED_EVENT,
 } from "./ai";
+import { saveAiEnabled } from "./settings";
 import { invokeMock, setInvokeHandler } from "../test/tauri";
 
 describe("AI service storage and key management", () => {
@@ -36,6 +37,20 @@ describe("AI service storage and key management", () => {
     });
 
     await expect(AiService.getStatus()).resolves.toEqual({ hasKey: true });
+  });
+
+  it("stores and clears the autocomplete model", () => {
+    expect(AiService.getAutocompleteModel()).toBeNull();
+
+    AiService.setAutocompleteModel("gemini-3.5-flash");
+    expect(AiService.getAutocompleteModel()).toBe("gemini-3.5-flash");
+    expect(localStorage.getItem("sqlqs_gemini_autocomplete_model")).toBe(
+      "gemini-3.5-flash",
+    );
+
+    AiService.setAutocompleteModel(null);
+    expect(AiService.getAutocompleteModel()).toBeNull();
+    expect(localStorage.getItem("sqlqs_gemini_autocomplete_model")).toBeNull();
   });
 
   it("defaults thinking level to medium without stored preferences", () => {
@@ -115,25 +130,24 @@ describe("AI service storage and key management", () => {
     );
   });
 
-  it("skips tab naming for empty SQL", async () => {
+  it("skips title generation for empty SQL", async () => {
     setInvokeHandler((command) => {
       if (command === "load_api_key") return "key";
       throw new Error(`Unexpected Tauri command: ${command}`);
     });
 
-    await expect(AiService.generateTabTitle("   ")).resolves.toBe("");
+    await expect(AiService.generateSqlTitle("   ")).resolves.toBe("");
   });
 
   it("returns an empty title when generation fails", async () => {
     setInvokeHandler((command) => {
-      if (command === "load_api_key") return "key";
       if (command === "load_api_key") return "key";
       throw new Error(`Unexpected Tauri command: ${command}`);
     });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
     await expect(
-      AiService.generateTabTitle("SELECT * FROM Orders"),
+      AiService.generateSqlTitle("SELECT * FROM Orders"),
     ).resolves.toBe("");
   });
 });
@@ -173,6 +187,45 @@ describe("BraveSearchService", () => {
 describe("chatStream guards", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it("rejects streaming when AI is disabled", async () => {
+    saveAiEnabled(false);
+    try {
+      await expect(
+        AiService.chatStream(
+          [{ id: "1", role: "user", content: "hi" }] as never,
+          { currentCode: "" },
+          {
+            onThoughtDelta: () => {},
+            onThoughtEnd: () => {},
+            onTextDelta: () => {},
+            onTextEnd: () => {},
+            onToolCall: () => {},
+            onToolResult: () => {},
+          },
+        ),
+      ).rejects.toThrow("AI is disabled");
+    } finally {
+      saveAiEnabled(true);
+    }
+  });
+
+  it("skips inline completion when AI is disabled", async () => {
+    saveAiEnabled(false);
+    setInvokeHandler(() => {
+      throw new Error("Unexpected Tauri command");
+    });
+    try {
+      await expect(
+        AiService.generateInlineCompletion({
+          prefix: "SELECT * FROM ",
+          suffix: "",
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      saveAiEnabled(true);
+    }
   });
 
   it("rejects streaming without an API key", async () => {

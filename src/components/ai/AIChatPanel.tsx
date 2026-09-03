@@ -357,6 +357,7 @@ interface Props {
   onWidthChange: (width: number) => void;
   pendingMessage?: PendingChatMessage | null;
   onPendingMessageHandled?: (id: number) => void;
+  onOpenAiSettings?: () => void;
 }
 
 const REFERENCE_META: Record<ChatReference, { icon: string; label: string }> = {
@@ -607,6 +608,7 @@ export default function AIChatPanel(props: Props) {
   const [thinkingLevel, setThinkingLevel] = createSignal<GeminiThinkingLevel>(
     AiService.getThinkingLevel(),
   );
+  const [hasApiKey, setHasApiKey] = createSignal(false);
   const [pendingDelete, setPendingDelete] = createSignal<{
     id: string;
     title: string;
@@ -732,13 +734,19 @@ export default function AIChatPanel(props: Props) {
     }
   };
 
+  const refreshApiKey = () => {
+    void AiService.getApiKey().then((key) => setHasApiKey(Boolean(key)));
+  };
+
   onMount(() => {
     messagesEndRef?.scrollIntoView();
     void history.restoreActiveFromMessages(messages());
     void refreshAvailableModels();
+    refreshApiKey();
 
     const onKeyChanged = () => {
       void refreshAvailableModels();
+      refreshApiKey();
     };
     window.addEventListener(GEMINI_KEY_CHANGED_EVENT, onKeyChanged);
     onCleanup(() =>
@@ -1341,6 +1349,15 @@ export default function AIChatPanel(props: Props) {
                   <Icon name="clock-rotate-left" class="text-s" />
                 </button>
               </Tooltip>
+              <Tooltip content="AI Settings">
+                <button
+                  onClick={() => props.onOpenAiSettings?.()}
+                  aria-label="AI Settings"
+                  class="control-icon-btn"
+                >
+                  <Icon name="gear" class="text-s" />
+                </button>
+              </Tooltip>
             </div>
           </div>
 
@@ -1852,8 +1869,12 @@ export default function AIChatPanel(props: Props) {
                 }
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder="Ask about your SQL, or paste a reference file…"
-                disabled={isLoading()}
+                placeholder={
+                  hasApiKey()
+                    ? "Ask about your SQL, or paste a reference file…"
+                    : "Add an API key in Settings → AI to chat…"
+                }
+                disabled={isLoading() || !hasApiKey()}
                 rows={1}
                 class="w-full bg-surface-header/30 border border-border/30 rounded-lg px-3 py-[9px] text-s leading-[18px] focus:border-accent/40 focus:ring-1 focus:ring-accent/20 outline-none transition-colors resize-none disabled:opacity-50 overflow-hidden"
                 style={{ height: "38px", "max-height": "150px" }}
@@ -1900,10 +1921,15 @@ export default function AIChatPanel(props: Props) {
                     <button
                       ref={modelPickerButtonRef}
                       onClick={openModelPicker}
+                      aria-label="Select AI model"
                       class={`btn btn-secondary btn-compact ${
                         showModelPicker() ? "btn-toggled" : ""
                       }`}
-                      disabled={isLoading() || availableModels().length === 0}
+                      disabled={
+                        isLoading() ||
+                        !hasApiKey() ||
+                        availableModels().length === 0
+                      }
                     >
                       <i
                         class={`fa-solid ${getModelIcon(selectedModel())} text-icon`}
@@ -1923,9 +1949,10 @@ export default function AIChatPanel(props: Props) {
                   <button
                     onClick={handleSendMessage}
                     disabled={
-                      !input().trim() &&
-                      draftAttachments().length === 0 &&
-                      pinnedContext().length === 0
+                      !hasApiKey() ||
+                      (!input().trim() &&
+                        draftAttachments().length === 0 &&
+                        pinnedContext().length === 0)
                     }
                     aria-label="Send message"
                     class="chat-send-btn"

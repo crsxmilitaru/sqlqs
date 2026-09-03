@@ -50,6 +50,8 @@ import TableCompareDialog from "../dialogs/TableCompareDialog";
 import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
 import SettingsView, { type SettingsTab } from "../settings/SettingsView";
 import {
+  loadAiEnabled,
+  loadAiFileNaming,
   loadAutoCheckUpdates,
   loadExecutionPreferences,
   saveExecConfirmDestructive,
@@ -241,7 +243,6 @@ export default function App() {
     revealTab,
     ungroupGroup,
     closeGroup,
-    requestAutoTabTitle,
   } = useTabs();
 
   let editorHandle: SqlEditorHandle | null = null;
@@ -342,9 +343,8 @@ export default function App() {
   const [objectJumpIndexStatus, setObjectJumpIndexStatus] =
     createSignal<ServerObjectIndexStatus>(EMPTY_OBJECT_INDEX_STATUS);
   const [aiChatOpen, setAiChatOpen] = createSignal(
-    localStorage.getItem("sqlqs_ai_chat_open") === "true",
+    localStorage.getItem("sqlqs_ai_chat_open") === "true" && loadAiEnabled(),
   );
-  const [hasAiKey, setHasAiKey] = createSignal(false);
   const [propertiesTarget, setPropertiesTarget] = createSignal<{
     database: string;
     schema: string;
@@ -433,14 +433,13 @@ export default function App() {
   });
 
   createEffect(() => {
-    if (isSettingsOpen()) return;
-    void AiService.getStatus()
-      .then((status) => setHasAiKey(status.hasKey))
-      .catch(() => setHasAiKey(false));
+    if (!loadAiEnabled() && aiChatOpen()) {
+      setAiChatOpen(false);
+    }
   });
 
   function handleToggleAiChat() {
-    if (!connected() || !hasAiKey() || tabs().length === 0) return;
+    if (!connected() || tabs().length === 0) return;
     setAiChatOpen((prev) => !prev);
   }
 
@@ -712,9 +711,6 @@ export default function App() {
       }
       updateTab(tabId, updates);
       addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
-      if (!tab.userTitle) {
-        requestAutoTabTitle(tabId, sqlToExecute);
-      }
       const changedDatabaseCatalog = changesDatabaseCatalog(sqlToExecute);
       const changedSchema = isLikelySchemaChangingSql(sqlToExecute);
       if (changedDatabaseCatalog) {
@@ -751,15 +747,21 @@ export default function App() {
     executeGenerations.set(tabId, (executeGenerations.get(tabId) ?? 0) + 1);
     try {
       await invoke("cancel_query", { queryId: tabId });
+      updateTab(tabId, {
+        isExecuting: false,
+        error: "Query cancelled by user",
+        errorTone: "cancelled",
+        execStartedAt: undefined,
+      });
     } catch (err) {
-      console.error("Failed to cancel query:", err);
+      updateTab(tabId, {
+        isExecuting: false,
+        error: `Failed to cancel query: ${String(err)}`,
+        errorTone: "error",
+        execStartedAt: undefined,
+      });
+      toast.error(`Failed to cancel query: ${String(err)}`);
     }
-    updateTab(tabId, {
-      isExecuting: false,
-      error: "Query cancelled by user",
-      errorTone: "cancelled",
-      execStartedAt: undefined,
-    });
   }
 
   function beginDisconnect(intent: DisconnectIntent) {
@@ -1022,13 +1024,20 @@ export default function App() {
     document.addEventListener("mouseup", onUp);
   }
 
+  async function resolveTabSaveTitle(tab: QueryTab): Promise<string> {
+    if (!loadAiFileNaming()) return tab.title;
+    const aiTitle = await AiService.generateSqlTitle(tab.sql);
+    return aiTitle || tab.title;
+  }
+
   async function handleTabSave(tabId: string) {
     const tab = tabs().find((t) => t.id === tabId);
     if (!tab || !tab.sql.trim()) return;
 
-    const saved = await saveQuery(tab.title, tab.sql);
+    const title = await resolveTabSaveTitle(tab);
+    const saved = await saveQuery(title, tab.sql);
     if (!saved) {
-      toast.error(`Failed to save query "${tab.title}".`);
+      toast.error(`Failed to save query "${title}".`);
       return;
     }
     promoteTab(tabId);
@@ -1085,7 +1094,8 @@ export default function App() {
     const tab = tabs().find((t) => t.id === tabId);
     if (!tab || !tab.sql.trim()) return;
 
-    if (!(await saveSqlContentToFile(tab.title, tab.sql))) {
+    const title = await resolveTabSaveTitle(tab);
+    if (!(await saveSqlContentToFile(title, tab.sql))) {
       return;
     }
 
@@ -1393,7 +1403,7 @@ export default function App() {
       if (!mod || event.shiftKey || key !== "b") return;
 
       if (event.altKey) {
-        if (!connected() || !hasAiKey() || tabs().length === 0) return;
+        if (!connected() || tabs().length === 0) return;
         event.preventDefault();
         handleToggleAiChat();
         return;
@@ -1589,7 +1599,6 @@ export default function App() {
         updateAvailable={!!updateAvailable()}
         onViewUpdateDetails={() => setUpdateDialogVisible(true)}
         hasTabs={tabs().length > 0}
-        hasAiKey={hasAiKey()}
         canGoBack={editorNavigation.canGoBack()}
         canGoForward={editorNavigation.canGoForward()}
         onGoBack={editorNavigation.goBack}
@@ -1716,6 +1725,10 @@ export default function App() {
                 theme={theme()}
                 aiChatOpen={aiChatOpen()}
                 onAiChatOpenChange={setAiChatOpen}
+                onOpenAiSettings={() => {
+                  setSettingsInitialTab("ai");
+                  setIsSettingsOpen(true);
+                }}
                 onSave={handleTabSave}
                 onSaveToFile={handleTabSaveToFile}
                 executedQueries={executedQueries()}

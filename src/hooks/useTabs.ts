@@ -8,7 +8,7 @@ import {
   saveTabGroups,
   type SavedTab,
 } from "../lib/settings";
-import { generateTabTitle, resolveAutoTabTitle } from "../lib/sql";
+import { generateTabTitle } from "../lib/sql";
 import { defaultGroupName, nextGroupColor } from "../lib/tab-groups";
 import { toast } from "../components/ui/Toaster";
 import type {
@@ -29,8 +29,8 @@ const MAX_TAB_HISTORY_SQL_CHARS = 120_000;
 const MAX_TAB_HISTORY_TOTAL_CHARS = 600_000;
 const MAX_PERSISTED_TAB_HISTORY_TOTAL_CHARS = 1_000_000;
 const TAB_HISTORY_IDLE_DELAY_MS = 3_000;
-const AI_TITLE_DEBOUNCE_MS = 1_000;
 let didNotifyTabGroupPersistError = false;
+let didNotifyTabsPersistError = false;
 
 class QueryResultSnapshot {
   readonly __sqlqsQueryResultSnapshot = true;
@@ -370,45 +370,9 @@ export function useTabs() {
   const [activeTabId, setActiveTabId] = createSignal(
     firstVisibleTabId(tabsStore, groupsStore),
   );
-  const autoTitleRequests = new Map<
-    string,
-    { generation: number; sql: string }
-  >();
-
-  const requestAutoTabTitle = (tabId: string, sql: string) => {
-    const normalized = normalizeSql(sql).trim();
-    if (!normalized || loadPreferences().tabAutoNaming !== "ai") return;
-
-    const existing = autoTitleRequests.get(tabId);
-    if (existing?.sql === normalized) return;
-
-    const generation = (existing?.generation ?? 0) + 1;
-    autoTitleRequests.set(tabId, { generation, sql: normalized });
-
-    void resolveAutoTabTitle(normalized).then((aiTitle) => {
-      const pending = autoTitleRequests.get(tabId);
-      if (
-        !pending ||
-        pending.generation !== generation ||
-        pending.sql !== normalized
-      ) {
-        return;
-      }
-      if (!aiTitle) return;
-      setTabsStore(
-        produce((draft) => {
-          const current = draft.find((item) => item.id === tabId);
-          if (!current || current.userTitle) return;
-          if (normalizeSql(current.sql).trim() !== normalized) return;
-          current.title = aiTitle;
-        }),
-      );
-    });
-  };
 
   const [closedTabsStack, setClosedTabsStack] = createSignal<ClosedTab[]>([]);
   const historyTimers = new Map<string, number>();
-  const titleTimers = new Map<string, number>();
 
   function pushClosedTabs(
     tabsToClose: { tab: QueryTab; index: number; group?: TabGroup }[],
@@ -434,29 +398,17 @@ export function useTabs() {
     historyTimers.delete(tabId);
   }
 
-  function clearTitleTimer(tabId: string) {
-    const timer = titleTimers.get(tabId);
-    if (timer === undefined) return;
-    window.clearTimeout(timer);
-    titleTimers.delete(tabId);
-  }
-
   function clearHistoryTimers(tabIds?: string[]) {
     if (!tabIds) {
       for (const timer of historyTimers.values()) {
         window.clearTimeout(timer);
       }
       historyTimers.clear();
-      for (const timer of titleTimers.values()) {
-        window.clearTimeout(timer);
-      }
-      titleTimers.clear();
       return;
     }
 
     tabIds.forEach((id) => {
       clearHistoryTimer(id);
-      clearTitleTimer(id);
     });
   }
 
@@ -479,18 +431,6 @@ export function useTabs() {
       );
     }, TAB_HISTORY_IDLE_DELAY_MS);
     historyTimers.set(tabId, timer);
-  }
-
-  function scheduleAutoTabTitle(tabId: string) {
-    if (loadPreferences().tabAutoNaming !== "ai") return;
-    clearTitleTimer(tabId);
-    const timer = window.setTimeout(() => {
-      titleTimers.delete(tabId);
-      const tab = unwrap(tabsStore).find((item) => item.id === tabId);
-      if (!tab || tab.userTitle) return;
-      requestAutoTabTitle(tabId, tab.sql);
-    }, AI_TITLE_DEBOUNCE_MS);
-    titleTimers.set(tabId, timer);
   }
 
   onCleanup(() => clearHistoryTimers());
@@ -520,7 +460,15 @@ export function useTabs() {
         groupId: t.groupId,
       }));
 
-    saveTabs(trimPersistedTabsHistory(persistedTabs));
+    const tabsSaved = saveTabs(trimPersistedTabsHistory(persistedTabs));
+    if (!tabsSaved && !didNotifyTabsPersistError) {
+      didNotifyTabsPersistError = true;
+      toast.error(
+        "Failed to save open tabs. They will not persist after restart.",
+      );
+    } else if (tabsSaved) {
+      didNotifyTabsPersistError = false;
+    }
     const groupsSaved = saveTabGroups(
       groupsStore.map((group) => ({
         id: group.id,
@@ -620,15 +568,11 @@ export function useTabs() {
       ]);
     }
     setActiveTabId(tab.id);
-    if (!trimmedTitle && normalizedSql && !tab.userTitle) {
-      requestAutoTabTitle(tab.id, normalizedSql);
-    }
     return tab.id;
   };
 
   const closeTab = (tabId: string) => {
     clearHistoryTimer(tabId);
-    clearTitleTimer(tabId);
     const current = unwrap(tabsStore);
     const index = current.findIndex((t) => t.id === tabId);
     if (index === -1) return;
@@ -817,9 +761,6 @@ export function useTabs() {
 
     if (didChangeSql && historyMode === "idle") {
       scheduleHistorySnapshot(tabId);
-    }
-    if (didChangeSql) {
-      scheduleAutoTabTitle(tabId);
     }
   };
 
@@ -1156,6 +1097,5 @@ export function useTabs() {
     revealTab,
     ungroupGroup,
     closeGroup,
-    requestAutoTabTitle,
   };
 }
