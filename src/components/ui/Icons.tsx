@@ -137,7 +137,7 @@ export function IconRedo(props: { class?: string }) {
 }
 
 export function IconComment(props: { class?: string }) {
-  return <Icon name="comment-dots" class={props.class} />;
+  return <Icon name="comment" class={props.class} />;
 }
 
 export function IconCaseUpper(props: { class?: string }) {

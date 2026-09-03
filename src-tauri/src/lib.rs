@@ -1002,6 +1002,11 @@ fn get_documents_folder() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn open_app_data_folder() -> Result<(), String> {
+    open_folder(settings::app_data_dir().to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn pick_folder_dialog(
     app: tauri::AppHandle,
     title: Option<String>,
@@ -2782,6 +2787,72 @@ async fn sidecar_health_ping(state: State<'_, AppState>) -> Result<PingResponse,
     handle.ping().await.map_err(|err| err.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarDiagnostics {
+    sidecar_version: String,
+    protocol_version: u32,
+    runtime_description: String,
+    process_id: i64,
+    uptime_milliseconds: i64,
+    binary_path: String,
+    connected: bool,
+    last_error: Option<String>,
+}
+
+async fn collect_sidecar_diagnostics(
+    state: &AppState,
+    handle: &SidecarHandle,
+) -> Result<SidecarDiagnostics, String> {
+    let pong = handle
+        .ping()
+        .await
+        .map_err(|err| format!("Sidecar is not responding: {err}"))?;
+    Ok(SidecarDiagnostics {
+        sidecar_version: pong.sidecar_version,
+        protocol_version: pong.protocol_version,
+        runtime_description: pong.runtime_description,
+        process_id: pong.process_id,
+        uptime_milliseconds: pong.uptime_milliseconds,
+        binary_path: handle.binary_path().to_string_lossy().to_string(),
+        connected: state.sidecar_connection_id.lock().await.is_some(),
+        last_error: state.last_sidecar_error.lock().await.clone(),
+    })
+}
+
+#[tauri::command]
+async fn get_sidecar_diagnostics(state: State<'_, AppState>) -> Result<SidecarDiagnostics, String> {
+    let handle = state
+        .sidecar
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| "Sidecar is not running".to_string())?;
+    collect_sidecar_diagnostics(&state, &handle).await
+}
+
+#[tauri::command]
+async fn restart_sidecar(state: State<'_, AppState>) -> Result<SidecarDiagnostics, String> {
+    if !preview_build_enabled() {
+        return Err("Sidecar restart is only available in preview builds".to_string());
+    }
+
+    cancel_all_queries(&state).await;
+
+    if let Some(handle) = state.sidecar.write().await.take() {
+        handle.shutdown().await;
+    }
+
+    state.sidecar_connection_id.lock().await.take();
+    let mut active_lock = state.active_connection.lock().await;
+    *active_lock = None;
+    drop(active_lock);
+    reset_server_object_index(&state).await;
+
+    let handle = ensure_sidecar(&state).await?;
+    collect_sidecar_diagnostics(&state, &handle).await
+}
+
 #[tauri::command]
 fn read_clipboard() -> Result<String, String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -2925,6 +2996,7 @@ pub fn run() {
             delete_sql_file,
             rename_sql_file,
             get_documents_folder,
+            open_app_data_folder,
             pick_folder_dialog,
             open_folder,
             list_custom_themes,
@@ -2961,6 +3033,8 @@ pub fn run() {
             save_conversation,
             delete_conversation,
             sidecar_health_ping,
+            get_sidecar_diagnostics,
+            restart_sidecar,
             xe_start_session,
             xe_stop_session,
             xe_read_session,

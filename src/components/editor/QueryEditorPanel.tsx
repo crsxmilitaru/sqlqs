@@ -1020,7 +1020,7 @@ export default function QueryEditorPanel(props: Props) {
             {
               id: "send-selection-to-chat",
               label: "Send to Chat",
-              icon: <i class="fa-solid fa-comment-dots" />,
+              icon: <i class="fa-solid fa-paper-plane" />,
               onClick: handleSendSelectionToChat,
               disabled: !hasSelectedText,
             },

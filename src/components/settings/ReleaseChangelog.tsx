@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { formatLocalDateTime } from "../../lib/system-locale";
 import { Icon } from "../ui/Icons";
 import { Loader } from "../ui/Loader";
+import Tooltip from "../ui/Tooltip";
 import { SettingTitle } from "./SettingsComponents";
 
 const RELEASES_API =
@@ -149,6 +150,7 @@ export default function ReleaseChangelog(props: Props) {
             class="settings-inline-link text-s mt-2"
             onClick={() => void refetch()}
           >
+            <Icon name="rotate-right" class="mr-1 text-xs" />
             Try again
           </button>
         </div>
@@ -191,14 +193,19 @@ export default function ReleaseChangelog(props: Props) {
                       <span class="settings-changelog-date">
                         {formatReleaseDate(entry.publishedAt)}
                       </span>
-                      <button
-                        type="button"
-                        class="settings-changelog-open"
-                        aria-label={`Open ${entry.version} on GitHub`}
-                        onClick={(event) => void openUrl(entry.htmlUrl, event)}
+                      <Tooltip
+                        content={`Open ${entry.version} on GitHub`}
+                        placement="top"
                       >
-                        <Icon name="arrow-up-right-from-square" />
-                      </button>
+                        <button
+                          type="button"
+                          class="settings-changelog-open"
+                          aria-label={`Open ${entry.version} on GitHub`}
+                          onClick={(event) => void openUrl(entry.htmlUrl, event)}
+                        >
+                          <Icon name="arrow-up-right-from-square" />
+                        </button>
+                      </Tooltip>
                     </summary>
                     <div class="settings-changelog-body">
                       <Show

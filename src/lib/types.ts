@@ -180,6 +180,17 @@ export interface ServerObjectIndexStatus {
   object_count: number;
 }
 
+export interface SidecarDiagnostics {
+  sidecarVersion: string;
+  protocolVersion: number;
+  runtimeDescription: string;
+  processId: number;
+  uptimeMilliseconds: number;
+  binaryPath: string;
+  connected: boolean;
+  lastError: string | null;
+}
+
 export interface SavedConnection {
   name: string;
   config: ConnectionConfig;

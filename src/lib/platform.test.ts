@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getModifierKeyLabel, getPlatformClass, isMacOS } from "./platform";
+import {
+  detectPlatform,
+  getModifierKeyLabel,
+  getPlatformClass,
+  isMacOS,
+} from "./platform";
 
 const originalNavigator = Object.getOwnPropertyDescriptor(
   globalThis,
@@ -29,6 +34,7 @@ describe("platform", () => {
 
     expect(isMacOS()).toBe(true);
     expect(getPlatformClass()).toBe("macos");
+    expect(detectPlatform()).toBe("macOS");
     expect(getModifierKeyLabel()).toBe("Cmd");
   });
 
@@ -37,6 +43,7 @@ describe("platform", () => {
 
     expect(isMacOS()).toBe(false);
     expect(getPlatformClass()).toBe("windows");
+    expect(detectPlatform()).toBe("Windows");
     expect(getModifierKeyLabel()).toBe("Ctrl");
   });
 
@@ -44,6 +51,7 @@ describe("platform", () => {
     setNavigator("Linux x86_64");
 
     expect(getPlatformClass()).toBe("other");
+    expect(detectPlatform()).toBe("Linux");
     expect(getModifierKeyLabel()).toBe("Ctrl");
   });
 });

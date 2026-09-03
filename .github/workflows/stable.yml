@@ -154,3 +154,18 @@ jobs:
           prerelease: false
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
           includeUpdaterJson: true
+
+  cleanup-previews:
+    name: Delete preview releases
+    needs: stable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Delete preview releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: node scripts/delete-preview-releases.mjs
+

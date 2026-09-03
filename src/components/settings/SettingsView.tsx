@@ -84,6 +84,8 @@ import type {
   AppSettings,
   GeminiStatus,
   SavedConnection,
+  ServerObjectIndexStatus,
+  SidecarDiagnostics,
   UpdateMessageTone,
 } from "../../lib/types";
 import { summarizeConnection } from "../../lib/connections";
@@ -93,6 +95,7 @@ import ThemeDialog from "../dialogs/ThemeDialog";
 import Input from "../ui/Input";
 import { Icon } from "../ui/Icons";
 import { toast } from "../ui/Toaster";
+import { detectPlatform } from "../../lib/platform";
 import { getThemesDir } from "../../lib/path";
 import {
   isGoBackKey,
@@ -126,6 +129,7 @@ interface Props {
   updateReady?: boolean;
   onViewUpdateDetails?: () => void;
   onThemeChange?: (theme: ThemeSelection) => void;
+  onSidecarRestarted?: () => void;
   renderLayout?: (sidebar: JSX.Element, content: JSX.Element) => JSX.Element;
 }
 
@@ -162,6 +166,16 @@ const REPOSITORY_URL = "https://github.com/crsxmilitaru/sqlqs";
 
 function tabLabel(id: Tab): string {
   return TABS.find((t) => t.id === id)?.label ?? id;
+}
+
+function formatUptime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 export default function SettingsView(props: Props) {
@@ -223,6 +237,41 @@ export default function SettingsView(props: Props) {
   const [revealCurrentDb, setRevealCurrentDb] = createSignal(
     prefs.revealCurrentDatabaseInExplorer,
   );
+  const [sidecarDiagnostics, setSidecarDiagnostics] =
+    createSignal<SidecarDiagnostics | null>(null);
+  const [sidecarDiagnosticsError, setSidecarDiagnosticsError] = createSignal<
+    string | null
+  >(null);
+  const [sidecarBusy, setSidecarBusy] = createSignal(false);
+  const [objectIndexStatus, setObjectIndexStatus] =
+    createSignal<ServerObjectIndexStatus | null>(null);
+  const [objectIndexError, setObjectIndexError] = createSignal<string | null>(
+    null,
+  );
+  const [envCopied, setEnvCopied] = createSignal(false);
+  let envCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onCleanup(() => {
+    clearTimeout(envCopiedTimer);
+  });
+
+  let contentRef: HTMLDivElement | undefined;
+
+  function scrollToTop() {
+    if (!contentRef) return;
+    const scrollable = contentRef.closest(".overflow-y-auto") ?? contentRef.parentElement;
+    if (scrollable) {
+      scrollable.scrollTop = 0;
+    }
+  }
+
+  createEffect(() => {
+    activeTab();
+    searchTab();
+    search();
+    scrollToTop();
+    queueMicrotask(scrollToTop);
+  });
 
   const isTabAvailable = (tab: Tab) => tab !== "developer" || isPreviewBuild();
   const canGoBack = createMemo(() => backStack().some(isTabAvailable));
@@ -348,6 +397,98 @@ export default function SettingsView(props: Props) {
       setActiveTab("general");
     }
   });
+
+  async function refreshSidecarDiagnostics() {
+    try {
+      const diag = await invoke<SidecarDiagnostics>(
+        "get_sidecar_diagnostics",
+      );
+      setSidecarDiagnostics(diag);
+      setSidecarDiagnosticsError(null);
+    } catch (err) {
+      setSidecarDiagnostics(null);
+      setSidecarDiagnosticsError(String(err));
+    }
+  }
+
+  async function refreshObjectIndexStatus() {
+    try {
+      const status = await invoke<ServerObjectIndexStatus>(
+        "get_server_object_index_status",
+      );
+      setObjectIndexStatus(status);
+      setObjectIndexError(null);
+    } catch (err) {
+      setObjectIndexStatus(null);
+      setObjectIndexError(String(err));
+    }
+  }
+
+  async function handleRestartSidecar() {
+    if (sidecarBusy()) return;
+    setSidecarBusy(true);
+    try {
+      const diag = await invoke<SidecarDiagnostics>("restart_sidecar");
+      setSidecarDiagnostics(diag);
+      setSidecarDiagnosticsError(null);
+      props.onSidecarRestarted?.();
+      toast.success("Sidecar restarted");
+      void refreshObjectIndexStatus();
+    } catch (err) {
+      toast.error(`Failed to restart sidecar: ${String(err)}`);
+      void refreshSidecarDiagnostics();
+    } finally {
+      setSidecarBusy(false);
+    }
+  }
+
+  async function handleOpenAppDataFolder() {
+    try {
+      await invoke("open_app_data_folder");
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
+  function environmentSummaryText(): string {
+    const diag = sidecarDiagnostics();
+    return [
+      "SQL Query Studio diagnostics",
+      `App version: ${props.version ?? "unknown"}`,
+      `Update channel: ${
+        UPDATE_CHANNEL_OPTIONS.find((o) => o.value === updateChannel())?.label ??
+        "Stable"
+      }`,
+      `Platform: ${detectPlatform()}`,
+      `User agent: ${navigator.userAgent}`,
+      diag
+        ? `Sidecar version: ${diag.sidecarVersion}`
+        : `Sidecar version: unavailable${
+            sidecarDiagnosticsError() ? ` (${sidecarDiagnosticsError()})` : ""
+          }`,
+      ...(diag
+        ? [
+            `Sidecar runtime: ${diag.runtimeDescription}`,
+            `Sidecar protocol: ${diag.protocolVersion}`,
+            `Sidecar process id: ${diag.processId}`,
+            `Sidecar uptime: ${formatUptime(diag.uptimeMilliseconds)}`,
+            `Sidecar binary: ${diag.binaryPath}`,
+            `Server connection open: ${diag.connected ? "yes" : "no"}`,
+          ]
+        : []),
+    ].join("\n");
+  }
+
+  async function handleCopyEnvironment() {
+    try {
+      await navigator.clipboard.writeText(environmentSummaryText());
+      clearTimeout(envCopiedTimer);
+      setEnvCopied(true);
+      envCopiedTimer = setTimeout(() => setEnvCopied(false), 1500);
+    } catch (err) {
+      toast.error(`Copy failed: ${String(err)}`);
+    }
+  }
 
   const [fontFamily, setFontFamily] = createSignal(prefs.editor.fontFamily);
   const [fontSize, setFontSize] = createSignal(prefs.editor.fontSize);
@@ -687,6 +828,7 @@ export default function SettingsView(props: Props) {
   interface Section {
     id: string;
     tab: Tab;
+    group?: string;
     title: string;
     keywords: string;
     render: () => JSX.Element;
@@ -696,6 +838,7 @@ export default function SettingsView(props: Props) {
     {
       id: "persist-tabs",
       tab: "general",
+      group: "Session & Startup",
       title: "Restore tabs on startup",
       keywords: "restore tabs startup persist session",
       render: () => (
@@ -717,31 +860,9 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "confirm-close-unsaved",
-      tab: "general",
-      title: "Confirm close unsaved",
-      keywords: "confirm close unsaved warning prompt tabs",
-      render: () => (
-        <ToggleSetting
-          title="Confirm close unsaved"
-          description="Prompt before closing a tab with unsaved SQL changes"
-          checked={confirmCloseUnsaved()}
-          defaultValue={true}
-          onToggle={() => {
-            const next = !confirmCloseUnsaved();
-            setConfirmCloseUnsaved(next);
-            saveConfirmCloseUnsaved(next);
-          }}
-          onReset={() => {
-            setConfirmCloseUnsaved(true);
-            saveConfirmCloseUnsaved(true);
-          }}
-        />
-      ),
-    },
-    {
       id: "auto-connect-startup",
       tab: "general",
+      group: "Session & Startup",
       title: "Auto-connect on startup",
       keywords: "auto connect startup automatically open last connection",
       render: () => (
@@ -781,25 +902,25 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "reveal-current-database",
-      tab: "editor",
-      title: "Reveal current database in explorer",
-      keywords:
-        "reveal current database explorer sidebar expand scroll focus auto",
+      id: "confirm-close-unsaved",
+      tab: "general",
+      group: "Session & Startup",
+      title: "Confirm close unsaved",
+      keywords: "confirm close unsaved warning prompt tabs",
       render: () => (
         <ToggleSetting
-          title="Reveal current database in explorer"
-          description="When you switch databases from the editor, expand and scroll to that database in the left panel"
-          checked={revealCurrentDb()}
+          title="Confirm close unsaved"
+          description="Prompt before closing a tab with unsaved SQL changes"
+          checked={confirmCloseUnsaved()}
           defaultValue={true}
           onToggle={() => {
-            const next = !revealCurrentDb();
-            setRevealCurrentDb(next);
-            saveRevealCurrentDatabaseInExplorer(next);
+            const next = !confirmCloseUnsaved();
+            setConfirmCloseUnsaved(next);
+            saveConfirmCloseUnsaved(next);
           }}
           onReset={() => {
-            setRevealCurrentDb(true);
-            saveRevealCurrentDatabaseInExplorer(true);
+            setConfirmCloseUnsaved(true);
+            saveConfirmCloseUnsaved(true);
           }}
         />
       ),
@@ -807,6 +928,7 @@ export default function SettingsView(props: Props) {
     {
       id: "history-limit",
       tab: "general",
+      group: "History",
       title: "History limit",
       keywords: "history limit queries max maximum",
       render: () => (
@@ -827,10 +949,37 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
+      id: "app-date-format",
+      tab: "general",
+      group: "Regional",
+      title: "App date & time format",
+      keywords:
+        "app date time format local utc region locale properties chat history dialogs",
+      render: () => (
+        <DropdownSetting
+          title="App date & time format"
+          description="Format used for dates in the app outside the results grid"
+          value={appDateFormat()}
+          defaultValue={DEFAULT_DATE_FORMAT}
+          options={DATE_FORMAT_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
+          minWidth="min-w-[190px]"
+          onChange={(val) => {
+            const next = val as DateFormat;
+            setAppDateFormatSignal(next);
+            saveAppDateFormat(next);
+          }}
+        />
+      ),
+    },
+    {
       id: "editor-font-family",
       tab: "editor",
+      group: "Typography & Display",
       title: "Font family",
-      keywords: "font family typeface cascadia fira consolas mono editor",
+      keywords: "font family typeface cascadia fira consolas mono editor typography display",
       render: () => (
         <DropdownSetting
           title="Font family"
@@ -859,8 +1008,9 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-font-size",
       tab: "editor",
+      group: "Typography & Display",
       title: "Font size",
-      keywords: "font size editor zoom",
+      keywords: "font size editor zoom typography display",
       render: () => (
         <RangeSetting
           title="Font size"
@@ -881,8 +1031,9 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-line-numbers",
       tab: "editor",
+      group: "Typography & Display",
       title: "Line numbers",
-      keywords: "line numbers gutter editor",
+      keywords: "line numbers gutter editor typography display",
       render: () => (
         <ToggleSetting
           title="Line numbers"
@@ -904,8 +1055,9 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-minimap",
       tab: "editor",
+      group: "Typography & Display",
       title: "Minimap",
-      keywords: "minimap code overview scroll editor",
+      keywords: "minimap code overview scroll editor typography display",
       render: () => (
         <ToggleSetting
           title="Minimap"
@@ -927,6 +1079,7 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-autocomplete",
       tab: "editor",
+      group: "Code Completion",
       title: "Auto-complete",
       keywords: "autocomplete intellisense suggestions completion editor",
       render: () => (
@@ -950,9 +1103,10 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-suggestion-style",
       tab: "editor",
+      group: "Code Completion",
       title: "Suggestion style",
       keywords:
-        "suggestion style ghost inline popup dropdown intellisense autocomplete editor",
+        "suggestion style ghost inline popup dropdown intellisense autocomplete editor completion",
       render: () => (
         <DropdownSetting
           title="Suggestion style"
@@ -973,8 +1127,9 @@ export default function SettingsView(props: Props) {
     {
       id: "editor-format-paste",
       tab: "editor",
+      group: "Formatting",
       title: "Format SQL on paste",
-      keywords: "format paste auto format sql clipboard editor",
+      keywords: "format paste auto format sql clipboard editor formatting",
       render: () => (
         <ToggleSetting
           title="Format SQL on paste"
@@ -996,8 +1151,9 @@ export default function SettingsView(props: Props) {
     {
       id: "format-style",
       tab: "editor",
+      group: "Formatting",
       title: "Format style",
-      keywords: "format style compact expanded single line clause sql",
+      keywords: "format style compact expanded single line clause sql formatting",
       render: () => (
         <DropdownSetting
           title="Format style"
@@ -1017,8 +1173,9 @@ export default function SettingsView(props: Props) {
     {
       id: "format-indent",
       tab: "editor",
+      group: "Formatting",
       title: "Format indent size",
-      keywords: "format indent size tab width spaces sql",
+      keywords: "format indent size tab width spaces sql formatting",
       render: () => (
         <DropdownSetting
           title="Format indent size"
@@ -1042,8 +1199,9 @@ export default function SettingsView(props: Props) {
     {
       id: "format-keyword-case",
       tab: "editor",
+      group: "Formatting",
       title: "Format keyword case",
-      keywords: "format keyword case upper lower preserve sql",
+      keywords: "format keyword case upper lower preserve sql formatting",
       render: () => (
         <DropdownSetting
           title="Format keyword case"
@@ -1064,21 +1222,26 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "exec-max-rows",
-      tab: "results",
-      title: "Result row limit",
+      id: "reveal-current-database",
+      tab: "editor",
+      group: "Navigation",
+      title: "Reveal current database in explorer",
       keywords:
-        "results row limit max rows truncate result set query select top",
+        "reveal current database explorer sidebar expand scroll focus auto navigation",
       render: () => (
-        <NumberInputSetting
-          title="Result row limit"
-          description="Truncate each result set to this many rows. 0 = unlimited."
-          name="exec-max-rows"
-          value={execMaxRows()}
-          defaultValue={DEFAULT_EXEC_MAX_ROWS}
-          onInput={(safe) => {
-            setExecMaxRows(safe);
-            saveExecMaxRows(safe);
+        <ToggleSetting
+          title="Reveal current database in explorer"
+          description="When you switch databases from the editor, expand and scroll to that database in the left panel"
+          checked={revealCurrentDb()}
+          defaultValue={true}
+          onToggle={() => {
+            const next = !revealCurrentDb();
+            setRevealCurrentDb(next);
+            saveRevealCurrentDatabaseInExplorer(next);
+          }}
+          onReset={() => {
+            setRevealCurrentDb(true);
+            saveRevealCurrentDatabaseInExplorer(true);
           }}
         />
       ),
@@ -1086,6 +1249,7 @@ export default function SettingsView(props: Props) {
     {
       id: "exec-timeout",
       tab: "execution",
+      group: "Query Execution",
       title: "Query timeout",
       keywords: "execution query timeout seconds cancel kill long running",
       render: () => (
@@ -1104,26 +1268,47 @@ export default function SettingsView(props: Props) {
       ),
     },
     {
-      id: "app-date-format",
-      tab: "general",
-      title: "App date & time format",
+      id: "exec-confirm-destructive",
+      tab: "execution",
+      group: "Safety",
+      title: "Confirm risky queries",
       keywords:
-        "app date time format local utc region locale properties chat history dialogs",
+        "execution confirm risky destructive drop alter update delete truncate where guard safety",
       render: () => (
-        <DropdownSetting
-          title="App date & time format"
-          description="Format used for dates in the app outside the results grid"
-          value={appDateFormat()}
-          defaultValue={DEFAULT_DATE_FORMAT}
-          options={DATE_FORMAT_OPTIONS.map((o) => ({
-            value: o.value,
-            label: o.label,
-          }))}
-          minWidth="min-w-[190px]"
-          onChange={(val) => {
-            const next = val as DateFormat;
-            setAppDateFormatSignal(next);
-            saveAppDateFormat(next);
+        <ToggleSetting
+          title="Confirm risky queries"
+          description="Ask before running DROP / ALTER, TRUNCATE, MERGE, or UPDATE / DELETE without a WHERE clause"
+          checked={execConfirmDestructive()}
+          defaultValue={true}
+          onToggle={() => {
+            const next = !execConfirmDestructive();
+            setExecConfirmDestructiveSignal(next);
+            saveExecConfirmDestructive(next);
+          }}
+          onReset={() => {
+            setExecConfirmDestructiveSignal(true);
+            saveExecConfirmDestructive(true);
+          }}
+        />
+      ),
+    },
+    {
+      id: "exec-max-rows",
+      tab: "results",
+      group: "Grid & Table",
+      title: "Result row limit",
+      keywords:
+        "results row limit max rows truncate result set query select top grid table",
+      render: () => (
+        <NumberInputSetting
+          title="Result row limit"
+          description="Truncate each result set to this many rows. 0 = unlimited."
+          name="exec-max-rows"
+          value={execMaxRows()}
+          defaultValue={DEFAULT_EXEC_MAX_ROWS}
+          onInput={(safe) => {
+            setExecMaxRows(safe);
+            saveExecMaxRows(safe);
           }}
         />
       ),
@@ -1131,9 +1316,10 @@ export default function SettingsView(props: Props) {
     {
       id: "results-date-format",
       tab: "results",
+      group: "Grid & Table",
       title: "Results date & time format",
       keywords:
-        "results grid date time format local utc region locale cell",
+        "results grid date time format local utc region locale cell table",
       render: () => (
         <DropdownSetting
           title="Results date & time format"
@@ -1156,9 +1342,10 @@ export default function SettingsView(props: Props) {
     {
       id: "results-show-filters",
       tab: "results",
+      group: "Grid & Table",
       title: "Show column filters by default",
       keywords:
-        "results grid column filters filter row default show hide",
+        "results grid column filters filter row default show hide table",
       render: () => (
         <ToggleSetting
           title="Show column filters by default"
@@ -1173,30 +1360,6 @@ export default function SettingsView(props: Props) {
           onReset={() => {
             setResultsShowFiltersSignal(DEFAULT_RESULTS_SHOW_FILTERS);
             saveResultsShowFilters(DEFAULT_RESULTS_SHOW_FILTERS);
-          }}
-        />
-      ),
-    },
-    {
-      id: "exec-confirm-destructive",
-      tab: "execution",
-      title: "Confirm risky queries",
-      keywords:
-        "execution confirm risky destructive drop alter update delete truncate where guard safety",
-      render: () => (
-        <ToggleSetting
-          title="Confirm risky queries"
-          description="Ask before running DROP / ALTER, TRUNCATE, MERGE, or UPDATE / DELETE without a WHERE clause"
-          checked={execConfirmDestructive()}
-          defaultValue={true}
-          onToggle={() => {
-            const next = !execConfirmDestructive();
-            setExecConfirmDestructiveSignal(next);
-            saveExecConfirmDestructive(next);
-          }}
-          onReset={() => {
-            setExecConfirmDestructiveSignal(true);
-            saveExecConfirmDestructive(true);
           }}
         />
       ),
@@ -1384,9 +1547,10 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-enabled",
       tab: "ai",
+      group: "General",
       title: "Enable AI",
       keywords:
-        "ai enable disable master switch features chat suggestions naming",
+        "ai enable disable master switch features chat suggestions naming general",
       render: () => (
         <ToggleSetting
           title="Enable AI"
@@ -1408,8 +1572,9 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-api",
       tab: "ai",
+      group: "API Keys & Services",
       title: "Configuration",
-      keywords: "ai api gemini google key assistant",
+      keywords: "ai api gemini google key assistant services providers",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center gap-3 mb-4">
@@ -1463,6 +1628,7 @@ export default function SettingsView(props: Props) {
                   onClick={handleSaveAiSettings}
                   class="btn btn-primary px-4"
                 >
+                  <Icon name="floppy-disk" class="mr-1.5" />
                   Save
                 </button>
               </div>
@@ -1489,8 +1655,9 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-brave-search",
       tab: "ai",
+      group: "API Keys & Services",
       title: "Brave Search API",
-      keywords: "ai brave search web key tool",
+      keywords: "ai brave search web key tool services providers",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center gap-3 mb-4">
@@ -1544,6 +1711,7 @@ export default function SettingsView(props: Props) {
                   onClick={handleSaveBraveSettings}
                   class="btn btn-primary px-4"
                 >
+                  <Icon name="floppy-disk" class="mr-1.5" />
                   Save
                 </button>
               </div>
@@ -1572,6 +1740,7 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-inline-suggestions",
       tab: "ai",
+      group: "Inline Suggestions",
       title: "Inline suggestions",
       keywords:
         "ai autocomplete inline ghost suggestion completion copilot flash lite editor",
@@ -1596,6 +1765,7 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-autocomplete-model",
       tab: "ai",
+      group: "Inline Suggestions",
       title: "Autocomplete model",
       keywords:
         "ai autocomplete model gemini flash lite pro select engine inline suggestions",
@@ -1623,9 +1793,10 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-file-naming",
       tab: "ai",
+      group: "Chat & Workflow",
       title: "Naming on save",
       keywords:
-        "ai file name naming save sql file export queries generate title flash lite",
+        "ai file name naming save sql file export queries generate title flash lite workflow",
       render: () => (
         <ToggleSetting
           title="Naming on save"
@@ -1647,8 +1818,9 @@ export default function SettingsView(props: Props) {
     {
       id: "ai-notifications",
       tab: "ai",
+      group: "Chat & Workflow",
       title: "Notify when AI responds",
-      keywords: "ai notifications notify desktop background reply",
+      keywords: "ai notifications notify desktop background reply chat workflow",
       render: () => (
         <ToggleSetting
           title="Notify when AI responds"
@@ -1670,8 +1842,9 @@ export default function SettingsView(props: Props) {
     {
       id: "open-last-chat-startup",
       tab: "ai",
+      group: "Chat & Workflow",
       title: "Open last chat",
-      keywords: "ai chat open last restart startup conversation content",
+      keywords: "ai chat open last restart startup conversation content workflow",
       render: () => (
         <ToggleSetting
           title="Open last chat"
@@ -1693,8 +1866,9 @@ export default function SettingsView(props: Props) {
     {
       id: "updates-channel",
       tab: "updates",
+      group: "Preferences",
       title: "Update channel",
-      keywords: "update channel stable preview beta experimental release",
+      keywords: "update channel stable preview beta experimental release preferences",
       render: () => (
         <SettingContainer
           isModified={updateChannel() !== DEFAULT_UPDATE_CHANNEL}
@@ -1748,8 +1922,9 @@ export default function SettingsView(props: Props) {
     {
       id: "updates-auto-check",
       tab: "updates",
+      group: "Preferences",
       title: "Automatically check for updates",
-      keywords: "auto automatic check updates startup version",
+      keywords: "auto automatic check updates startup version preferences",
       render: () => (
         <ToggleSetting
           title="Automatically check for updates"
@@ -1771,8 +1946,9 @@ export default function SettingsView(props: Props) {
     {
       id: "updates-manual-check",
       tab: "updates",
+      group: "Software Update",
       title: "Check for updates",
-      keywords: "check updates manual version current installed",
+      keywords: "check updates manual version current installed update software",
       render: () => (
         <div class="settings-section">
           <div class="flex items-center justify-between mb-4">
@@ -1792,7 +1968,7 @@ export default function SettingsView(props: Props) {
               onClick={props.onViewUpdateDetails}
               class="btn btn-primary w-full py-2"
             >
-              <i class="fa-solid fa-circle-arrow-up mr-2" />
+              <Icon name="circle-arrow-up" class="mr-2" />
               Update Available
             </button>
           ) : (
@@ -1801,6 +1977,10 @@ export default function SettingsView(props: Props) {
               disabled={props.checkingForUpdates}
               class="btn btn-primary w-full py-2"
             >
+              <Icon
+                name={props.checkingForUpdates ? "spinner" : "arrows-rotate"}
+                class={`mr-2 ${props.checkingForUpdates ? "fa-spin" : ""}`}
+              />
               {props.checkingForUpdates
                 ? "Checking for updates…"
                 : "Check for Updates"}
@@ -1817,6 +1997,7 @@ export default function SettingsView(props: Props) {
     {
       id: "updates-changelog",
       tab: "updates",
+      group: "Release Notes",
       title: "Changelog",
       keywords:
         "changelog release notes history versions whats new github preview stable",
@@ -1833,8 +2014,9 @@ export default function SettingsView(props: Props) {
     {
       id: "devtools-open",
       tab: "developer",
+      group: "Tools & Webview",
       title: "Developer tools",
-      keywords: "developer devtools debug inspect console webview",
+      keywords: "developer devtools debug inspect console webview tools",
       render: () => (
         <SettingsSection>
           <div class="flex items-center justify-between gap-4">
@@ -1847,6 +2029,7 @@ export default function SettingsView(props: Props) {
               class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
               onClick={() => void invoke("open_devtools")}
             >
+              <Icon name="code" class="mr-1.5" />
               Open DevTools
             </button>
           </div>
@@ -1856,13 +2039,14 @@ export default function SettingsView(props: Props) {
     {
       id: "devtools-reload",
       tab: "developer",
+      group: "Tools & Webview",
       title: "Refresh",
-      keywords: "developer refresh reload restart webview",
+      keywords: "developer refresh reload restart webview tools",
       render: () => (
         <SettingsSection>
           <div class="flex items-center justify-between gap-4">
             <SettingTitle
-              title="Refresh"
+              title="Refresh UI"
               description="Reload the webview without restarting the app process."
             />
             <button
@@ -1870,8 +2054,264 @@ export default function SettingsView(props: Props) {
               class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
               onClick={() => void invoke("reload_webview")}
             >
+              <Icon name="rotate-right" class="mr-1.5" />
               Refresh
             </button>
+          </div>
+        </SettingsSection>
+      ),
+    },
+    {
+      id: "app-data-folder",
+      tab: "developer",
+      group: "Tools & Webview",
+      title: "App data folder",
+      keywords: "app data folder settings json config file location open tools",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4">
+            <SettingTitle
+              title="App data folder"
+              description="Where settings.json and other app data files are stored."
+            />
+            <button
+              type="button"
+              class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
+              onClick={() => void handleOpenAppDataFolder()}
+            >
+              <Icon name="folder-open" class="mr-1.5" />
+              Open Folder
+            </button>
+          </div>
+        </SettingsSection>
+      ),
+    },
+    {
+      id: "sidecar-diagnostics",
+      tab: "developer",
+      group: "Diagnostics & Engine",
+      title: "Sidecar",
+      keywords:
+        "sidecar health ping version runtime protocol process pid uptime binary restart diagnostics engine sql",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4 mb-4">
+            <SettingTitle
+              title="Sidecar"
+              description="Status of the SQL engine process that talks to SQL Server."
+            />
+            <div class="flex gap-2 shrink-0">
+              <button
+                type="button"
+                class="btn btn-secondary px-3 py-1.5 text-s"
+                onClick={() => void refreshSidecarDiagnostics()}
+              >
+                <Icon name="rotate-right" class="mr-1.5" />
+                Refresh
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary px-3 py-1.5 text-s"
+                disabled={sidecarBusy()}
+                onClick={() => void handleRestartSidecar()}
+              >
+                <Icon name="power-off" class="mr-1.5" />
+                {sidecarBusy() ? "Restarting…" : "Restart"}
+              </button>
+            </div>
+          </div>
+          <Show
+            when={sidecarDiagnostics()}
+            fallback={
+              <p
+                class={`text-s ${
+                  sidecarDiagnosticsError() ? "text-error" : "text-text-muted"
+                }`}
+              >
+                {sidecarDiagnosticsError() ?? "Checking sidecar status…"}
+              </p>
+            }
+          >
+            {(diag) => (
+              <div class="space-y-3">
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Status</span>
+                  <span class="text-m font-medium text-success">Running</span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Version</span>
+                  <span class="text-m font-medium text-text">
+                    {diag().sidecarVersion}
+                  </span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">
+                    Server connection
+                  </span>
+                  <span class="text-m font-medium text-text">
+                    {diag().connected ? "Open" : "Not connected"}
+                  </span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Runtime</span>
+                  <span class="text-m font-medium text-text">
+                    {diag().runtimeDescription}
+                  </span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Protocol</span>
+                  <span class="text-m font-medium text-text">
+                    v{diag().protocolVersion}
+                  </span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Process ID</span>
+                  <span class="text-m font-medium text-text tabular-nums">
+                    {diag().processId}
+                  </span>
+                </div>
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Uptime</span>
+                  <span class="text-m font-medium text-text">
+                    {formatUptime(diag().uptimeMilliseconds)}
+                  </span>
+                </div>
+                <Show when={diag().lastError}>
+                  {(lastError) => (
+                    <p class="text-s text-error">{lastError()}</p>
+                  )}
+                </Show>
+              </div>
+            )}
+          </Show>
+        </SettingsSection>
+      ),
+    },
+    {
+      id: "object-index-status",
+      tab: "developer",
+      group: "Diagnostics & Engine",
+      title: "Server object index",
+      keywords:
+        "server object index status search autocomplete catalog databases objects indexing failed cache diagnostics engine",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4 mb-4">
+            <SettingTitle
+              title="Server object index"
+              description="Cache of server objects used by object jump and auto-complete."
+            />
+            <button
+              type="button"
+              class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
+              onClick={() => void refreshObjectIndexStatus()}
+            >
+              <Icon name="rotate-right" class="mr-1.5" />
+              Refresh
+            </button>
+          </div>
+          <Show
+            when={objectIndexStatus()}
+            fallback={
+              <p
+                class={`text-s ${
+                  objectIndexError()?.includes("Not connected")
+                    ? "text-text-muted"
+                    : objectIndexError()
+                      ? "text-error"
+                      : "text-text-muted"
+                }`}
+              >
+                {objectIndexError() ?? "Checking index status…"}
+              </p>
+            }
+          >
+            {(status) => (
+              <div class="space-y-3">
+                <div class="settings-about-row">
+                  <span class="text-m text-text-muted">Status</span>
+                  <span class="text-m font-medium text-text">
+                    {status().indexing
+                      ? `Indexing — ${status().processed_database_count} of ${status().database_count} databases`
+                      : status().initialized
+                        ? "Ready"
+                        : "Not built yet"}
+                  </span>
+                </div>
+                <Show when={status().initialized || status().indexing}>
+                  <div class="settings-about-row">
+                    <span class="text-m text-text-muted">Objects indexed</span>
+                    <span class="text-m font-medium text-text tabular-nums">
+                      {status().object_count}
+                    </span>
+                  </div>
+                </Show>
+                <Show when={status().failed_databases.length > 0}>
+                  <div class="settings-about-row items-start">
+                    <span class="text-m text-text-muted shrink-0">
+                      Failed databases
+                    </span>
+                    <span class="text-s text-error break-all text-right">
+                      {status().failed_databases.join(", ")}
+                    </span>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+        </SettingsSection>
+      ),
+    },
+    {
+      id: "environment-info",
+      tab: "developer",
+      group: "Diagnostics & Engine",
+      title: "Environment",
+      keywords:
+        "environment info version platform os user agent webview channel copy diagnostics report engine",
+      render: () => (
+        <SettingsSection>
+          <div class="flex items-center justify-between gap-4 mb-4">
+            <SettingTitle
+              title="Environment"
+              description="Build and runtime details useful for bug reports."
+            />
+            <button
+              type="button"
+              class="btn btn-secondary px-3 py-1.5 text-s shrink-0"
+              onClick={() => void handleCopyEnvironment()}
+            >
+              <Icon name={envCopied() ? "check" : "copy"} class="mr-1.5" />
+              {envCopied() ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <div class="space-y-3">
+            <div class="settings-about-row">
+              <span class="text-m text-text-muted">App version</span>
+              <span class="text-m font-medium text-text">
+                {props.version ?? "unknown"}
+              </span>
+            </div>
+            <div class="settings-about-row">
+              <span class="text-m text-text-muted">Update channel</span>
+              <span class="text-m font-medium text-text">
+                {UPDATE_CHANNEL_OPTIONS.find(
+                  (o) => o.value === updateChannel(),
+                )?.label ?? "Stable"}
+              </span>
+            </div>
+            <div class="settings-about-row">
+              <span class="text-m text-text-muted">Platform</span>
+              <span class="text-m font-medium text-text">
+                {detectPlatform()}
+              </span>
+            </div>
+            <div class="settings-about-row">
+              <span class="text-m text-text-muted">Sidecar version</span>
+              <span class="text-m font-medium text-text">
+                {sidecarDiagnostics()?.sidecarVersion ?? "unavailable"}
+              </span>
+            </div>
           </div>
         </SettingsSection>
       ),
@@ -1961,7 +2401,7 @@ export default function SettingsView(props: Props) {
     const tokens = searchTokens();
     if (tokens.length === 0) return true;
     const haystack =
-      `${s.title} ${s.keywords} ${tabLabel(s.tab)}`.toLowerCase();
+      `${s.title} ${s.keywords} ${s.group ?? ""} ${tabLabel(s.tab)}`.toLowerCase();
     return tokens.every((t) => haystack.includes(t));
   }
 
@@ -1981,6 +2421,24 @@ export default function SettingsView(props: Props) {
     }
     return availableSections().filter((s) => s.tab === activeTab());
   });
+
+  const hasVisibleDeveloperSections = createMemo(
+    () =>
+      isPreviewBuild() &&
+      visibleSections().some((s) => s.tab === "developer"),
+  );
+
+  createEffect(() => {
+    if (!hasVisibleDeveloperSections()) return;
+    void refreshSidecarDiagnostics();
+    void refreshObjectIndexStatus();
+  });
+
+  function isFirstInGroup(section: Section, index: number): boolean {
+    if (!section.group) return false;
+    if (index === 0) return true;
+    return visibleSections()[index - 1]?.group !== section.group;
+  }
 
   const groupedSearchResults = createMemo(() => {
     const groups = new Map<Tab, Section[]>();
@@ -2069,7 +2527,7 @@ export default function SettingsView(props: Props) {
   );
 
   const contentNode = (
-    <div class="max-w-3xl w-full mx-auto flex flex-col pb-10">
+    <div ref={contentRef} class="max-w-3xl w-full mx-auto flex flex-col pb-10">
       <Show
         when={isSearching()}
         fallback={
@@ -2077,8 +2535,21 @@ export default function SettingsView(props: Props) {
             <h1 class="text-2xl font-semibold text-text mb-8">
               {tabLabel(activeTab())}
             </h1>
-            <div class="space-y-5 animate-in fade-in duration-[var(--duration-slow)]">
-              <For each={visibleSections()}>{(s) => s.render()}</For>
+            <div class="space-y-3 animate-in fade-in duration-[var(--duration-slow)]">
+              <For each={visibleSections()}>
+                {(s, i) => (
+                  <>
+                    <Show when={isFirstInGroup(s, i())}>
+                      <div classList={{ "pt-5": i() > 0 }}>
+                        <h2 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">
+                          {s.group}
+                        </h2>
+                      </div>
+                    </Show>
+                    {s.render()}
+                  </>
+                )}
+              </For>
             </div>
           </>
         }
@@ -2101,7 +2572,7 @@ export default function SettingsView(props: Props) {
                   <h2 class="text-s font-medium text-text-muted uppercase tracking-wider mb-3">
                     {tabLabel(tab)}
                   </h2>
-                  <div class="space-y-5">
+                  <div class="space-y-3">
                     <For each={items}>{(s) => s.render()}</For>
                   </div>
                 </div>

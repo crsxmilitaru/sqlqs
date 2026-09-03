@@ -1618,6 +1618,7 @@ export default function App() {
             updateReady={!!updateAvailable()}
             onViewUpdateDetails={() => setUpdateDialogVisible(true)}
             onThemeChange={setTheme}
+            onSidecarRestarted={() => void disconnect()}
             renderLayout={(sidebar, content) => (
               <>
                 <div

@@ -147,7 +147,7 @@ function ErrorSection(props: {
               onClick={() => props.onSendToChat?.(props.error)}
               class="btn btn-secondary h-7 px-3 gap-2"
             >
-              <i class="fa-solid fa-comment-dots" />
+              <i class="fa-solid fa-paper-plane" />
               <span>Send to Chat</span>
             </button>
           </Show>
@@ -958,7 +958,7 @@ function VirtualGrid(props: {
                   }
                   class="btn btn-table"
                 >
-                  <i class="fa-solid fa-comment-dots text-2xs" />
+                  <i class="fa-solid fa-paper-plane text-2xs" />
                   <span>Send to Chat</span>
                 </button>
               </Tooltip>

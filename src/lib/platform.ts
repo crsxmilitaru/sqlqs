@@ -32,3 +32,11 @@ export function getPlatformClass(): "macos" | "windows" | "other" {
 export function getModifierKeyLabel(): "Cmd" | "Ctrl" {
   return isMacOS() ? "Cmd" : "Ctrl";
 }
+
+export function detectPlatform(): string {
+  const platform = getPlatformString();
+  if (platform.includes("win")) return "Windows";
+  if (platform.includes("mac")) return "macOS";
+  if (platform.includes("linux")) return "Linux";
+  return "Unknown";
+}
