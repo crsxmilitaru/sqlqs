@@ -333,6 +333,10 @@ export function useTabs() {
       const tabs = saved.map((s) => {
         const tab = createTab(s.sql);
         tab.title = s.title;
+        tab.savedSql =
+          typeof s.savedSql === "string"
+            ? normalizeSql(s.savedSql)
+            : normalizeSql(s.sql);
         tab.userTitle = s.userTitle;
         tab.sourceId = s.sourceId;
         tab.pinned = s.pinned;
@@ -439,6 +443,7 @@ export function useTabs() {
     const snapshot = tabsStore.map((t) => ({
       title: t.title,
       sql: t.sql,
+      savedSql: t.savedSql,
       userTitle: t.userTitle,
       sourceId: t.sourceId,
       pinned: t.pinned,
@@ -453,6 +458,7 @@ export function useTabs() {
       .map((t) => ({
         title: t.title,
         sql: t.sql,
+        savedSql: t.savedSql,
         history: trimHistory(t.history),
         userTitle: t.userTitle,
         sourceId: t.sourceId,
@@ -584,8 +590,20 @@ export function useTabs() {
     if (next.length === 0) {
       setActiveTabId("");
     } else if (activeTabId() === tabId) {
-      const lastTab = next[next.length - 1];
-      setActiveTabId(lastTab ? lastTab.id : "");
+      const collapsedIds = collapsedGroupIds(nextGroups);
+      const nextIndex = Math.min(index, next.length - 1);
+      let targetTab = next[nextIndex];
+      if (!isTabVisible(targetTab, collapsedIds)) {
+        const visibleTab =
+          next.slice(nextIndex).find((t) => isTabVisible(t, collapsedIds)) ??
+          [...next.slice(0, nextIndex)]
+            .reverse()
+            .find((t) => isTabVisible(t, collapsedIds));
+        if (visibleTab) {
+          targetTab = visibleTab;
+        }
+      }
+      setActiveTabId(targetTab ? targetTab.id : "");
     }
   };
 

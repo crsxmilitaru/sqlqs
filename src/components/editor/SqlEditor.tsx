@@ -155,7 +155,23 @@ function restoreTabEditorState(
   extensions: Extension[],
 ) {
   const cached = tabEditorStateCache.get(tabId);
-  if (!cached) return;
+  if (!cached) {
+    const max = value.length;
+    view.setState(EditorState.create({ doc: value, extensions }));
+    view.dispatch({
+      selection: {
+        anchor: max,
+        head: max,
+      },
+      annotations: [
+        Transaction.addToHistory.of(false),
+        externalSyncAnnotation.of(true),
+      ],
+    });
+    view.scrollDOM.scrollTop = 0;
+    view.scrollDOM.scrollLeft = 0;
+    return;
+  }
 
   let restored: EditorState | undefined;
   try {
@@ -217,11 +233,14 @@ const searchScrollbarPlugin = ViewPlugin.fromClass(
     update(update: ViewUpdate) {
       const oldQuery = getSearchQuery(update.startState);
       const newQuery = getSearchQuery(update.state);
+      const oldPanelOpen = searchPanelOpen(update.startState);
+      const newPanelOpen = searchPanelOpen(update.state);
 
       if (
         update.docChanged ||
         update.viewportChanged ||
         update.geometryChanged ||
+        oldPanelOpen !== newPanelOpen ||
         !oldQuery.eq(newQuery)
       ) {
         this.updateMarks(update.view);
@@ -229,8 +248,9 @@ const searchScrollbarPlugin = ViewPlugin.fromClass(
     }
 
     updateMarks(view: EditorView) {
-      const query = getSearchQuery(view.state);
       this.dom.innerHTML = "";
+      if (!searchPanelOpen(view.state)) return;
+      const query = getSearchQuery(view.state);
 
       const minimapGutter = view.dom.querySelector(
         ".cm-minimap-gutter",
@@ -1964,10 +1984,7 @@ export default function SqlEditor(props: Props) {
           to: viewRef.state.doc.length,
           insert: value,
         },
-        annotations: [
-          Transaction.addToHistory.of(false),
-          externalSyncAnnotation.of(true),
-        ],
+        annotations: [externalSyncAnnotation.of(true)],
       });
     }
   });

@@ -21,7 +21,7 @@ public sealed class ScriptingService
         CancellationToken cancellationToken)
     {
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => ScriptObject(request, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => ScriptObject(request, cancellationToken)).ConfigureAwait(false);
     }
 
     private ScriptObjectResponse ScriptObject(ScriptObjectRequest request, CancellationToken cancellationToken)
@@ -30,9 +30,6 @@ public sealed class ScriptingService
 
         var sqlConn = _connections.Resolve(request.ConnectionId);
 
-        // SMO issues `USE [db]` against the shared connection and does not
-        // restore the prior context, which would leave later user queries
-        // pointed at the wrong database. Capture and restore it here.
         var originalDatabase = sqlConn.Database;
         try
         {
@@ -41,7 +38,7 @@ public sealed class ScriptingService
                 ?? throw new InvalidOperationException($"Database '{request.Database}' not found");
 
             var schemaName = string.IsNullOrEmpty(request.Schema) ? "dbo" : request.Schema;
-            var options = BuildScriptingOptions(request.Options);
+            var options = BuildScriptingOptions(request.Options, server.ServerVersion.Major);
 
             IEnumerable<string> scripts = request.ObjectType.ToUpperInvariant() switch
             {
@@ -58,7 +55,6 @@ public sealed class ScriptingService
             foreach (var line in scripts)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrEmpty(line)) continue;
                 sb.AppendLine(line);
                 sb.AppendLine("GO");
             }
@@ -71,27 +67,23 @@ public sealed class ScriptingService
         }
     }
 
-    /// <summary>
-    /// Restores the connection's current database after SMO work, best-effort.
-    /// </summary>
-    internal static void RestoreDatabaseContext(Microsoft.Data.SqlClient.SqlConnection connection, string? originalDatabase)
+    internal static void RestoreDatabaseContext(Microsoft.Data.SqlClient.SqlConnection connection, string originalDatabase)
     {
-        if (string.IsNullOrEmpty(originalDatabase)) return;
+        if (string.IsNullOrEmpty(originalDatabase) ||
+            string.Equals(connection.Database, originalDatabase, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         try
         {
-            if (connection.State == System.Data.ConnectionState.Open &&
-                !string.Equals(connection.Database, originalDatabase, StringComparison.Ordinal))
-            {
-                connection.ChangeDatabase(originalDatabase);
-            }
+            connection.ChangeDatabase(originalDatabase);
         }
         catch
-        {
-            // best-effort: the connection may be in a transient state
-        }
+        { /* empty */ }
     }
 
-    private static ScriptingOptions BuildScriptingOptions(ScriptOptionsDto? dto)
+    private static ScriptingOptions BuildScriptingOptions(ScriptOptionsDto? dto, int serverVersionMajor)
     {
         dto ??= new ScriptOptionsDto();
         return new ScriptingOptions
@@ -117,10 +109,22 @@ public sealed class ScriptingService
             ScriptBatchTerminator = false,
             NoCommandTerminator = false,
             EnforceScriptingOptions = true,
-            TargetServerVersion = SqlServerVersion.Version170,
+            TargetServerVersion = MapServerVersion(serverVersionMajor),
             Encoding = Encoding.UTF8,
         };
     }
+
+    private static SqlServerVersion MapServerVersion(int major) => major switch
+    {
+        <= 10 => SqlServerVersion.Version100,
+        11 => SqlServerVersion.Version110,
+        12 => SqlServerVersion.Version120,
+        13 => SqlServerVersion.Version130,
+        14 => SqlServerVersion.Version140,
+        15 => SqlServerVersion.Version150,
+        16 => SqlServerVersion.Version160,
+        _ => SqlServerVersion.Version170,
+    };
 
     private static IEnumerable<string> ScriptTable(Database db, string schema, string name, ScriptingOptions options)
     {
@@ -152,7 +156,6 @@ public sealed class ScriptingService
 
     private static IEnumerable<string> ScriptTrigger(Database db, string schema, string name, ScriptingOptions options)
     {
-        // Triggers live on their parent table; locate by enumerating tables in the schema.
         foreach (Table table in db.Tables)
         {
             if (!string.Equals(table.Schema, schema, StringComparison.OrdinalIgnoreCase))
@@ -164,6 +167,23 @@ public sealed class ScriptingService
             {
                 return trigger.Script(options).Cast<string>();
             }
+        }
+        foreach (View view in db.Views)
+        {
+            if (!string.Equals(view.Schema, schema, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            var trigger = view.Triggers[name];
+            if (trigger is not null)
+            {
+                return trigger.Script(options).Cast<string>();
+            }
+        }
+        var dbTrigger = db.Triggers[name];
+        if (dbTrigger is not null)
+        {
+            return dbTrigger.Script(options).Cast<string>();
         }
         throw new InvalidOperationException(
             string.Format(CultureInfo.InvariantCulture, "Trigger '[{0}].[{1}]' not found", schema, name));

@@ -679,17 +679,47 @@ pub fn generate_object_script_static(
         ("TABLE", "script_alter_table") => Some(format!(
             "ALTER TABLE {full}\nADD [NewColumn] NVARCHAR(255) NULL\nGO"
         )),
-        ("TABLE" | "VIEW", "script_drop") => {
-            let (kind, flag) = if object_type == "VIEW" {
-                ("VIEW", "V")
-            } else {
-                ("TABLE", "U")
-            };
+        ("TABLE", "script_drop") => {
             Some(format!(
-                "IF OBJECT_ID({}, {flag_lit}) IS NOT NULL\n\tDROP {kind} {full}\nGO",
+                "IF OBJECT_ID({}) IS NOT NULL\n\tDROP TABLE {full}\nGO",
                 quote_string_literal(&full),
-                flag_lit = quote_string_literal(flag),
             ))
+        }
+        ("VIEW", "script_drop") => {
+            let qdb = quote_identifier(database);
+            let target_ident = format!("{qs}.{qn}");
+            let target_lit = quote_string_literal(&target_ident);
+            let drop_sql = quote_string_literal(&format!(
+                "IF OBJECT_ID({target_lit}, 'V') IS NOT NULL\n\tDROP VIEW {qs}.{qn}"
+            ));
+            Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
+        }
+        ("PROCEDURE", "script_drop") => {
+            let qdb = quote_identifier(database);
+            let target_ident = format!("{qs}.{qn}");
+            let target_lit = quote_string_literal(&target_ident);
+            let drop_sql = quote_string_literal(&format!(
+                "IF OBJECT_ID({target_lit}, 'P') IS NOT NULL\n\tDROP PROCEDURE {qs}.{qn}"
+            ));
+            Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
+        }
+        ("FUNCTION", "script_drop") => {
+            let qdb = quote_identifier(database);
+            let target_ident = format!("{qs}.{qn}");
+            let target_lit = quote_string_literal(&target_ident);
+            let drop_sql = quote_string_literal(&format!(
+                "IF OBJECT_ID({target_lit}) IS NOT NULL\n\tDROP FUNCTION {qs}.{qn}"
+            ));
+            Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
+        }
+        ("TRIGGER", "script_drop") => {
+            let qdb = quote_identifier(database);
+            let schema_lit = quote_string_literal(schema);
+            let name_lit = quote_string_literal(name);
+            let drop_sql = quote_string_literal(&format!(
+                "IF EXISTS (SELECT 1 FROM sys.triggers t JOIN sys.objects o ON o.object_id = t.object_id JOIN sys.schemas s ON s.schema_id = o.schema_id WHERE s.name = {schema_lit} AND t.name = {name_lit})\n\tDROP TRIGGER {qs}.{qn}"
+            ));
+            Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
         }
         ("TABLE", "properties") => {
             let qdb = quote_identifier(database);
@@ -714,9 +744,10 @@ pub fn generate_object_script_static(
         }
         ("TRIGGER", "properties") => {
             let qdb = quote_identifier(database);
+            let schema_lit = quote_string_literal(schema);
+            let name_lit = quote_string_literal(name);
             Some(format!(
-                "SELECT\n\tt.name AS [Name],\n\ts.name AS [Schema],\n\tparent.name AS [ParentTable],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\tLEN(m.definition) AS [DefinitionLength]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nLEFT JOIN {qdb}.sys.sql_modules m ON m.object_id = t.object_id\nWHERE t.object_id = OBJECT_ID({full_lit})",
-                full_lit = quote_string_literal(&full),
+                "SELECT\n\tt.name AS [Name],\n\ts.name AS [Schema],\n\tparent.name AS [ParentTable],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\tLEN(m.definition) AS [DefinitionLength]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nLEFT JOIN {qdb}.sys.sql_modules m ON m.object_id = t.object_id\nWHERE s.name = {schema_lit} AND t.name = {name_lit}",
             ))
         }
 
@@ -726,9 +757,10 @@ pub fn generate_object_script_static(
 
         ("TRIGGER", "trigger_details") => {
             let qdb = quote_identifier(database);
+            let schema_lit = quote_string_literal(schema);
+            let name_lit = quote_string_literal(name);
             Some(format!(
-                "SELECT\n\tt.name AS [Trigger],\n\tparent.name AS [ParentTable],\n\ts.name AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nWHERE t.object_id = OBJECT_ID({full_lit})",
-                full_lit = quote_string_literal(&full),
+                "SELECT\n\tt.name AS [Trigger],\n\tparent.name AS [ParentTable],\n\ts.name AS [Schema],\n\tt.is_disabled AS [IsDisabled],\n\tt.is_instead_of_trigger AS [IsInsteadOf],\n\to.create_date AS [CreatedDate],\n\to.modify_date AS [ModifiedDate]\nFROM {qdb}.sys.triggers t\nJOIN {qdb}.sys.objects o ON t.object_id = o.object_id\nJOIN {qdb}.sys.schemas s ON s.schema_id = o.schema_id\nLEFT JOIN {qdb}.sys.objects parent ON parent.object_id = t.parent_id\nWHERE s.name = {schema_lit} AND t.name = {name_lit}",
             ))
         }
         ("TRIGGER", "enable_trigger") => {
@@ -756,7 +788,15 @@ pub fn generate_object_script_static(
                 schema_lit = quote_string_literal(schema),
             ))
         }
-        ("TYPE", "script_drop") => Some(format!("DROP TYPE {full}")),
+        ("TYPE", "script_drop") => {
+            let qdb = quote_identifier(database);
+            let target_ident = format!("{qs}.{qn}");
+            let target_lit = quote_string_literal(&target_ident);
+            let drop_sql = quote_string_literal(&format!(
+                "IF TYPE_ID({target_lit}) IS NOT NULL\n\tDROP TYPE {qs}.{qn}"
+            ));
+            Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
+        }
 
         // sp_executesql is invoked in the target database via 3-part name so
         // the calling session's database context is preserved.

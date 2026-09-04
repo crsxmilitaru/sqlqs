@@ -102,7 +102,7 @@ async fn spawn_at(binary_path: &Path) -> Result<SidecarHandle, SupervisorError> 
 
     tokio::spawn(forward_stderr(stderr));
 
-    let rpc = JsonRpcClient::spawn(stdout, stdin);
+    let rpc = JsonRpcClient::spawn(BufReader::new(stdout), stdin);
 
     Ok(SidecarHandle {
         child: Mutex::new(child),

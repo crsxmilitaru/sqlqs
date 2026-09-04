@@ -269,25 +269,40 @@ function trimSchemaCatalogCache() {
   }
 }
 
+let activeConnectionScope = "";
+let schemaCatalogGeneration = 0;
+
+export function setSchemaCatalogScope(scope: string) {
+  if (activeConnectionScope !== scope) {
+    activeConnectionScope = scope;
+    invalidateSchemaCatalog();
+  }
+}
+
+function getCacheKey(database: string): string {
+  return activeConnectionScope ? `${activeConnectionScope}:${database}` : database;
+}
+
 function getCachedSchemaCatalog(database: string): SchemaCatalog | undefined {
-  const cached = schemaCatalogCache.get(database);
+  const key = getCacheKey(database);
+  const cached = schemaCatalogCache.get(key);
   if (!cached) {
     return undefined;
   }
 
   if (cached.expiresAt <= Date.now()) {
-    schemaCatalogCache.delete(database);
+    schemaCatalogCache.delete(key);
     return undefined;
   }
 
-  schemaCatalogCache.delete(database);
-  schemaCatalogCache.set(database, cached);
+  schemaCatalogCache.delete(key);
+  schemaCatalogCache.set(key, cached);
   return cached.catalog;
 }
 
-function setCachedSchemaCatalog(database: string, catalog: SchemaCatalog) {
-  schemaCatalogCache.delete(database);
-  schemaCatalogCache.set(database, {
+function setCachedSchemaCatalogByKey(key: string, catalog: SchemaCatalog) {
+  schemaCatalogCache.delete(key);
+  schemaCatalogCache.set(key, {
     catalog,
     expiresAt: Date.now() + SCHEMA_CATALOG_TTL_MS,
   });
@@ -295,20 +310,29 @@ function setCachedSchemaCatalog(database: string, catalog: SchemaCatalog) {
 }
 
 export function invalidateSchemaCatalog(database?: string) {
+  schemaCatalogGeneration += 1;
   if (database) {
-    schemaCatalogCache.delete(database);
+    const key = getCacheKey(database);
+    schemaCatalogCache.delete(key);
+    schemaCatalogLoaders.delete(key);
   } else {
     schemaCatalogCache.clear();
+    schemaCatalogLoaders.clear();
   }
 }
 
+const SCHEMA_CATALOG_INVALIDATED_ERROR =
+  "Schema catalog request was invalidated";
+
 export async function loadSchemaCatalog(database: string): Promise<SchemaCatalog> {
+  const currentGeneration = schemaCatalogGeneration;
+  const key = getCacheKey(database);
   const cached = getCachedSchemaCatalog(database);
   if (cached) {
     return cached;
   }
 
-  const existingLoader = schemaCatalogLoaders.get(database);
+  const existingLoader = schemaCatalogLoaders.get(key);
   if (existingLoader) {
     return existingLoader;
   }
@@ -320,20 +344,55 @@ export async function loadSchemaCatalog(database: string): Promise<SchemaCatalog
     },
   )
     .then((entries) => {
+      if (schemaCatalogGeneration !== currentGeneration) {
+        throw new Error(SCHEMA_CATALOG_INVALIDATED_ERROR);
+      }
       const catalog = buildSchemaCatalog(entries);
-      setCachedSchemaCatalog(database, catalog);
+      setCachedSchemaCatalogByKey(key, catalog);
       return catalog;
     })
     .finally(() => {
-      schemaCatalogLoaders.delete(database);
+      if (schemaCatalogLoaders.get(key) === loader) {
+        schemaCatalogLoaders.delete(key);
+      }
     });
 
-  schemaCatalogLoaders.set(database, loader);
+  schemaCatalogLoaders.set(key, loader);
   return loader;
 }
 
-export function preloadSchemaCatalog(database: string) {
-  void loadSchemaCatalog(database).catch((err) => {
-    console.error(`Failed to preload schema catalog for "${database}":`, err);
-  });
+export type SchemaCatalogErrorHandler = (database: string, error: unknown) => void;
+let schemaCatalogErrorHandler: SchemaCatalogErrorHandler | undefined;
+
+export function setSchemaCatalogErrorHandler(handler?: SchemaCatalogErrorHandler) {
+  schemaCatalogErrorHandler = handler;
+}
+
+let lastSchemaCatalogError: { database: string; error: unknown } | null = null;
+
+export function getLastSchemaCatalogError(): { database: string; error: unknown } | null {
+  return lastSchemaCatalogError;
+}
+
+export async function preloadSchemaCatalog(
+  database: string,
+  onError?: (error: unknown) => void,
+): Promise<SchemaCatalog | undefined> {
+  try {
+    return await loadSchemaCatalog(database);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === SCHEMA_CATALOG_INVALIDATED_ERROR
+    ) {
+      return undefined;
+    }
+    lastSchemaCatalogError = { database, error };
+    if (onError) {
+      onError(error);
+    } else if (schemaCatalogErrorHandler) {
+      schemaCatalogErrorHandler(database, error);
+    }
+    return undefined;
+  }
 }

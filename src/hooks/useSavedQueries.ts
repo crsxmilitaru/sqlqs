@@ -5,6 +5,7 @@ import {
   joinPath,
   sanitizeSavedQueryFileName,
 } from "../lib/path";
+import { toast } from "../components/ui/Toaster";
 
 export interface SavedQuery {
   id: string;
@@ -90,7 +91,7 @@ export function useSavedQueries() {
 
       return savedQuery;
     } catch (err) {
-      console.error("Failed to save query:", err);
+      toast.error(`Failed to save query: ${String(err)}`);
       return null;
     }
   };
@@ -105,14 +106,14 @@ export function useSavedQueries() {
       try {
         await invoke("delete_sql_file", { path: query.filePath });
       } catch (err) {
-        console.error("Failed to delete saved query file:", err);
+        toast.error(`Failed to delete saved query file: ${String(err)}`);
         return false;
       }
 
       setSavedQueries((prev) => prev.filter((q) => q.id !== id));
       return true;
     } catch (err) {
-      console.error("Failed to delete saved query:", err);
+      toast.error(`Failed to delete saved query: ${String(err)}`);
       return false;
     }
   };

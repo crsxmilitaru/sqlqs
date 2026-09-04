@@ -1089,6 +1089,9 @@ async fn connect_to_server(
         }
         settings.last_connection = Some(name.clone());
         settings_changed = true;
+    } else if settings.last_connection.is_some() {
+        settings.last_connection = None;
+        settings_changed = true;
     }
 
     if settings_changed {
@@ -1130,6 +1133,13 @@ async fn disconnect_from_server(state: State<'_, AppState>) -> Result<(), String
     *active_lock = None;
     drop(active_lock);
     reset_server_object_index(&state).await;
+
+    let mut current_settings = settings::load_settings();
+    if current_settings.last_connection.is_some() {
+        current_settings.last_connection = None;
+        settings::save_settings(&current_settings)?;
+    }
+
     Ok(())
 }
 

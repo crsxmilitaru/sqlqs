@@ -10,6 +10,7 @@ import type { SavedConnection, ServerObjectIndexStatus } from "../../lib/types";
 import type { SettingsTab } from "../settings/SettingsView";
 import Tooltip from "../ui/Tooltip";
 import { Loader } from "../ui/Loader";
+import { toast } from "../ui/Toaster";
 import ServerSwitcher from "./ServerSwitcher";
 
 function isWindowDragExcludedTarget(target: EventTarget | null): boolean {
@@ -140,7 +141,9 @@ export default function TitleBar(props: Props) {
   async function handleMinimize() {
     try {
       await win.minimize();
-    } catch { /* empty */ }
+    } catch (err) {
+      toast.error(`Failed to minimize window: ${String(err)}`);
+    }
   }
 
   async function handleMaximize() {
@@ -152,7 +155,9 @@ export default function TitleBar(props: Props) {
         await win.maximize();
       }
       setIsMaximized(await win.isMaximized());
-    } catch { /* empty */ }
+    } catch (err) {
+      toast.error(`Failed to maximize window: ${String(err)}`);
+    }
   }
 
   async function handleClose(event?: MouseEvent) {
@@ -163,12 +168,11 @@ export default function TitleBar(props: Props) {
     }
     try {
       await invoke("close_window");
-    } catch (err) {
-      console.error("Failed to close window:", err);
+    } catch {
       try {
         await win.destroy();
       } catch (err2) {
-        console.error("Failed to destroy window:", err2);
+        toast.error(`Failed to close window: ${String(err2)}`);
       }
     }
   }

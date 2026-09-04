@@ -3,6 +3,7 @@ import { createSignal, createEffect, onMount, onCleanup, batch } from "solid-js"
 import { loadPreferences, saveAutoConnectStartup } from "../lib/settings";
 import type { ConnectionConfig, AppSettings } from "../lib/types";
 import { toast } from "../components/ui/Toaster";
+import { invalidateSchemaCatalog, setSchemaCatalogScope } from "../lib/schema-catalog";
 
 const STORAGE_KEY_LAST_DATABASE = "sqlqs_last_database";
 
@@ -23,6 +24,7 @@ export function useConnection() {
   const [databases, setDatabases] = createSignal<string[]>([]);
 
   let restored = false;
+  let connectionSessionCounter = 0;
 
   const loadDatabases = async () => {
     try {
@@ -31,11 +33,19 @@ export function useConnection() {
         setDatabases(dbs);
       });
     } catch (err) {
-      console.error("Failed to load databases:", err);
+      toast.error(`Failed to load databases: ${String(err)}`);
     }
   };
 
   const connect = (config: ConnectionConfig) => {
+    connectionSessionCounter += 1;
+    const authScope = config.use_windows_auth
+      ? "windows"
+      : config.username?.trim() || "sql";
+    const portScope = config.port ? `:${config.port}` : "";
+    const scope = `${config.server}${portScope}#${authScope}#${connectionSessionCounter}_${Date.now()}`;
+    invalidateSchemaCatalog();
+    setSchemaCatalogScope(scope);
     setIsInitializing(false);
     setConnected(true);
     setServerName(config.server);
@@ -53,12 +63,15 @@ export function useConnection() {
     } catch (err) {
       toast.error(`Disconnect failed: ${String(err)}`);
     }
+    setSchemaCatalogScope("");
+    invalidateSchemaCatalog();
     setIsInitializing(false);
     setConnected(false);
     setServerName("");
     setCurrentDatabase(undefined);
     setDatabases([]);
     restored = false;
+    localStorage.removeItem(STORAGE_KEY_LAST_DATABASE);
   };
 
   const changeDatabase = async (db: string): Promise<boolean> => {
@@ -68,7 +81,7 @@ export function useConnection() {
       localStorage.setItem(STORAGE_KEY_LAST_DATABASE, db);
       return true;
     } catch (err) {
-      console.error("Failed to change database:", err);
+      toast.error(`Failed to change database: ${String(err)}`);
       return false;
     }
   };
@@ -118,6 +131,10 @@ export function useConnection() {
         const result = await invoke<AutoConnectResult>("try_auto_connect");
         if (cancelled) return;
         if (result.connected) {
+          connectionSessionCounter += 1;
+          const scope = `${result.server || "localhost"}#auto#${connectionSessionCounter}_${Date.now()}`;
+          invalidateSchemaCatalog();
+          setSchemaCatalogScope(scope);
           setConnected(true);
           setServerName(result.server || "");
           let db = result.database || undefined;

@@ -212,8 +212,7 @@ export function sqlInlineCompletion(
         let result: CompletionResult | null;
         try {
           result = await source(new CompletionContext(state, pos, false));
-        } catch (err) {
-          console.error("Inline SQL completion failed:", err);
+        } catch {
           return;
         }
         if (generation !== this.generation) return;

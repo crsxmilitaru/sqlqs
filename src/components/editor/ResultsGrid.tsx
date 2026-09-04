@@ -121,7 +121,7 @@ function ErrorSection(props: {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error("Failed to copy error:", err);
+      toast.error(`Failed to copy error: ${String(err)}`);
     }
   };
 
@@ -327,7 +327,12 @@ function VirtualGrid(props: {
         const matches = filtersToApply.every(({ colIndex, filterText }) => {
           const cellVal = row[colIndex];
           if (cellVal == null) return false;
-          return String(cellVal).toLowerCase().includes(filterText);
+          const col = props.resultSet.columns[colIndex];
+          const formatted = formatSqlDateValue(cellVal, col?.type_name, dateFormat());
+          return (
+            formatted.toLowerCase().includes(filterText) ||
+            String(cellVal).toLowerCase().includes(filterText)
+          );
         });
         if (matches) result.push({ row, originalIndex });
       });
@@ -522,7 +527,7 @@ function VirtualGrid(props: {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error("Failed to copy markdown:", err);
+      toast.error(`Failed to copy markdown: ${String(err)}`);
     }
   };
 

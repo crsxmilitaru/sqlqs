@@ -34,6 +34,7 @@ import DialogShell from "../ui/DialogShell";
 import Dropdown from "../ui/Dropdown";
 import Tooltip from "../ui/Tooltip";
 import { Loader } from "../ui/Loader";
+import { toast } from "../ui/Toaster";
 import type { ExplorerObjectType } from "./ObjectMenu";
 import { buildObjectExplorerMenuItems } from "./ObjectMenu";
 
@@ -293,7 +294,7 @@ export default function ObjectJumpPalette(props: Props) {
       setProcessedDatabaseCount(response.processed_database_count);
       setFailedDatabases(response.failed_databases);
       setSearchError(null);
-    } catch (error) {
+    } catch {
       if (requestId !== searchRequestRef) {
         return;
       }
@@ -306,7 +307,6 @@ export default function ObjectJumpPalette(props: Props) {
       setProcessedDatabaseCount(0);
       setFailedDatabases([]);
       setSearchError("Could not search server objects.");
-      console.error("Failed to search jump palette objects:", error);
     } finally {
       if (requestId === searchRequestRef) {
         setSearchLoading(false);
@@ -508,7 +508,7 @@ export default function ObjectJumpPalette(props: Props) {
       await Promise.resolve(item.onClick?.());
       props.onClose();
     } catch (error) {
-      console.error("Failed to run jump palette action:", error);
+      toast.error(`Action failed: ${String(error)}`);
       setRunningActionId(null);
     }
   };

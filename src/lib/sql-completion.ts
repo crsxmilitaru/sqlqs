@@ -1354,8 +1354,7 @@ async function catalogForName(
   }
   try {
     return await loadSchemaCatalog(name);
-  } catch (err) {
-    console.error(`Failed to load schema catalog for "${name}":`, err);
+  } catch {
     return undefined;
   }
 }
@@ -2970,8 +2969,8 @@ export async function sqlCompletionSource(
   if (options.currentDatabase) {
     try {
       catalog = await loadSchemaCatalog(options.currentDatabase);
-    } catch (err) {
-      console.error("Failed to load schema for autocomplete:", err);
+    } catch {
+      catalog = undefined;
     }
     if (context.aborted) {
       return null;

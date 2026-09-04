@@ -170,8 +170,20 @@ function sanitizeGeneratedTitle(text: string): string {
   return cleaned;
 }
 
+function stripThoughtTags(text: string): string {
+  let result = text.replace(
+    /<(?:thought|think)\b[^>]*>[\s\S]*?<\/\s*(?:thought|think)\s*>/gi,
+    "",
+  );
+  result = result.replace(/<(?:thought|think)\b[^>]*>[\s\S]*$/gi, "");
+  result = result.replace(/<\s*\/?\s*(?:thought|think)\b[^>]*>/gi, "");
+  return result;
+}
+
 export function sanitizeInlineCompletion(text: string): string | null {
   let cleaned = text.replace(/\r\n/g, "\n");
+  cleaned = stripThoughtTags(cleaned);
+
   const fenced = cleaned.match(/^```[a-zA-Z]*\n([\s\S]*?)\n?```$/);
   if (fenced) {
     cleaned = fenced[1];
@@ -183,6 +195,8 @@ export function sanitizeInlineCompletion(text: string): string | null {
   if (closingFence >= 0) {
     cleaned = cleaned.slice(0, closingFence);
   }
+
+  cleaned = stripThoughtTags(cleaned);
   cleaned = cleaned.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
   return cleaned.length > 0 ? cleaned : null;
 }
@@ -211,6 +225,7 @@ RULES:
 - Stop at a natural boundary such as the end of a clause, line, or statement
 - Use T-SQL syntax: square brackets for identifiers, TOP not LIMIT, GETDATE() not NOW()
 - No markdown, no code fences, no explanations
+- Do not output thinking tags, thought blocks, or XML tags
 - If nothing useful can be added, reply with an empty message`;
 }
 
@@ -766,7 +781,16 @@ export const AiService = {
         },
       });
 
-      const completion = sanitizeInlineCompletion(response.text ?? "");
+      const candidate = response.candidates?.[0];
+      const nonThoughtParts = candidate?.content?.parts?.filter(
+        (part: any) => !part.thought && typeof part.text === "string",
+      );
+      const rawText =
+        nonThoughtParts && nonThoughtParts.length > 0
+          ? nonThoughtParts.map((part: any) => part.text).join("")
+          : response.text ?? "";
+
+      const completion = sanitizeInlineCompletion(rawText);
       cacheInlineCompletion(cacheKey, completion);
       return completion;
     } catch (err) {

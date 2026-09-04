@@ -18,25 +18,25 @@ public sealed class BackupService
     public async Task<BackupResponse> BackupAsync(BackupRequest request, CancellationToken cancellationToken)
     {
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => DoBackup(request, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => DoBackup(request, cancellationToken)).ConfigureAwait(false);
     }
 
     public async Task<BackupResponse> RestoreAsync(RestoreRequest request, CancellationToken cancellationToken)
     {
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => DoRestore(request, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => DoRestore(request, cancellationToken)).ConfigureAwait(false);
     }
 
     public async Task<BackupDefaultsResponse> GetDefaultsAsync(BackupDefaultsRequest request, CancellationToken cancellationToken)
     {
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => GetDefaults(request), cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => GetDefaults(request)).ConfigureAwait(false);
     }
 
     public async Task<InspectBackupResponse> InspectAsync(InspectBackupRequest request, CancellationToken cancellationToken)
     {
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
-        return await Task.Run(() => Inspect(request, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => Inspect(request, cancellationToken)).ConfigureAwait(false);
     }
 
     private BackupResponse DoBackup(BackupRequest request, CancellationToken cancellationToken)

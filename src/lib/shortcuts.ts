@@ -19,6 +19,7 @@ export function getAppShortcutCategories(isPreviewBuild: boolean): ShortcutCateg
       shortcuts: [
         { label: "Open SQL file", keys: [`${mod}+O`] },
         { label: "Save query tab", keys: [`${mod}+S`] },
+        { label: "Save SQL to file", keys: [`${mod}+Shift+S`] },
         { label: "Open settings", keys: [`${mod}+,`] },
         {
           label: "Search database objects",

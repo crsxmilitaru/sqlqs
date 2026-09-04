@@ -47,7 +47,10 @@ import QueryEditorPanel from "../editor/QueryEditorPanel";
 import type { SqlEditorHandle } from "../editor/SqlEditor";
 import RenameDialog from "../dialogs/RenameDialog";
 import TableCompareDialog from "../dialogs/TableCompareDialog";
-import { invalidateSchemaCatalog } from "../../lib/schema-catalog";
+import {
+  invalidateSchemaCatalog,
+  setSchemaCatalogErrorHandler,
+} from "../../lib/schema-catalog";
 import SettingsView, { type SettingsTab } from "../settings/SettingsView";
 import {
   loadAiEnabled,
@@ -75,7 +78,7 @@ interface RiskySchemaChange {
 }
 
 type DisconnectIntent =
-  | { kind: "disconnect"; openConnectDialog: boolean }
+  | { kind: "disconnect" }
   | { kind: "switch"; connection: SavedConnection };
 
 const SCHEMA_REFRESH_OBJECT_TYPES =
@@ -511,6 +514,16 @@ export default function App() {
   });
 
   onMount(() => {
+    setSchemaCatalogErrorHandler((database, err) => {
+      toast.error(`Failed to load schema for "${database}": ${String(err)}`);
+    });
+
+    onCleanup(() => {
+      setSchemaCatalogErrorHandler(undefined);
+    });
+  });
+
+  onMount(() => {
     if (!loadAutoCheckUpdates()) return;
     const timer = setTimeout(() => {
       void checkForUpdates(false);
@@ -778,9 +791,6 @@ export default function App() {
       return;
     }
     await disconnect();
-    if (intent.openConnectDialog) {
-      setIsConnectionDialogOpen(true);
-    }
   }
 
   async function runSwitchConnection(connection: SavedConnection) {
@@ -911,6 +921,16 @@ export default function App() {
     );
   }
 
+  function handleTabDuplicate(tabId: string) {
+    rememberCurrentLocation();
+    return duplicateTab(tabId);
+  }
+
+  function handleTabReopen() {
+    rememberCurrentLocation();
+    return reopenClosedTab();
+  }
+
   async function handleOpenQueryGroup(
     items: {
       sql?: string;
@@ -978,7 +998,6 @@ export default function App() {
         addTab(content, title || undefined);
         toast.success(`Opened ${file.name}`);
       } catch (error) {
-        console.error("Failed to open SQL file:", error);
         toast.error(`Failed to open ${file.name}: ${String(error)}`);
       }
     };
@@ -999,7 +1018,6 @@ export default function App() {
       void invoke("add_to_recent_docs", { path: file.path }).catch(() => undefined);
       toast.success(`Opened ${file.file_name}`);
     } catch (error) {
-      console.error("Failed to open SQL file from path:", error);
       toast.error(`Failed to open file: ${String(error)}`);
     }
   }
@@ -1084,7 +1102,6 @@ export default function App() {
       toast.success(`Saved to ${baseFileName(filePath)}`);
       return true;
     } catch (error) {
-      console.error("Failed to save SQL file:", error);
       toast.error(`Failed to save SQL file: ${String(error)}`);
       return false;
     }
@@ -1163,7 +1180,7 @@ export default function App() {
       const folderPath = getSavedQueriesDir(documentsPath);
       await invoke("open_folder", { path: folderPath });
     } catch (err) {
-      console.error("Failed to open folder:", err);
+      toast.error(`Failed to open folder: ${String(err)}`);
     }
   }
 
@@ -1205,7 +1222,7 @@ export default function App() {
         })
         .catch((error) => {
           if (!cancelled) {
-            console.error("Failed to register SQL file handlers:", error);
+            toast.error(`Failed to register SQL file handlers: ${String(error)}`);
           }
         });
     };
@@ -1235,7 +1252,7 @@ export default function App() {
         }
       } catch (error) {
         if (!cancelled) {
-          console.error("Failed to open startup SQL file:", error);
+          toast.error(`Failed to open startup SQL file: ${String(error)}`);
         }
       }
     })();
@@ -1329,6 +1346,21 @@ export default function App() {
         if (!tab || !tab.sql.trim()) return;
         event.preventDefault();
         void handleTabSave(tab.id);
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "s"
+      ) {
+        if (isAnyDialogOpen()) return;
+        const tab = tabs().find((t) => t.id === activeTabId());
+        if (!tab || !tab.sql.trim()) return;
+        event.preventDefault();
+        void handleTabSaveToFile(tab.id);
+        return;
       }
     };
 
@@ -1363,9 +1395,14 @@ export default function App() {
         if (!cancelled) {
           setObjectJumpIndexStatus(newStatus);
         }
-      } catch (error) {
+      } catch (err) {
         if (!cancelled) {
-          console.error("Failed to start background object indexing:", error);
+          setObjectJumpIndexStatus((prev) => ({
+            ...prev,
+            initialized: true,
+            indexing: false,
+          }));
+          toast.error(`Background indexing failed: ${String(err)}`);
         }
       }
     };
@@ -1486,9 +1523,14 @@ export default function App() {
             void syncIndexStatus(false);
           }, 700);
         }
-      } catch (error) {
+      } catch (err) {
         if (!cancelled) {
-          console.error("Failed to sync object jump index status:", error);
+          setObjectJumpIndexStatus((prev) => ({
+            ...prev,
+            initialized: true,
+            indexing: false,
+          }));
+          toast.error(`Failed to check indexing status: ${String(err)}`);
         }
       }
     };
@@ -1570,7 +1612,7 @@ export default function App() {
         serverName={serverName()}
         onConnect={() => setIsConnectionDialogOpen(true)}
         onDisconnect={() =>
-          beginDisconnect({ kind: "disconnect", openConnectDialog: true })
+          beginDisconnect({ kind: "disconnect" })
         }
         onSwitchConnection={(connection) =>
           beginDisconnect({ kind: "switch", connection })
@@ -1699,10 +1741,10 @@ export default function App() {
                 onTabCloseAll={closeAllTabs}
                 onTabUpdate={updateTab}
                 onTabMove={moveTab}
-                onTabDuplicate={duplicateTab}
+                onTabDuplicate={handleTabDuplicate}
                 onTabTogglePin={togglePin}
                 onTabPromote={promoteTab}
-                onTabReopen={reopenClosedTab}
+                onTabReopen={handleTabReopen}
                 canReopenClosedTab={canReopenClosedTab}
                 onTabCreateGroup={createGroup}
                 onTabAddToGroup={addTabsToGroup}

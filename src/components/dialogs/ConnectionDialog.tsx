@@ -11,6 +11,7 @@ import Dropdown from "../ui/Dropdown";
 import Input from "../ui/Input";
 import DialogCloseButton from "../ui/DialogCloseButton";
 import DialogShell from "../ui/DialogShell";
+import { toast } from "../ui/Toaster";
 
 type ConnectMode = "fields" | "connectionString";
 
@@ -180,7 +181,7 @@ export default function ConnectionDialog(props: Props) {
           }
           await invoke("delete_saved_connection", { name: editingName });
         } catch (err) {
-          console.error("Failed to remove old connection after rename:", err);
+          toast.error(`Failed to remove old connection after rename: ${String(err)}`);
         }
       }
       props.onConnect(

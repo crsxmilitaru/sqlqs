@@ -1487,7 +1487,6 @@ export default function ObjectExplorer(props: Props) {
         );
       });
     } catch (err) {
-      console.error("Failed to load tables:", err);
       const message = `Failed to load objects from "${database}".`;
       setLoadErrors(database, String(err));
       toast.error(message);

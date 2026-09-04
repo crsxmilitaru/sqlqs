@@ -172,7 +172,7 @@ public sealed class SchemaReader
             JOIN {{db}}.sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
             JOIN {{db}}.sys.objects o ON i.object_id = o.object_id
             JOIN {{db}}.sys.schemas s ON o.schema_id = s.schema_id
-            WHERE s.name = @schema AND o.name = @table AND i.name IS NOT NULL
+            WHERE s.name = @schema AND o.name = @table AND i.name IS NOT NULL AND ic.is_included_column = 0
             GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key
             ORDER BY i.is_primary_key DESC, i.name
             """;

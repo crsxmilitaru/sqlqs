@@ -671,6 +671,7 @@ export function saveEditorFormatOnPaste(value: boolean) {
 export interface SavedTab {
   title: string;
   sql: string;
+  savedSql?: string;
   history?: QueryTabHistoryEntry[];
   userTitle?: boolean;
   sourceId?: string;
@@ -771,6 +772,7 @@ export function loadSavedTabs(): SavedTab[] {
       .map((t: any) => ({
         title: t.title,
         sql: t.sql,
+        savedSql: typeof t.savedSql === "string" ? t.savedSql : undefined,
         userTitle: t.userTitle,
         sourceId: t.sourceId,
         pinned: t.pinned,

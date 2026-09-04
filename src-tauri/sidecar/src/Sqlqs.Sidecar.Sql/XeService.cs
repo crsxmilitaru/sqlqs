@@ -34,20 +34,24 @@ public sealed class XeService
             ? supplied.Select(EnsureFullyQualifiedEventName).ToArray()
             : DefaultEvents;
 
-        var dropIfExists = $"IF EXISTS (SELECT 1 FROM sys.server_event_sessions WHERE name = @name) DROP EVENT SESSION [{request.SessionName}] ON SERVER";
+        var isAzure = await IsAzureSqlDatabaseAsync(connection, cancellationToken).ConfigureAwait(false);
+        var scope = isAzure ? "DATABASE" : "SERVER";
+        var catalog = isAzure ? "sys.database_event_sessions" : "sys.server_event_sessions";
+
+        var dropIfExists = $"IF EXISTS (SELECT 1 FROM {catalog} WHERE name = @name) DROP EVENT SESSION [{request.SessionName}] ON {scope}";
         await using (var cmd = new SqlCommand(dropIfExists, connection))
         {
             cmd.Parameters.AddWithValue("@name", request.SessionName);
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var create = BuildCreateSessionScript(request.SessionName, events, request.MaxMemoryKb, request.MaxEventsRetained);
+        var create = BuildCreateSessionScript(request.SessionName, events, request.MaxMemoryKb, request.MaxEventsRetained, scope);
         await using (var cmd = new SqlCommand(create, connection))
         {
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var start = $"ALTER EVENT SESSION [{request.SessionName}] ON SERVER STATE = START";
+        var start = $"ALTER EVENT SESSION [{request.SessionName}] ON {scope} STATE = START";
         await using (var cmd = new SqlCommand(start, connection))
         {
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -66,10 +70,15 @@ public sealed class XeService
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
         var connection = lease.Connection;
 
+        var isAzure = await IsAzureSqlDatabaseAsync(connection, cancellationToken).ConfigureAwait(false);
+        var scope = isAzure ? "DATABASE" : "SERVER";
+        var catalog = isAzure ? "sys.database_event_sessions" : "sys.server_event_sessions";
+        var dmv = isAzure ? "sys.dm_xe_database_sessions" : "sys.dm_xe_sessions";
+
         var sql = $@"
-IF EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE name = @name)
-    ALTER EVENT SESSION [{request.SessionName}] ON SERVER STATE = STOP;
-{(request.Drop ? $"IF EXISTS (SELECT 1 FROM sys.server_event_sessions WHERE name = @name) DROP EVENT SESSION [{request.SessionName}] ON SERVER;" : "")}
+IF EXISTS (SELECT 1 FROM {dmv} WHERE name = @name)
+    ALTER EVENT SESSION [{request.SessionName}] ON {scope} STATE = STOP;
+{(request.Drop ? $"IF EXISTS (SELECT 1 FROM {catalog} WHERE name = @name) DROP EVENT SESSION [{request.SessionName}] ON {scope};" : "")}
 ";
         await using var cmd = new SqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("@name", request.SessionName);
@@ -84,10 +93,14 @@ IF EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE name = @name)
         await using var lease = await _connections.AcquireAsync(request.ConnectionId, cancellationToken).ConfigureAwait(false);
         var connection = lease.Connection;
 
-        const string sql = @"
+        var isAzure = await IsAzureSqlDatabaseAsync(connection, cancellationToken).ConfigureAwait(false);
+        var dmvSessions = isAzure ? "sys.dm_xe_database_sessions" : "sys.dm_xe_sessions";
+        var dmvTargets = isAzure ? "sys.dm_xe_database_session_targets" : "sys.dm_xe_session_targets";
+
+        var sql = $@"
 SELECT CAST(t.target_data AS XML) AS target_data
-FROM sys.dm_xe_session_targets t
-JOIN sys.dm_xe_sessions s ON s.address = t.event_session_address
+FROM {dmvTargets} t
+JOIN {dmvSessions} s ON s.address = t.event_session_address
 WHERE s.name = @name AND t.target_name = 'ring_buffer'";
 
         await using var cmd = new SqlCommand(sql, connection);
@@ -100,6 +113,13 @@ WHERE s.name = @name AND t.target_name = 'ring_buffer'";
         }
 
         return ParseRingBufferXml(xml!);
+    }
+
+    private static async Task<bool> IsAzureSqlDatabaseAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var cmd = new SqlCommand("SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT)", connection);
+        var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return result is int edition && edition == 5;
     }
 
     internal static ReadXeSessionResponse ParseRingBufferXml(string xml)
@@ -145,10 +165,10 @@ WHERE s.name = @name AND t.target_name = 'ring_buffer'";
         return int.TryParse(value, out var n) ? n : (int?)null;
     }
 
-    private static string BuildCreateSessionScript(string sessionName, IReadOnlyList<string> events, int maxMemoryKb, int maxEventsRetained)
+    private static string BuildCreateSessionScript(string sessionName, IReadOnlyList<string> events, int maxMemoryKb, int maxEventsRetained, string targetScope)
     {
         var sb = new StringBuilder();
-        sb.Append($"CREATE EVENT SESSION [{sessionName}] ON SERVER ");
+        sb.Append($"CREATE EVENT SESSION [{sessionName}] ON {targetScope} ");
         for (int i = 0; i < events.Count; i++)
         {
             if (i > 0) sb.Append(", ");

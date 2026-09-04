@@ -46,6 +46,7 @@ import EditorHistoryDialog from "./EditorHistoryDialog";
 import ResultsGrid, { type ResultsTableViewState } from "./ResultsGrid";
 import type { SqlEditorHandle } from "./SqlEditor";
 import Tooltip from "../ui/Tooltip";
+import { toast } from "../ui/Toaster";
 import { Loader } from "../ui/Loader";
 import { formatSqlWithPrefs } from "../../lib/sql-format";
 import { AiService } from "../../lib/ai";
@@ -317,9 +318,15 @@ export default function QueryEditorPanel(props: Props) {
     setConfirmClose({ type: "all" });
   }
 
+  interface TabPaneState {
+    collapsed?: boolean;
+    maximized?: boolean;
+  }
+
   const [editorHeight, setEditorHeight] = createSignal(DEFAULT_EDITOR_HEIGHT);
-  const [resultsCollapsed, setResultsCollapsed] = createSignal(false);
-  const [resultsMaximized, setResultsMaximized] = createSignal(false);
+  const [tabPaneStates, setTabPaneStates] = createSignal<
+    Record<string, TabPaneState>
+  >({});
   let editorHeightBeforeMaximize = DEFAULT_EDITOR_HEIGHT;
   const [showStats, setShowStats] = createSignal(false);
   const [elapsedMs, setElapsedMs] = createSignal(0);
@@ -618,6 +625,46 @@ export default function QueryEditorPanel(props: Props) {
     return last.id === props.activeTabId;
   });
 
+  const resultsCollapsed = () => {
+    const tab = activeTab();
+    if (!tab) return false;
+    const paneState = tabPaneStates()[tab.id];
+    if (paneState?.collapsed !== undefined) {
+      return paneState.collapsed;
+    }
+    return !tab.result && !tab.error && !tab.isExecuting;
+  };
+
+  const resultsMaximized = () => {
+    const tab = activeTab();
+    if (!tab) return false;
+    return tabPaneStates()[tab.id]?.maximized ?? false;
+  };
+
+  function setResultsCollapsed(collapsed: boolean) {
+    const tab = activeTab();
+    if (!tab) return;
+    setTabPaneStates((prev) => ({
+      ...prev,
+      [tab.id]: {
+        ...prev[tab.id],
+        collapsed,
+      },
+    }));
+  }
+
+  function setResultsMaximized(maximized: boolean) {
+    const tab = activeTab();
+    if (!tab) return;
+    setTabPaneStates((prev) => ({
+      ...prev,
+      [tab.id]: {
+        ...prev[tab.id],
+        maximized,
+      },
+    }));
+  }
+
   function restoreResultsSize() {
     if (!resultsMaximized()) return;
     setResultsMaximized(false);
@@ -639,15 +686,46 @@ export default function QueryEditorPanel(props: Props) {
     maximizeResults();
   }
 
-  createEffect(() => {
-    const tab = activeTab();
-    if (tab && !tab.result && !tab.error && !tab.isExecuting) {
-      restoreResultsSize();
-      setResultsCollapsed(true);
-    } else if (tab && (tab.result || tab.error)) {
-      setResultsCollapsed(false);
-    }
-  });
+  createEffect(
+    on(
+      () => {
+        const tab = activeTab();
+        return tab ? ([tab.id, tab.isExecuting] as const) : null;
+      },
+      (curr, prev) => {
+        if (!curr) return;
+        const [tabId, isExecuting] = curr;
+        const prevTabId = prev?.[0];
+        const prevExecuting = prev?.[1];
+        if (tabId === prevTabId && !prevExecuting && isExecuting) {
+          setResultsCollapsed(false);
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.tabs.map((t) => t.id),
+      (currentIds) => {
+        const idSet = new Set(currentIds);
+        setTabPaneStates((prev) => {
+          const next: Record<string, TabPaneState> = {};
+          let changed = false;
+          for (const [id, state] of Object.entries(prev)) {
+            if (idSet.has(id)) {
+              next[id] = state;
+            } else {
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      },
+      { defer: true },
+    ),
+  );
 
   const isCompactResult = createMemo(() => {
     const tab = activeTab();
@@ -722,7 +800,7 @@ export default function QueryEditorPanel(props: Props) {
         actionHistoryOptions("Format SQL"),
       );
     } catch (err) {
-      console.error("Failed to format SQL:", err);
+      toast.error(`Failed to format SQL: ${String(err)}`);
     }
   }
 
@@ -741,7 +819,7 @@ export default function QueryEditorPanel(props: Props) {
       setQueryCopied(true);
       setTimeout(() => setQueryCopied(false), 2000);
     } catch (err) {
-      console.error("Failed to copy query:", err);
+      toast.error(`Failed to copy query: ${String(err)}`);
     }
   }
 
@@ -830,7 +908,7 @@ export default function QueryEditorPanel(props: Props) {
     try {
       await invoke("write_clipboard", { text: selectedText });
     } catch (err) {
-      console.error("Failed to copy selection:", err);
+      toast.error(`Failed to copy selection: ${String(err)}`);
     } finally {
       editorRef?.focus();
     }
@@ -847,7 +925,7 @@ export default function QueryEditorPanel(props: Props) {
       }
       editorRef?.replaceSelection("");
     } catch (err) {
-      console.error("Failed to cut selection:", err);
+      toast.error(`Failed to cut selection: ${String(err)}`);
     } finally {
       editorRef?.focus();
     }
@@ -869,7 +947,7 @@ export default function QueryEditorPanel(props: Props) {
       }
       editorRef.replaceSelection(nextText);
     } catch (err) {
-      console.error("Failed to paste into editor:", err);
+      toast.error(`Failed to paste into editor: ${String(err)}`);
     } finally {
       editorRef?.focus();
     }
@@ -910,7 +988,6 @@ export default function QueryEditorPanel(props: Props) {
     const hasSelectedText = Boolean(selectedText.trim());
     const tab = activeTab();
     const mod = getModifierKeyLabel();
-    const canAct = Boolean(hasDatabaseSelected() && tab?.sql);
     return [
       {
         id: "execute",
@@ -931,7 +1008,7 @@ export default function QueryEditorPanel(props: Props) {
         icon: <IconUndo />,
         shortcut: `${mod}+Z`,
         onClick: () => editorRef?.undo(),
-        disabled: !canAct || !canUndo(),
+        disabled: !hasDatabaseSelected() || !canUndo(),
       },
       {
         id: "redo",
@@ -939,7 +1016,7 @@ export default function QueryEditorPanel(props: Props) {
         icon: <IconRedo />,
         shortcut: `${mod}+Y`,
         onClick: () => editorRef?.redo(),
-        disabled: !canAct || !canRedo(),
+        disabled: !hasDatabaseSelected() || !canRedo(),
       },
       { id: "sep-undo", separator: true },
       {
@@ -1055,7 +1132,7 @@ export default function QueryEditorPanel(props: Props) {
         moreIcon: <IconUndo class="w-3.5 h-3.5" />,
         shortcut: `${mod}+Z`,
         onClick: () => editorRef?.undo(),
-        disabled: !canAct || !canUndo(),
+        disabled: !hasDatabaseSelected() || !canUndo(),
       },
       {
         id: "redo",
@@ -1065,7 +1142,7 @@ export default function QueryEditorPanel(props: Props) {
         moreIcon: <IconRedo class="w-3.5 h-3.5" />,
         shortcut: `${mod}+Y`,
         onClick: () => editorRef?.redo(),
-        disabled: !canAct || !canRedo(),
+        disabled: !hasDatabaseSelected() || !canRedo(),
       },
       {
         id: "comment",
@@ -1340,6 +1417,7 @@ export default function QueryEditorPanel(props: Props) {
         }
         return;
       }
+
 
       if (e.key === "PageDown") {
         e.preventDefault();

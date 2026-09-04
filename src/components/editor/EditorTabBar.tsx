@@ -796,9 +796,10 @@ export default function EditorTabBar(props: Props) {
 
       if (e.shiftKey && e.key.toLowerCase() === "g") {
         const selected = [...selectedTabIds()];
-        if (selected.length >= 2) {
+        const targetIds = selected.length > 0 ? selected : (props.activeTabId ? [props.activeTabId] : []);
+        if (targetIds.length > 0) {
           e.preventDefault();
-          props.onTabCreateGroup(selected);
+          props.onTabCreateGroup(targetIds);
         }
       }
     };
