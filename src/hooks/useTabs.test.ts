@@ -67,6 +67,28 @@ describe("useTabs", () => {
     expect(result.tabs().some((tab) => tab.id === secondId)).toBe(true);
   });
 
+  it("exposes closed tabs and allows reopening by index", () => {
+    const { result } = renderHook(useTabs);
+    const firstId = result.addTab("SELECT 1", "First");
+    const secondId = result.addTab("SELECT 2", "Second");
+
+    result.closeTab(firstId);
+    result.closeTab(secondId);
+
+    expect(result.closedTabs()).toHaveLength(2);
+    expect(result.closedTabs().map((tab) => tab.title)).toEqual([
+      "First",
+      "Second",
+    ]);
+
+    const reopenedId = result.reopenClosedTab(0);
+    expect(
+      result.tabs().some((t) => t.id === reopenedId && t.title === "First"),
+    ).toBe(true);
+    expect(result.closedTabs()).toHaveLength(1);
+    expect(result.closedTabs()[0].title).toBe("Second");
+  });
+
   it("keeps pinned tabs when closing all tabs", () => {
     const { result } = renderHook(useTabs);
     const pinnedId = result.addTab("SELECT 1", "Pinned");
@@ -94,6 +116,24 @@ describe("useTabs", () => {
       sql: "SELECT 1",
     });
     expect(result.tabs()[0].sourceId).toBeUndefined();
+  });
+
+  it("handles savedQueryFilePath and restores it on reopen", () => {
+    const { result } = renderHook(useTabs);
+    const tabId = result.addTab("SELECT 1", "Saved Query", "saved:C:\\Queries\\Saved.sql", true, {
+      savedQueryFilePath: "C:\\Queries\\Saved.sql",
+    });
+
+    expect(result.tabs()[0].savedQueryFilePath).toBe("C:\\Queries\\Saved.sql");
+
+    const dupId = result.duplicateTab(tabId);
+    expect(result.tabs().find((t) => t.id === dupId)?.savedQueryFilePath).toBeUndefined();
+
+    result.closeTab(tabId);
+    const reopenedId = result.reopenClosedTab();
+    expect(result.tabs().find((t) => t.id === reopenedId)?.savedQueryFilePath).toBe(
+      "C:\\Queries\\Saved.sql",
+    );
   });
 
   it("captures idle text history and the saved baseline", () => {

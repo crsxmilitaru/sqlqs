@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildConnectionKey,
   parseConnectionStringPreview,
   summarizeConnection,
 } from "./connections";
@@ -69,5 +70,47 @@ describe("summarizeConnection", () => {
       },
     };
     expect(summarizeConnection(conn)).toBe("Connection string");
+  });
+});
+
+describe("buildConnectionKey", () => {
+  it("builds a key for windows authentication", () => {
+    expect(
+      buildConnectionKey({
+        server: "localhost",
+        use_windows_auth: true,
+        encrypt: false,
+        trust_server_certificate: true,
+      }),
+    ).toBe("localhost#win");
+  });
+
+  it("builds a key with port and sql auth username", () => {
+    expect(
+      buildConnectionKey({
+        server: "192.168.1.100",
+        port: 1433,
+        username: "SA",
+        use_windows_auth: false,
+        encrypt: true,
+        trust_server_certificate: true,
+      }),
+    ).toBe("192.168.1.100:1433#sa");
+  });
+
+  it("extracts server from connection string", () => {
+    expect(
+      buildConnectionKey({
+        server: "",
+        use_windows_auth: false,
+        encrypt: false,
+        trust_server_certificate: false,
+        connection_string: "Server=tcp:sql-prod,1433;Database=test",
+      }),
+    ).toBe("cs:sql-prod,1433");
+  });
+
+  it("falls back to serverFallback when config is missing", () => {
+    expect(buildConnectionKey(null, "fallback-srv")).toBe("fallback-srv#default");
   });
 });

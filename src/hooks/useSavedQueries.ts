@@ -1,7 +1,9 @@
 import { createSignal, createEffect } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  baseFileName,
   getSavedQueriesDir,
+  isSamePath,
   joinPath,
   sanitizeSavedQueryFileName,
 } from "../lib/path";
@@ -59,33 +61,43 @@ export function useSavedQueries() {
       }
 
       localStorage.setItem(SAVED_QUERIES_STORAGE_KEY, JSON.stringify(queries));
-    } catch {}
+    } catch {
+      return;
+    }
   });
 
   const saveQuery = async (
     title: string,
     sql: string,
+    targetFilePath?: string,
   ): Promise<SavedQuery | null> => {
     try {
+      let filePath: string;
+      let fileName: string;
 
-      const documentsPath = await invoke<string>("get_documents_folder");
-      const savedQueriesDir = getSavedQueriesDir(documentsPath);
-
-      const fileName = sanitizeSavedQueryFileName(title);
-      const filePath = joinPath(savedQueriesDir, fileName);
+      if (targetFilePath) {
+        filePath = targetFilePath;
+        fileName = baseFileName(filePath);
+      } else {
+        const documentsPath = await invoke<string>("get_documents_folder");
+        const savedQueriesDir = getSavedQueriesDir(documentsPath);
+        fileName = sanitizeSavedQueryFileName(title);
+        filePath = joinPath(savedQueriesDir, fileName);
+      }
 
       await invoke<string>("write_sql_file", { path: filePath, content: sql });
 
+      const existing = savedQueries().find((q) => isSamePath(q.filePath, filePath));
       const savedQuery: SavedQuery = {
-        id: generateId(),
-        title,
+        id: existing?.id ?? generateId(),
+        title: existing?.title ?? title,
         fileName,
         filePath,
         savedAt: Date.now(),
       };
 
       setSavedQueries((prev) => {
-        const filtered = prev.filter((q) => q.filePath !== filePath);
+        const filtered = prev.filter((q) => !isSamePath(q.filePath, filePath));
         return [savedQuery, ...filtered];
       });
 

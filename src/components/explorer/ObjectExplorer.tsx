@@ -18,6 +18,7 @@ import type { JSX } from "solid-js";
 import type { SavedQuery } from "../../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../../lib/types";
 import { preloadSchemaCatalog } from "../../lib/schema-catalog";
+import { isSamePath } from "../../lib/path";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import {
   IconChevronRight,
@@ -45,6 +46,7 @@ export interface ObjectExplorerHandle {
 
 interface Props {
   onRef?: (handle: ObjectExplorerHandle | null) => void;
+  activeSavedQueryFilePath?: string;
   databases: string[];
   onRefreshDatabases?: () => void | Promise<void>;
   onSelect: (
@@ -53,6 +55,8 @@ interface Props {
     title?: string,
     database?: string,
     sourceId?: string,
+    temporary?: boolean,
+    savedQueryFilePath?: string,
   ) => void;
   onDatabaseChange: (db: string) => void;
   currentDatabase?: string;
@@ -62,7 +66,15 @@ interface Props {
   savedQueries?: SavedQuery[];
   onDeleteSavedQuery?: (id: string) => void;
   onRenameSavedQuery?: (id: string, title: string) => Promise<boolean> | boolean;
-  onLoadSavedQuery?: (filePath: string, title: string) => void;
+  onLoadSavedQuery?: (
+    filePath: string,
+    title: string,
+    temporary?: boolean,
+  ) => void;
+  onGenerateAiTitleSavedQuery?: (
+    id: string,
+    filePath: string,
+  ) => Promise<void> | void;
   onOpenGroup?: (
     items: {
       sql?: string;
@@ -997,6 +1009,9 @@ export default function ObjectExplorer(props: Props) {
   let databasesScrollRef: HTMLDivElement | undefined;
   const dbNodeRefs = new Map<string, HTMLDivElement>();
   let revealScrollToken = 0;
+  let queriesScrollRef: HTMLDivElement | undefined;
+  const savedQueryNodeRefs = new Map<string, HTMLDivElement>();
+  let savedQueryScrollToken = 0;
 
   const [confirm, setConfirm] = createSignal<{
     title: string;
@@ -1139,7 +1154,8 @@ export default function ObjectExplorer(props: Props) {
       setExplorerRangeSelection(entries, selectionAnchorKey(), entry.key);
       return;
     }
-    clearExplorerSelection();
+    setExplorerSelection(reconcile({ [entry.key]: entry }));
+    setSelectionAnchorKey(entry.key);
     defaultAction();
   }
 
@@ -1518,35 +1534,59 @@ export default function ObjectExplorer(props: Props) {
     }
   }
 
-  function scrollDatabaseNodeIntoView(db: string) {
-    const node = dbNodeRefs.get(db);
-    const scroller = databasesScrollRef;
+  function scrollElementIntoView(
+    scroller: HTMLDivElement | undefined,
+    node: HTMLDivElement | undefined,
+    topOffset = 8,
+  ) {
     if (!node || !scroller) return;
 
     const scrollerRect = scroller.getBoundingClientRect();
     const nodeRect = node.getBoundingClientRect();
+    if (scrollerRect.height === 0 || nodeRect.height === 0) return;
+
+    if (
+      nodeRect.top >= scrollerRect.top &&
+      nodeRect.bottom <= scrollerRect.bottom
+    ) {
+      return;
+    }
+
     const nodeTop = nodeRect.top - scrollerRect.top + scroller.scrollTop;
     const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const next = Math.max(0, Math.min(nodeTop - 8, maxScroll));
-    if (Math.abs(next - scroller.scrollTop) < 2) return;
+    let targetScroll = scroller.scrollTop;
+
+    if (nodeRect.top < scrollerRect.top) {
+      targetScroll = Math.max(0, nodeTop - topOffset);
+    } else if (nodeRect.bottom > scrollerRect.bottom) {
+      targetScroll = Math.min(
+        maxScroll,
+        nodeTop + nodeRect.height - scrollerRect.height + topOffset,
+      );
+    }
+
+    if (Math.abs(targetScroll - scroller.scrollTop) < 2) return;
     const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
       .matches
       ? "auto"
       : "smooth";
-    scroller.scrollTo({ top: next, behavior });
+    scroller.scrollTo({ top: targetScroll, behavior });
   }
 
-  function queueRevealScroll(db: string, waitMs: number, token: number) {
-    const run = () => {
-      if (token !== revealScrollToken) return;
-      if (untrack(() => props.currentDatabase) !== db) return;
-      scrollDatabaseNodeIntoView(db);
-    };
+  function scheduleScroll(run: () => void, waitMs: number) {
     if (waitMs <= 0) {
       requestAnimationFrame(() => requestAnimationFrame(run));
       return;
     }
     window.setTimeout(run, waitMs);
+  }
+
+  function queueRevealScroll(db: string, waitMs: number, token: number) {
+    scheduleScroll(() => {
+      if (token !== revealScrollToken) return;
+      if (untrack(() => props.currentDatabase) !== db) return;
+      scrollElementIntoView(databasesScrollRef, dbNodeRefs.get(db));
+    }, waitMs);
   }
 
   createEffect(
@@ -1583,8 +1623,59 @@ export default function ObjectExplorer(props: Props) {
     ),
   );
 
+  const activeSavedQuery = createMemo(() => {
+    const activePath = props.activeSavedQueryFilePath;
+    if (!activePath) return undefined;
+    return (props.savedQueries ?? []).find((q) =>
+      isSamePath(q.filePath, activePath),
+    );
+  });
+
+  function queueSavedQueryScroll(id: string, waitMs: number, token: number) {
+    scheduleScroll(() => {
+      if (token !== savedQueryScrollToken) return;
+      if (activeSavedQuery()?.id !== id) return;
+      scrollElementIntoView(queriesScrollRef, savedQueryNodeRefs.get(id));
+    }, waitMs);
+  }
+
+  createEffect(
+    on(
+      () => [props.activeSavedQueryFilePath, activeSavedQuery()] as const,
+      ([activePath, query]) => {
+        if (!activePath || !query) return;
+
+        const prevExpanded = expanded();
+        const needsTransition = !prevExpanded.has("root:queries");
+
+        batch(() => {
+          if (needsTransition) {
+            const next = new Set(prevExpanded);
+            next.add("root:queries");
+            setExpanded(next);
+            persistCollapsedSections(next);
+          }
+          if (folderFilters["root:queries"]) {
+            const isVisible = filteredSavedQueries().some(
+              (q) => q.id === query.id,
+            );
+            if (!isVisible) {
+              setFolderFilters((f) => ({ ...f, "root:queries": "" }));
+            }
+          }
+        });
+
+        savedQueryScrollToken += 1;
+        const token = savedQueryScrollToken;
+        const waitMs = needsTransition ? ACCORDION_MS + 50 : 0;
+        queueSavedQueryScroll(query.id, waitMs, token);
+      },
+    ),
+  );
+
   onCleanup(() => {
     revealScrollToken += 1;
+    savedQueryScrollToken += 1;
   });
 
   function toggle(nodeId: string) {
@@ -1754,8 +1845,20 @@ export default function ObjectExplorer(props: Props) {
           id: "open-saved",
           label: "Open",
           icon: <i class="fa-solid fa-folder-open" />,
-          onClick: () => props.onLoadSavedQuery?.(filePath, title),
+          onClick: () => props.onLoadSavedQuery?.(filePath, title, false),
         },
+        ...(props.onGenerateAiTitleSavedQuery
+          ? [
+              {
+                id: "generate-ai-title-saved",
+                label: "Generate title with AI",
+                icon: <i class="fa-solid fa-wand-magic-sparkles" />,
+                disabled: !props.onRenameSavedQuery,
+                onClick: () =>
+                  void props.onGenerateAiTitleSavedQuery?.(queryId, filePath),
+              },
+            ]
+          : []),
         {
           id: "save-sql-file",
           label: "Save SQL to file",
@@ -1800,7 +1903,8 @@ export default function ObjectExplorer(props: Props) {
               false,
               table,
               dbName,
-              `history:${sqlValue}`,
+              undefined,
+              false,
             ),
         },
         {
@@ -2062,7 +2166,7 @@ export default function ObjectExplorer(props: Props) {
                   />
                 </div>
               )}
-              <div class="flex-1 explorer-scroll">
+              <div ref={queriesScrollRef} class="flex-1 explorer-scroll">
                 {(props.savedQueries ?? []).length === 0 ? (
                   <ExplorerEmpty message="No saved queries" />
                 ) : filteredSavedQueries().length === 0 ? (
@@ -2072,6 +2176,11 @@ export default function ObjectExplorer(props: Props) {
                     {(item) => {
                       const isRenaming = () => renamingQueryId() === item.id;
                       const rowKey = `saved:${item.id}`;
+                      const isSelected = () =>
+                        isMenuActive(rowKey) ||
+                        isExplorerSelected(rowKey) ||
+                        isRenaming() ||
+                        activeSavedQuery()?.id === item.id;
                       const savedEntries = () =>
                         filteredSavedQueries().map((query) => ({
                           key: `saved:${query.id}`,
@@ -2081,15 +2190,18 @@ export default function ObjectExplorer(props: Props) {
                         }));
                       const row = (
                         <div
+                          ref={(el) => {
+                            savedQueryNodeRefs.set(item.id, el);
+                            onCleanup(() => savedQueryNodeRefs.delete(item.id));
+                          }}
+                          data-saved-query-id={item.id}
+                          data-saved-query-path={item.filePath}
                           class={`${LIST_ROW} ${
-                            isMenuActive(rowKey) ||
-                            isExplorerSelected(rowKey) ||
-                            isRenaming()
-                              ? "is-selected"
-                              : ""
+                            isSelected() ? "is-selected" : ""
                           }`}
                           onClick={(e) => {
                             if (isRenaming()) return;
+                            if (e.detail > 1) return;
                             handleExplorerSelectableClick(
                               e,
                               {
@@ -2104,6 +2216,15 @@ export default function ObjectExplorer(props: Props) {
                                   item.filePath,
                                   item.title,
                                 ),
+                            );
+                          }}
+                          onDblClick={(e) => {
+                            if (isRenaming()) return;
+                            e.preventDefault();
+                            props.onLoadSavedQuery?.(
+                              item.filePath,
+                              item.title,
+                              false,
                             );
                           }}
                           onContextMenu={(e) =>
@@ -2232,44 +2353,28 @@ export default function ObjectExplorer(props: Props) {
                   <For each={filteredHistory()}>
                     {(item) => {
                       const rowKey = `history:${item.sql}`;
-                      const historyEntries = () =>
-                        filteredHistory().map((entry) => ({
-                          key: `history:${entry.sql}`,
-                          sql: entry.sql,
-                          title: entry.title,
-                          database: entry.database,
-                          sourceId: `history:${entry.sql}`,
-                        }));
                       return (
                       <Tooltip content={item.sql} placement="right" class="w-full">
                         <div
                           class={`${LIST_ROW} ${
-                            isMenuActive(rowKey) ||
-                            isExplorerSelected(rowKey)
+                            isMenuActive(rowKey)
                               ? "is-selected"
                               : ""
                           }`}
-                          onClick={(e) =>
-                            handleExplorerSelectableClick(
-                              e,
-                              {
-                                key: rowKey,
-                                sql: item.sql,
-                                title: item.title,
-                                database: item.database,
-                                sourceId: `history:${item.sql}`,
-                              },
-                              historyEntries(),
-                              () =>
-                                props.onSelect(
-                                  item.sql,
-                                  false,
-                                  item.title,
-                                  item.database,
-                                  `history:${item.sql}`,
-                                ),
-                            )
-                          }
+                          onClick={() => {
+                            clearExplorerSelection();
+                            props.onSelect(
+                              item.sql,
+                              false,
+                              item.title,
+                              item.database,
+                              undefined,
+                              true,
+                            );
+                          }}
+                          onDblClick={(e) => {
+                            e.preventDefault();
+                          }}
                           onContextMenu={(e) =>
                             handleContextMenu(
                               e,
@@ -2278,6 +2383,7 @@ export default function ObjectExplorer(props: Props) {
                               item.title,
                               "HISTORY",
                               item.sql,
+                              item.savedQueryFilePath,
                             )
                           }
                         >

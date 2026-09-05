@@ -922,7 +922,7 @@ export default function EditorTabBar(props: Props) {
               props.onTabChange(tab.id);
             }
           }}
-          class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""} ${renamingTabId() === tab.id ? "renaming" : ""} ${isSelected() ? "selected" : ""} ${isMergeTarget() ? "tab-merge-target" : ""}`}
+          class={`tab flex items-center gap-2 text-s whitespace-nowrap select-none flex-shrink-0 tab-animate-in ${isActive() ? "active text-text cursor-default" : "text-text cursor-pointer"} ${isModified() ? "is-modified" : ""} ${isDragging() ? "dragging" : ""} ${tab.pinned ? "pinned" : ""} ${tab.temporary ? "temporary" : ""} ${renamingTabId() === tab.id ? "renaming" : ""} ${isSelected() ? "selected" : ""} ${isMergeTarget() ? "tab-merge-target" : ""}`}
           onClick={(e) => handleTabClick(e, tab, index)}
           onDblClick={(e) => {
             e.stopPropagation();
@@ -966,14 +966,14 @@ export default function EditorTabBar(props: Props) {
               </Tooltip>
             )}
           </div>
-          <div class="flex items-center justify-center w-4 h-4 flex-shrink-0 relative">
+          <div class="tab-action-slot flex items-center justify-center w-4 h-4 flex-shrink-0 relative">
             {tab.isExecuting && (
               <span class="animate-pulse text-warning text-s absolute">
                 &#9679;
               </span>
             )}
             {isModified() && !tab.isExecuting && (
-              <span class="modified-dot absolute" title="Unsaved changes" />
+              <span class="modified-dot absolute pointer-events-none" title="Unsaved changes" />
             )}
             <button
               type="button"

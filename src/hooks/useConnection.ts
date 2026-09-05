@@ -4,6 +4,7 @@ import { loadPreferences, saveAutoConnectStartup } from "../lib/settings";
 import type { ConnectionConfig, AppSettings } from "../lib/types";
 import { toast } from "../components/ui/Toaster";
 import { invalidateSchemaCatalog, setSchemaCatalogScope } from "../lib/schema-catalog";
+import { buildConnectionKey } from "../lib/connections";
 
 const STORAGE_KEY_LAST_DATABASE = "sqlqs_last_database";
 
@@ -18,6 +19,7 @@ export function useConnection() {
   const [connected, setConnected] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [serverName, setServerName] = createSignal("");
+  const [connectionKey, setConnectionKey] = createSignal("");
   const [currentDatabase, setCurrentDatabase] = createSignal<
     string | undefined
   >();
@@ -49,6 +51,7 @@ export function useConnection() {
     setIsInitializing(false);
     setConnected(true);
     setServerName(config.server);
+    setConnectionKey(buildConnectionKey(config));
     const db = config.database || undefined;
     setCurrentDatabase(db);
     if (db) {
@@ -68,6 +71,7 @@ export function useConnection() {
     setIsInitializing(false);
     setConnected(false);
     setServerName("");
+    setConnectionKey("");
     setCurrentDatabase(undefined);
     setDatabases([]);
     restored = false;
@@ -111,11 +115,12 @@ export function useConnection() {
     let cancelled = false;
 
     void (async () => {
+      let appSettings: AppSettings | null = null;
       try {
-        const settings = await invoke<AppSettings>("load_connections");
+        appSettings = await invoke<AppSettings>("load_connections");
         if (cancelled) return;
-        if (settings.auto_connect_startup !== loadPreferences().autoConnectStartup) {
-          saveAutoConnectStartup(settings.auto_connect_startup);
+        if (appSettings.auto_connect_startup !== loadPreferences().autoConnectStartup) {
+          saveAutoConnectStartup(appSettings.auto_connect_startup);
         }
       } catch (err) {
         if (!cancelled) {
@@ -137,6 +142,14 @@ export function useConnection() {
           setSchemaCatalogScope(scope);
           setConnected(true);
           setServerName(result.server || "");
+          const savedConn = appSettings?.connections.find(
+            (c) => c.name === appSettings?.last_connection,
+          );
+          setConnectionKey(
+            savedConn
+              ? buildConnectionKey(savedConn.config)
+              : buildConnectionKey(null, result.server || "localhost"),
+          );
           let db = result.database || undefined;
           if (!db) {
             const saved = localStorage.getItem(STORAGE_KEY_LAST_DATABASE);
@@ -179,6 +192,7 @@ export function useConnection() {
     connected,
     isInitializing,
     serverName,
+    connectionKey,
     currentDatabase,
     databases,
     connect,

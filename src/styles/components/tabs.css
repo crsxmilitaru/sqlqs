@@ -132,6 +132,17 @@
     opacity: 1;
   }
 
+  .tab.is-modified .tab-close-btn,
+  .tab.is-modified .tab-close-btn.active,
+  .tab.is-modified:hover .tab-close-btn {
+    opacity: 0;
+  }
+
+  .tab.is-modified .tab-action-slot:hover .tab-close-btn,
+  .tab.is-modified .tab-action-slot:focus-within .tab-close-btn {
+    opacity: 1;
+  }
+
   .tab-close-btn:focus-visible {
     opacity: 1;
     outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
@@ -139,16 +150,25 @@
   }
 
   .modified-dot {
-    width: 6px;
-    height: 6px;
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--color-text-muted);
     flex-shrink: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
     animation: dot-fade-in 0.2s ease;
   }
 
-  .tab:hover .modified-dot,
   .tab.active .modified-dot {
+    background: var(--color-text);
+  }
+
+  .tab.is-modified .tab-action-slot:hover .modified-dot,
+  .tab.is-modified .tab-action-slot:focus-within .modified-dot {
     opacity: 0;
   }
 

@@ -505,4 +505,24 @@ describe("QueryEditorPanel", () => {
     });
 
   });
+
+  it("opens the tab search popup when clicking the search tabs button", async () => {
+    const user = userEvent.setup();
+    render(() => (
+      <QueryEditorPanel
+        {...createProps({
+          connected: true,
+          tabs: [queryTab({ id: "tab-1", title: "Test Tab" })],
+          activeTabId: "tab-1",
+        })}
+      />
+    ));
+
+    const searchBtn = screen.getByRole("button", { name: "Search tabs" });
+    expect(searchBtn).toBeInTheDocument();
+
+    await user.click(searchBtn);
+
+    expect(screen.getByPlaceholderText("Search tabs…")).toBeInTheDocument();
+  });
 });

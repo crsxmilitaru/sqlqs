@@ -48,6 +48,42 @@ describe("useSavedQueries", () => {
       path: second?.filePath,
       content: "SELECT 2",
     });
+    expect(second?.id).toBe(first?.id);
+  });
+
+  it("saves over targetFilePath and preserves the existing query identity", async () => {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify([
+        {
+          id: "existing-1",
+          title: "Custom Query",
+          fileName: "Custom.sql",
+          filePath: "C:\\Queries\\Custom.sql",
+          savedAt: 100,
+        },
+      ]),
+    );
+    setInvokeHandler((command) => {
+      if (command === "write_sql_file") return undefined;
+      throw new Error(`Unexpected Tauri command: ${command}`);
+    });
+    const { result } = renderHook(useSavedQueries);
+
+    const updated = await result.saveQuery(
+      "Renamed in Tab",
+      "SELECT 42",
+      "C:\\Queries\\Custom.sql",
+    );
+
+    expect(updated?.id).toBe("existing-1");
+    expect(updated?.filePath).toBe("C:\\Queries\\Custom.sql");
+    expect(result.savedQueries()).toHaveLength(1);
+    expect(result.savedQueries()[0].id).toBe("existing-1");
+    expect(invokeMock).toHaveBeenCalledWith("write_sql_file", {
+      path: "C:\\Queries\\Custom.sql",
+      content: "SELECT 42",
+    });
   });
 
   it("deletes the file before removing its saved-query entry", async () => {

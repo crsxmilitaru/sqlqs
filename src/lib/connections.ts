@@ -1,4 +1,4 @@
-import type { SavedConnection } from "./types";
+import type { ConnectionConfig, SavedConnection } from "./types";
 
 function splitConnectionStringParts(value: string) {
   const parts: string[] = [];
@@ -76,4 +76,27 @@ export function summarizeConnection(c: SavedConnection): string {
   const auth = cfg.use_windows_auth ? "Windows Auth" : cfg.username || "sa";
   const host = cfg.server || "(no server)";
   return cfg.database ? `${auth}@${host} · ${cfg.database}` : `${auth}@${host}`;
+}
+
+export function buildConnectionKey(
+  config?: ConnectionConfig | null,
+  serverFallback?: string,
+): string {
+  if (!config) {
+    return serverFallback ? `${serverFallback.trim().toLowerCase()}#default` : "";
+  }
+  if (config.connection_string) {
+    const preview = parseConnectionStringPreview(config.connection_string);
+    const server = (preview.server || config.server || serverFallback || "")
+      .trim()
+      .toLowerCase();
+    return server ? `cs:${server}` : `cs:${config.connection_string.trim().toLowerCase()}`;
+  }
+  const server = (config.server || serverFallback || "").trim().toLowerCase();
+  if (!server) return "";
+  const port = config.port ? `:${config.port}` : "";
+  const auth = config.use_windows_auth
+    ? "win"
+    : (config.username || "").trim().toLowerCase() || "sql";
+  return `${server}${port}#${auth}`;
 }

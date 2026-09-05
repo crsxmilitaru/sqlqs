@@ -37,3 +37,30 @@ export function baseFileName(path: string): string {
   const lastSep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return lastSep >= 0 ? path.slice(lastSep + 1) : path;
 }
+
+export function normalizePath(path: string): string {
+  const clean = path.startsWith("saved:") ? path.slice("saved:".length) : path;
+  return clean.replace(/\\/g, "/").toLowerCase();
+}
+
+export function isSamePath(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return normalizePath(a) === normalizePath(b);
+}
+
+export function resolveSavedQueryFilePath(
+  tabOrSource?: { savedQueryFilePath?: string; sourceId?: string } | string | null,
+): string | undefined {
+  if (!tabOrSource) return undefined;
+  if (typeof tabOrSource === "string") {
+    return tabOrSource.startsWith("saved:")
+      ? tabOrSource.slice("saved:".length)
+      : tabOrSource;
+  }
+  return (
+    tabOrSource.savedQueryFilePath ??
+    (tabOrSource.sourceId?.startsWith("saved:")
+      ? tabOrSource.sourceId.slice("saved:".length)
+      : undefined)
+  );
+}

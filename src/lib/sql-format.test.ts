@@ -172,6 +172,26 @@ describe("formatSqlWithPrefs", () => {
     );
   });
 
+  it("formats multi-row values across indented lines in compact mode", async () => {
+    vi.mocked(loadFormatPreferences).mockReturnValue({
+      formatStyle: "compact",
+      indentSize: 2,
+      keywordCase: "upper",
+    });
+
+    const sql =
+      "INSERT INTO dbo.Users (Id, Name) VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Charlie');";
+    await expect(formatSqlWithPrefs(sql)).resolves.toBe(
+      [
+        "INSERT INTO dbo.Users(Id, Name)",
+        "VALUES",
+        "  (1, 'Alice'),",
+        "  (2, 'Bob'),",
+        "  (3, 'Charlie');",
+      ].join("\n"),
+    );
+  });
+
   it("handles IF, WHILE, and ELSE statements with appropriate indentation", async () => {
     vi.mocked(loadFormatPreferences).mockReturnValue({
       formatStyle: "compact",

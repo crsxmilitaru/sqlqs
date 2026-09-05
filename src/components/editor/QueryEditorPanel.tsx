@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ClosedTab,
   ExecutedQuery,
   QueryTab,
   QueryTabUpdateOptions,
@@ -55,6 +56,7 @@ import { loadAiEnabled, loadPreferences } from "../../lib/settings";
 import type { ThemeSelection } from "../../lib/theme";
 import StatisticsDialog from "../dialogs/StatisticsDialog";
 import EditorTabBar from "./EditorTabBar";
+import { TabSearchPopup } from "./TabSearchPopup";
 import {
   hasNavigationRestore,
   type EditorNavigationPoint,
@@ -137,8 +139,9 @@ interface Props {
   onTabDuplicate: (id: string) => string;
   onTabTogglePin: (id: string) => void;
   onTabPromote: (id: string) => void;
-  onTabReopen: () => string;
+  onTabReopen: (index?: number) => string;
   canReopenClosedTab: () => boolean;
+  closedTabs?: ClosedTab[];
   onTabCreateGroup: (tabIds: string[], name?: string) => string;
   onTabAddToGroup: (groupId: string, tabIds: string[]) => void;
   onTabRemoveFromGroup: (tabIds: string[]) => void;
@@ -181,6 +184,8 @@ export default function QueryEditorPanel(props: Props) {
   } | null>(null);
 
   const [tabBarRenaming, setTabBarRenaming] = createSignal(false);
+  const [isTabSearchOpen, setIsTabSearchOpen] = createSignal(false);
+  let tabSearchButtonRef: HTMLButtonElement | undefined;
   let tabBarRef: HTMLDivElement | undefined;
   let tabBarContextMenuHandler: ((e: MouseEvent) => void) | undefined;
   let savedTabBarScrollLeft = 0;
@@ -196,8 +201,8 @@ export default function QueryEditorPanel(props: Props) {
     cleanupEditorResizeListeners?.();
   });
 
-  function handleTabReopen() {
-    const id = props.onTabReopen();
+  function handleTabReopen(index?: number) {
+    const id = props.onTabReopen(index);
     if (!id) return;
     requestAnimationFrame(() => {
       if (tabBarRef) {
@@ -599,17 +604,7 @@ export default function QueryEditorPanel(props: Props) {
     ),
   );
 
-  const squareEditorTopLeft = createMemo(() => {
-    if (!props.tabs || props.tabs.length === 0) return false;
-    const first = props.tabs[0];
-    if (
-      first.groupId &&
-      props.groups.some((group) => group.id === first.groupId)
-    ) {
-      return true;
-    }
-    return first.id === props.activeTabId;
-  });
+
 
   const hidePlusSeparator = createMemo(() => {
     if (!props.tabs || props.tabs.length === 0) return false;
@@ -1418,6 +1413,12 @@ export default function QueryEditorPanel(props: Props) {
         return;
       }
 
+      if (e.shiftKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setIsTabSearchOpen((prev) => !prev);
+        return;
+      }
+
 
       if (e.key === "PageDown") {
         e.preventDefault();
@@ -1477,6 +1478,23 @@ export default function QueryEditorPanel(props: Props) {
                 onContextMenu={(e) => tabBarContextMenuHandler?.(e)}
               >
                 <div class="flex items-stretch min-w-0 flex-shrink overflow-hidden h-full">
+                  <Tooltip
+                    content={`Search tabs (${getModifierKeyLabel()}+Shift+A)`}
+                    placement="bottom"
+                    class="h-full items-center"
+                  >
+                    <button
+                      ref={tabSearchButtonRef}
+                      type="button"
+                      aria-label="Search tabs"
+                      aria-expanded={isTabSearchOpen()}
+                      onClick={() => setIsTabSearchOpen((prev) => !prev)}
+                      class="control-icon-btn control-icon-btn-sm tab-search-btn self-center ml-1.5 mr-1"
+                      classList={{ "is-active": isTabSearchOpen() }}
+                    >
+                      <i class="fa-solid fa-chevron-down text-xs" />
+                    </button>
+                  </Tooltip>
                   {props.tabs.length > 0 && (
                     <>
                       <EditorTabBar
@@ -1545,11 +1563,20 @@ export default function QueryEditorPanel(props: Props) {
                 </div>
               </div>
 
-              <div
-                class={`app-panel flex flex-col flex-1 min-w-0 min-h-0 ${
-                  squareEditorTopLeft() ? "rounded-tl-none" : ""
-                }`}
-              >
+              <TabSearchPopup
+                open={isTabSearchOpen()}
+                anchor={tabSearchButtonRef}
+                onClose={() => setIsTabSearchOpen(false)}
+                tabs={props.tabs}
+                groups={props.groups}
+                activeTabId={props.activeTabId}
+                onSelectTab={handleNavigateTab}
+                onCloseTab={requestSingleTabClose}
+                closedTabs={props.closedTabs}
+                onReopenTab={handleTabReopen}
+              />
+
+              <div class="app-panel flex flex-col flex-1 min-w-0 min-h-0">
                 <div
                   ref={setToolbarEl}
                   class="editor-toolbar-frame flex items-center justify-between gap-4 p-2 flex-shrink-0 min-w-0 mx-3 mt-3 mb-2"

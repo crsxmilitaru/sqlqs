@@ -128,7 +128,7 @@ export const FORMAT_STYLE_OPTIONS: {
   { value: "compact", label: "Compact" },
   { value: "expanded", label: "Expanded" },
 ];
-export const DEFAULT_FORMAT_INDENT_SIZE = 2;
+export const DEFAULT_FORMAT_INDENT_SIZE = 4;
 export const FORMAT_INDENT_OPTIONS = [
   { value: "2", label: "2 spaces" },
   { value: "4", label: "4 spaces" },
@@ -677,6 +677,8 @@ export interface SavedTab {
   sourceId?: string;
   pinned?: boolean;
   groupId?: string;
+  savedQueryFilePath?: string;
+  temporary?: boolean;
 }
 
 export function saveTabGroups(groups: TabGroup[]): boolean {
@@ -777,6 +779,11 @@ export function loadSavedTabs(): SavedTab[] {
         sourceId: t.sourceId,
         pinned: t.pinned,
         groupId: typeof t.groupId === "string" ? t.groupId : undefined,
+        savedQueryFilePath:
+          typeof t.savedQueryFilePath === "string"
+            ? t.savedQueryFilePath
+            : undefined,
+        temporary: typeof t.temporary === "boolean" ? t.temporary : undefined,
         history: Array.isArray(t.history)
           ? t.history
               .filter((entry: any) => entry && typeof entry.sql === "string")

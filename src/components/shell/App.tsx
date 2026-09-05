@@ -17,7 +17,13 @@ import {
   queueNavigationRestore,
   type EditorNavigationPoint,
 } from "../../lib/editor-navigation";
-import { baseFileName, getSavedQueriesDir, joinPath } from "../../lib/path";
+import {
+  baseFileName,
+  getSavedQueriesDir,
+  isSamePath,
+  joinPath,
+  resolveSavedQueryFilePath,
+} from "../../lib/path";
 import { getPlatformClass } from "../../lib/platform";
 import { AiService } from "../../lib/ai";
 import { parseConnectionStringPreview } from "../../lib/connections";
@@ -237,6 +243,7 @@ export default function App() {
     promoteTab,
     reopenClosedTab,
     canReopenClosedTab,
+    closedTabs,
     createGroup,
     addTabsToGroup,
     removeTabsFromGroup,
@@ -293,6 +300,7 @@ export default function App() {
     connected,
     isInitializing,
     serverName,
+    connectionKey,
     currentDatabase,
     databases,
     connect,
@@ -302,7 +310,7 @@ export default function App() {
   } = useConnection();
 
   const { executedQueries, addHistory, deleteHistory, clearHistory } =
-    useHistory();
+    useHistory(connectionKey);
   const { savedQueries, saveQuery, deleteQuery, renameQuery, loadQueryContent } =
     useSavedQueries();
   const {
@@ -386,6 +394,10 @@ export default function App() {
   } | null>(null);
 
   let explorerRef: ObjectExplorerHandle | null = null;
+  const activeSavedQueryFilePath = createMemo(() => {
+    const tab = tabs().find((t) => t.id === activeTabId());
+    return resolveSavedQueryFilePath(tab);
+  });
 
   const handleShowProperties = (
     database: string,
@@ -723,7 +735,18 @@ export default function App() {
         }
       }
       updateTab(tabId, updates);
-      addHistory(sqlToExecute, updates.title || tab.title, currentDatabase());
+      const effectiveTitle = updates.title || tab.title;
+      const savedQueryFilePath = resolveSavedQueryFilePath(tab);
+      const savedSourceId = savedQueryFilePath
+        ? `saved:${savedQueryFilePath}`
+        : tab.sourceId;
+      addHistory(
+        sqlToExecute,
+        effectiveTitle,
+        currentDatabase(),
+        savedSourceId,
+        savedQueryFilePath,
+      );
       const changedDatabaseCatalog = changesDatabaseCatalog(sqlToExecute);
       const changedSchema = isLikelySchemaChangingSql(sqlToExecute);
       if (changedDatabaseCatalog) {
@@ -887,6 +910,7 @@ export default function App() {
     sourceId,
     preserveTitle,
     temporary,
+    savedQueryFilePath,
     switchDatabase = true,
   }: {
     sql: string;
@@ -896,14 +920,60 @@ export default function App() {
     sourceId?: string;
     preserveTitle?: boolean;
     temporary?: boolean;
+    savedQueryFilePath?: string;
     switchDatabase?: boolean;
   }): string {
     if (switchDatabase && database && database !== currentDatabase()) {
-      void handleDatabaseChange(database);
+      const knownDatabases = databases();
+      if (
+        knownDatabases.length === 0 ||
+        knownDatabases.some((d) => d.toLowerCase() === database.toLowerCase())
+      ) {
+        void handleDatabaseChange(database);
+      } else {
+        toast.warning(
+          `Database "${database}" is not available on this connection.`,
+        );
+      }
     }
 
-    rememberCurrentLocation();
-    const tabId = addTab(sql, title, sourceId, preserveTitle, { temporary });
+    const resolvedSavedQueryFilePath = resolveSavedQueryFilePath({
+      savedQueryFilePath,
+      sourceId,
+    });
+
+    const matchingSavedQuery = resolvedSavedQueryFilePath
+      ? savedQueries().find((q) =>
+          isSamePath(q.filePath, resolvedSavedQueryFilePath),
+        )
+      : undefined;
+
+    const effectiveTitle = matchingSavedQuery?.title ?? title;
+    const shouldPreserveTitle =
+      preserveTitle ??
+      Boolean(
+        matchingSavedQuery ||
+          (title && title !== "Query" && !title.startsWith("Query ")),
+      );
+
+    const currentTab = tabs().find((t) => t.id === activeTabId());
+    const isTargetActive =
+      currentTab &&
+      ((sourceId && currentTab.sourceId === sourceId) ||
+        (resolvedSavedQueryFilePath &&
+          isSamePath(
+            resolveSavedQueryFilePath(currentTab),
+            resolvedSavedQueryFilePath,
+          )));
+
+    if (!isTargetActive && currentTab && currentTab.sql.trim()) {
+      rememberCurrentLocation();
+    }
+
+    const tabId = addTab(sql, effectiveTitle, sourceId, shouldPreserveTitle, {
+      temporary,
+      savedQueryFilePath: resolvedSavedQueryFilePath,
+    });
     if (execute) {
       setTimeout(() => handleExecute(tabId, sql), 0);
     }
@@ -911,7 +981,10 @@ export default function App() {
   }
 
   function handleTabAdd(sql?: string, title?: string, groupId?: string) {
-    rememberCurrentLocation();
+    const currentTab = tabs().find((t) => t.id === activeTabId());
+    if (currentTab && currentTab.sql.trim()) {
+      rememberCurrentLocation();
+    }
     return addTab(
       sql ?? "",
       title,
@@ -926,9 +999,9 @@ export default function App() {
     return duplicateTab(tabId);
   }
 
-  function handleTabReopen() {
+  function handleTabReopen(index?: number) {
     rememberCurrentLocation();
-    return reopenClosedTab();
+    return reopenClosedTab(index);
   }
 
   async function handleOpenQueryGroup(
@@ -1052,14 +1125,48 @@ export default function App() {
     const tab = tabs().find((t) => t.id === tabId);
     if (!tab || !tab.sql.trim()) return;
 
-    const title = await resolveTabSaveTitle(tab);
-    const saved = await saveQuery(title, tab.sql);
+    if (tab.sourceId?.startsWith("file:")) {
+      const filePath = tab.sourceId.slice("file:".length);
+      try {
+        await invoke<string>("write_sql_file", {
+          path: filePath,
+          content: tab.sql,
+        });
+        promoteTab(tabId);
+        updateTab(tabId, { savedSql: tab.sql });
+        return;
+      } catch (err) {
+        toast.error(`Failed to save SQL file: ${String(err)}`);
+        return;
+      }
+    }
+
+    const targetFilePath = resolveSavedQueryFilePath(tab);
+
+    const matchingQuery = targetFilePath
+      ? savedQueries().find((q) => isSamePath(q.filePath, targetFilePath))
+      : undefined;
+
+    const saved = targetFilePath
+      ? await saveQuery(
+          matchingQuery?.title || tab.title,
+          tab.sql,
+          targetFilePath,
+        )
+      : await saveQuery(await resolveTabSaveTitle(tab), tab.sql);
+
     if (!saved) {
-      toast.error(`Failed to save query "${title}".`);
+      toast.error(`Failed to save query "${tab.title}".`);
       return;
     }
     promoteTab(tabId);
-    updateTab(tabId, { savedSql: tab.sql });
+    updateTab(tabId, {
+      savedSql: tab.sql,
+      savedQueryFilePath: saved.filePath,
+      sourceId: `saved:${saved.filePath}`,
+      title: saved.title,
+      userTitle: true,
+    });
   }
 
   async function saveSqlContentToFile(title: string, sql: string) {
@@ -1129,17 +1236,69 @@ export default function App() {
     await saveSqlContentToFile(title, content);
   }
 
-  async function handleLoadSavedQuery(filePath: string, title: string) {
+  async function handleLoadSavedQuery(
+    filePath: string,
+    title: string,
+    temporary = true,
+  ) {
+    const existing = tabs().find((t) =>
+      isSamePath(resolveSavedQueryFilePath(t), filePath),
+    );
+    if (existing) {
+      handleOpenQueryTab({
+        sql: existing.sql,
+        title: existing.title,
+        sourceId: `saved:${filePath}`,
+        savedQueryFilePath: filePath,
+        temporary,
+      });
+      return;
+    }
     const content = await loadQueryContent(filePath);
     if (content) {
-      rememberCurrentLocation();
-      addTab(content, title, `saved:${filePath}`, true, { temporary: true });
+      handleOpenQueryTab({
+        sql: content,
+        title,
+        sourceId: `saved:${filePath}`,
+        savedQueryFilePath: filePath,
+        temporary,
+        preserveTitle: true,
+      });
+    }
+  }
+
+  async function handleGenerateAiTitleSavedQuery(id: string, filePath: string) {
+    const content = await loadQueryContent(filePath);
+    if (!content) {
+      toast.error("Failed to load saved query.");
+      return;
+    }
+    const aiTitle = await AiService.generateSqlTitle(content);
+    if (!aiTitle) {
+      toast.error("Could not generate title with AI.");
+      return;
+    }
+    const success = await handleRenameSavedQuery(id, aiTitle);
+    if (success) {
+      toast.success(`Renamed to "${aiTitle}"`);
     }
   }
 
   async function handleDeleteSavedQuery(id: string) {
+    const query = savedQueries().find((q) => q.id === id);
     if (!(await deleteQuery(id))) {
       toast.error("Failed to delete saved query.");
+      return;
+    }
+    if (query) {
+      for (const tab of tabs()) {
+        if (isSamePath(resolveSavedQueryFilePath(tab), query.filePath)) {
+          updateTab(tab.id, {
+            savedQueryFilePath: undefined,
+            sourceId: undefined,
+          });
+        }
+      }
     }
   }
 
@@ -1155,15 +1314,15 @@ export default function App() {
         return false;
       }
 
-      const oldSourceId = `saved:${query.filePath}`;
       const nextSourceId = `saved:${updated.filePath}`;
       for (const tab of tabs()) {
-        if (tab.sourceId !== oldSourceId) {
+        if (!isSamePath(resolveSavedQueryFilePath(tab), query.filePath)) {
           continue;
         }
         updateTab(tab.id, {
           title: updated.title,
           sourceId: nextSourceId,
+          savedQueryFilePath: updated.filePath,
           userTitle: true,
         });
       }
@@ -1686,15 +1845,26 @@ export default function App() {
                 >
                   <ObjectExplorer
                     onRef={(handle) => (explorerRef = handle)}
+                    activeSavedQueryFilePath={activeSavedQueryFilePath()}
                     databases={databases()}
                     onRefreshDatabases={refreshDatabases}
-                    onSelect={(sql, execute, title, database, sourceId) => {
+                    onSelect={(
+                      sql,
+                      execute,
+                      title,
+                      database,
+                      sourceId,
+                      temporary,
+                      savedQueryFilePath,
+                    ) => {
                       handleOpenQueryTab({
                         sql,
                         execute,
                         title,
                         database,
                         sourceId,
+                        temporary,
+                        savedQueryFilePath,
                       });
                     }}
                     onDatabaseChange={handleDatabaseChange}
@@ -1706,6 +1876,7 @@ export default function App() {
                     onDeleteSavedQuery={handleDeleteSavedQuery}
                     onRenameSavedQuery={handleRenameSavedQuery}
                     onLoadSavedQuery={handleLoadSavedQuery}
+                    onGenerateAiTitleSavedQuery={handleGenerateAiTitleSavedQuery}
                     onOpenGroup={handleOpenQueryGroup}
                     onSaveSavedQueryToFile={handleSaveSavedQueryToFile}
                     onOpenSavedQueriesFolder={handleOpenSavedQueriesFolder}
@@ -1746,6 +1917,7 @@ export default function App() {
                 onTabPromote={promoteTab}
                 onTabReopen={handleTabReopen}
                 canReopenClosedTab={canReopenClosedTab}
+                closedTabs={closedTabs()}
                 onTabCreateGroup={createGroup}
                 onTabAddToGroup={addTabsToGroup}
                 onTabRemoveFromGroup={removeTabsFromGroup}

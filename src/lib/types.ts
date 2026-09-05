@@ -234,6 +234,7 @@ export interface QueryTab {
   pinned?: boolean;
   temporary?: boolean;
   groupId?: string;
+  savedQueryFilePath?: string;
 }
 
 export type QueryTabHistoryEntryType = "typing" | "action";
@@ -264,6 +265,8 @@ export interface ClosedTab {
   groupId?: string;
   group?: TabGroup;
   index: number;
+  savedQueryFilePath?: string;
+  closedAt?: number;
 }
 
 export interface ExecutedQuery {
@@ -271,6 +274,8 @@ export interface ExecutedQuery {
   title: string;
   database: string;
   executedAt: number;
+  sourceId?: string;
+  savedQueryFilePath?: string;
 }
 
 export interface GeminiStatus {

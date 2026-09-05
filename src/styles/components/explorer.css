@@ -205,9 +205,13 @@
     transition: background-color var(--duration-fast) var(--ease-out);
   }
 
-  .explorer-list-row:hover,
-  .explorer-list-row.is-selected {
+  .explorer-list-row:hover {
     background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  .explorer-list-row.is-selected {
+    background: var(--color-surface-active);
     color: var(--color-text);
   }
 

@@ -10,6 +10,7 @@ import {
 } from "../lib/settings";
 import { generateTabTitle } from "../lib/sql";
 import { defaultGroupName, nextGroupColor } from "../lib/tab-groups";
+import { isSamePath, resolveSavedQueryFilePath } from "../lib/path";
 import { toast } from "../components/ui/Toaster";
 import type {
   ClosedTab,
@@ -29,6 +30,7 @@ const MAX_TAB_HISTORY_SQL_CHARS = 120_000;
 const MAX_TAB_HISTORY_TOTAL_CHARS = 600_000;
 const MAX_PERSISTED_TAB_HISTORY_TOTAL_CHARS = 1_000_000;
 const TAB_HISTORY_IDLE_DELAY_MS = 3_000;
+const STORAGE_KEY_ACTIVE_TAB_INDEX = "sqlqs_active_tab_index_v1";
 let didNotifyTabGroupPersistError = false;
 let didNotifyTabsPersistError = false;
 
@@ -181,6 +183,8 @@ function createClosedTabSnapshot(
     groupId: tab.groupId,
     group: group ? { ...group } : undefined,
     index,
+    savedQueryFilePath: tab.savedQueryFilePath,
+    closedAt: Date.now(),
   };
 }
 
@@ -298,6 +302,27 @@ function firstVisibleTabId(tabs: QueryTab[], groups: TabGroup[]): string {
   );
 }
 
+function getInitialActiveTabId(tabs: QueryTab[], groups: TabGroup[]): string {
+  const collapsedIds = collapsedGroupIds(groups);
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB_INDEX);
+    if (raw !== null) {
+      const parsed = Number(raw);
+      if (
+        Number.isInteger(parsed) &&
+        parsed >= 0 &&
+        parsed < tabs.length &&
+        isTabVisible(tabs[parsed], collapsedIds)
+      ) {
+        return tabs[parsed].id;
+      }
+    }
+  } catch {
+    return firstVisibleTabId(tabs, groups);
+  }
+  return firstVisibleTabId(tabs, groups);
+}
+
 function createTab(
   sql = "",
   temporary?: boolean,
@@ -338,9 +363,16 @@ export function useTabs() {
             ? normalizeSql(s.savedSql)
             : normalizeSql(s.sql);
         tab.userTitle = s.userTitle;
-        tab.sourceId = s.sourceId;
         tab.pinned = s.pinned;
         tab.groupId = s.groupId;
+        tab.temporary = s.temporary;
+        const resolvedSavedQueryFilePath = resolveSavedQueryFilePath(s);
+        tab.savedQueryFilePath = resolvedSavedQueryFilePath;
+        tab.sourceId =
+          s.sourceId ??
+          (resolvedSavedQueryFilePath
+            ? `saved:${resolvedSavedQueryFilePath}`
+            : undefined);
         tab.history = trimHistory(s.history);
         return tab;
       });
@@ -372,7 +404,7 @@ export function useTabs() {
       : undefined;
 
   const [activeTabId, setActiveTabId] = createSignal(
-    firstVisibleTabId(tabsStore, groupsStore),
+    getInitialActiveTabId(initialTabs, initialGroups),
   );
 
   const [closedTabsStack, setClosedTabsStack] = createSignal<ClosedTab[]>([]);
@@ -449,22 +481,33 @@ export function useTabs() {
       pinned: t.pinned,
       groupId: t.groupId,
       temporary: t.temporary,
+      savedQueryFilePath: t.savedQueryFilePath,
       history: trimHistory(t.history),
     }));
     const prefs = loadPreferences();
     if (!prefs.persistTabs) return;
-    const persistedTabs = snapshot
-      .filter((t) => !t.temporary)
-      .map((t) => ({
-        title: t.title,
-        sql: t.sql,
-        savedSql: t.savedSql,
-        history: trimHistory(t.history),
-        userTitle: t.userTitle,
-        sourceId: t.sourceId,
-        pinned: t.pinned,
-        groupId: t.groupId,
-      }));
+    const persistedTabs = snapshot.map((t) => ({
+      title: t.title,
+      sql: t.sql,
+      savedSql: t.savedSql,
+      history: trimHistory(t.history),
+      userTitle: t.userTitle,
+      sourceId: t.sourceId,
+      pinned: t.pinned,
+      groupId: t.groupId,
+      temporary: t.temporary,
+      savedQueryFilePath: t.savedQueryFilePath,
+    }));
+
+    const currentId = activeTabId();
+    const activeIndex = tabsStore.findIndex((t) => t.id === currentId);
+    if (activeIndex >= 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_TAB_INDEX, String(activeIndex));
+      } catch {
+        return;
+      }
+    }
 
     const tabsSaved = saveTabs(trimPersistedTabsHistory(persistedTabs));
     if (!tabsSaved && !didNotifyTabsPersistError) {
@@ -498,14 +541,35 @@ export function useTabs() {
     title?: string,
     sourceId?: string,
     userTitle?: boolean,
-    options?: { temporary?: boolean; groupId?: string },
+    options?: {
+      temporary?: boolean;
+      groupId?: string;
+      savedQueryFilePath?: string;
+    },
   ) => {
     const current = unwrap(tabsStore);
 
-    if (sourceId) {
-      const existing = current.find((t) => t.sourceId === sourceId);
+    const targetFilePath = resolveSavedQueryFilePath({
+      savedQueryFilePath: options?.savedQueryFilePath,
+      sourceId,
+    });
+
+    const shouldMatchExisting = Boolean(
+      targetFilePath || (sourceId && !sourceId.startsWith("history:")),
+    );
+
+    if (shouldMatchExisting) {
+      const existing = current.find(
+        (t) =>
+          (sourceId && t.sourceId === sourceId) ||
+          (targetFilePath &&
+            isSamePath(resolveSavedQueryFilePath(t), targetFilePath)),
+      );
       if (existing) {
-        if (options?.temporary === false && existing.temporary) {
+        if (
+          existing.temporary &&
+          (options?.temporary === false || activeTabId() === existing.id)
+        ) {
           promoteTab(existing.id);
         }
         setActiveTabId(existing.id);
@@ -528,6 +592,9 @@ export function useTabs() {
 
     if (sourceId) {
       tab.sourceId = sourceId;
+    }
+    if (targetFilePath) {
+      tab.savedQueryFilePath = targetFilePath;
     }
     if (userTitle) {
       tab.userTitle = true;
@@ -640,11 +707,18 @@ export function useTabs() {
     setActiveTabId(tabId);
   };
 
-  const reopenClosedTab = () => {
+  const reopenClosedTab = (index?: number) => {
     const stack = closedTabsStack();
     if (stack.length === 0) return "";
-    const closed = stack[stack.length - 1];
-    setClosedTabsStack(stack.slice(0, -1));
+    const targetIndex =
+      index !== undefined && index >= 0 && index < stack.length
+        ? index
+        : stack.length - 1;
+    const closed = stack[targetIndex];
+    setClosedTabsStack([
+      ...stack.slice(0, targetIndex),
+      ...stack.slice(targetIndex + 1),
+    ]);
 
     const current = unwrap(tabsStore);
     let temporary = closed.temporary;
@@ -658,6 +732,7 @@ export function useTabs() {
     tab.history = closed.history;
     tab.userTitle = closed.userTitle;
     tab.sourceId = closed.sourceId;
+    tab.savedQueryFilePath = closed.savedQueryFilePath;
     tab.pinned = closed.pinned;
     tab.groupId = closed.groupId;
     const currentGroups = unwrap(groupsStore);
@@ -1106,6 +1181,7 @@ export function useTabs() {
     promoteTab,
     reopenClosedTab,
     canReopenClosedTab,
+    closedTabs: closedTabsStack,
     createGroup,
     addTabsToGroup,
     removeTabsFromGroup,

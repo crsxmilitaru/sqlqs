@@ -378,6 +378,40 @@ function isParamName(word: string): boolean {
   return word.startsWith("@") || word.startsWith("[@");
 }
 
+function skipTrivia(tokens: Token[], startIndex: number): number {
+  let i = startIndex;
+  while (
+    i < tokens.length &&
+    (tokens[i].kind === "break" ||
+      tokens[i].kind === "lcomment" ||
+      tokens[i].kind === "bcomment")
+  ) {
+    i++;
+  }
+  return i;
+}
+
+function hasMultipleValuesRows(tokens: Token[], startIndex: number): boolean {
+  let i = skipTrivia(tokens, startIndex + 1);
+  if (i >= tokens.length || tokens[i].kind !== "open") {
+    return false;
+  }
+  let depth = 1;
+  i++;
+  while (i < tokens.length && depth > 0) {
+    if (tokens[i].kind === "open") depth++;
+    else if (tokens[i].kind === "close") depth--;
+    i++;
+  }
+  if (depth !== 0) return false;
+  i = skipTrivia(tokens, i);
+  if (i >= tokens.length || tokens[i].kind !== "comma") {
+    return false;
+  }
+  i = skipTrivia(tokens, i + 1);
+  return i < tokens.length && tokens[i].kind === "open";
+}
+
 function layoutCompact(tokens: Token[], indentSize: number): string {
   const lines: string[] = [];
   let cur = "";
@@ -396,6 +430,8 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
   let prevAfterDot = false;
   let prevAfterInto = false;
   let pendingCreateTable = false;
+  let inMultiRowValues = false;
+  let valuesParenDepth = -1;
   let procParams = false;
   let procParamSeen = false;
   let afterProcAs = false;
@@ -441,7 +477,11 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
   function append(text: string, noSpaceBefore = false) {
     if (cur === "") {
       lineIndent =
-        blockIndent + listDepth + getProcIndent() + getControlIndent();
+        blockIndent +
+        listDepth +
+        getProcIndent() +
+        getControlIndent() +
+        (inMultiRowValues ? 1 : 0);
       cur = text;
     } else if (!noSpaceBefore && !prevNoSpaceAfter) {
       cur += " " + text;
@@ -484,6 +524,7 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
         append(";", true);
         flush();
         popCompletedBodyFrames();
+        inMultiRowValues = false;
         if (parenDepth === 0) {
           pendingCreateTable = false;
           pendingCteOpen = false;
@@ -515,7 +556,8 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
         if (
           (listDepth > 0 && parenDepth === listParenDepth) ||
           (procParams && parenDepth === 0) ||
-          (inCte && parenDepth === 0)
+          (inCte && parenDepth === 0) ||
+          (inMultiRowValues && parenDepth === valuesParenDepth)
         ) {
           flush();
         }
@@ -563,6 +605,9 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
           parenDepth === cteParenStack[cteParenStack.length - 1];
         const isColumnList = listDepth > 0 && parenDepth === listParenDepth;
         parenDepth = Math.max(0, parenDepth - 1);
+        if (inMultiRowValues && parenDepth < valuesParenDepth) {
+          inMultiRowValues = false;
+        }
         if (isColumnList) {
           listDepth--;
           flush();
@@ -623,6 +668,9 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
         continue;
       case "word": {
         const w = tk.value.toUpperCase();
+        if (inMultiRowValues && parenDepth <= valuesParenDepth) {
+          inMultiRowValues = false;
+        }
         const nw = nextWord(tokens, i);
         const isTranNext = tokens[i + 2];
         const isTran =
@@ -790,6 +838,8 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
           caseDepth = 0;
           inCte = false;
           pendingCteOpen = false;
+          inMultiRowValues = false;
+          valuesParenDepth = -1;
           cteParenStack.length = 0;
           prevWord = "";
           prevKind = null;
@@ -924,6 +974,11 @@ function layoutCompact(tokens: Token[], indentSize: number): string {
             flush();
             append(tk.value);
             afterJoinKeyword = false;
+            if (w === "VALUES" && hasMultipleValuesRows(tokens, i)) {
+              flush();
+              inMultiRowValues = true;
+              valuesParenDepth = parenDepth;
+            }
             if (tokens[i + 1]?.kind !== "dot") prevWord = w;
             prevKind = "word";
             continue;

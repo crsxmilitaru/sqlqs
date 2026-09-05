@@ -33,6 +33,7 @@ describe("useConnection", () => {
     await waitFor(() => expect(result.databases()).toEqual(["master", "app"]));
     expect(result.connected()).toBe(true);
     expect(result.serverName()).toBe("localhost");
+    expect(result.connectionKey()).toBe("localhost#win");
     expect(result.currentDatabase()).toBe("app");
     expect(localStorage.getItem("sqlqs_last_database")).toBe("app");
   });
@@ -66,6 +67,7 @@ describe("useConnection", () => {
     expect(invokeMock).toHaveBeenCalledWith("disconnect_from_server");
     expect(result.connected()).toBe(false);
     expect(result.serverName()).toBe("");
+    expect(result.connectionKey()).toBe("");
     expect(result.currentDatabase()).toBeUndefined();
     expect(result.databases()).toEqual([]);
   });

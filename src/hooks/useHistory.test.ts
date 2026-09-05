@@ -1,4 +1,5 @@
 import { renderHook, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useHistory } from "./useHistory";
 
@@ -64,5 +65,43 @@ describe("useHistory", () => {
     result.clearHistory();
 
     await waitFor(() => expect(localStorage.getItem(storageKey)).toBeNull());
+  });
+
+  it("stores and preserves sourceId and savedQueryFilePath", () => {
+    const { result } = renderHook(useHistory);
+    result.addHistory(
+      "SELECT 1",
+      "Saved Query",
+      "master",
+      "saved:C:\\Queries\\Saved.sql",
+      "C:\\Queries\\Saved.sql",
+    );
+
+    expect(result.executedQueries()[0]).toMatchObject({
+      sql: "SELECT 1",
+      title: "Saved Query",
+      sourceId: "saved:C:\\Queries\\Saved.sql",
+      savedQueryFilePath: "C:\\Queries\\Saved.sql",
+    });
+  });
+
+  it("isolates history per connection and switches reactively", async () => {
+    const [currentConn, setCurrentConn] = createSignal("server-a#win");
+    const { result } = renderHook(() => useHistory(currentConn));
+
+    result.addHistory("SELECT 100", "Query A", "dev_spital");
+    expect(result.executedQueries()).toHaveLength(1);
+    expect(result.executedQueries()[0].sql).toBe("SELECT 100");
+
+    setCurrentConn("server-b#win");
+    await waitFor(() => expect(result.executedQueries()).toEqual([]));
+
+    result.addHistory("SELECT 200", "Query B", "master");
+    expect(result.executedQueries()).toHaveLength(1);
+    expect(result.executedQueries()[0].sql).toBe("SELECT 200");
+
+    setCurrentConn("server-a#win");
+    await waitFor(() => expect(result.executedQueries()).toHaveLength(1));
+    expect(result.executedQueries()[0].sql).toBe("SELECT 100");
   });
 });

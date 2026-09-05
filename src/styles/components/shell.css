@@ -115,6 +115,30 @@
     transform: none;
   }
 
+  .control-icon-btn.tab-search-btn {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  .control-icon-btn.tab-search-btn:hover:not(:disabled) {
+    background: var(--color-accent);
+    color: var(--color-accent-text);
+  }
+
+  .control-icon-btn.tab-search-btn:active:not(:disabled) {
+    transform: none;
+  }
+
+  .control-icon-btn.tab-search-btn.is-active:not(:disabled),
+  .control-icon-btn.tab-search-btn.is-active:hover:not(:disabled),
+  .control-icon-btn.tab-search-btn.is-active:active:not(:disabled) {
+    background: var(--color-accent);
+    color: var(--color-accent-text);
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+
   .tab-bar:has(> :last-child:hover) ~ .ui-divider {
     opacity: 0;
   }
