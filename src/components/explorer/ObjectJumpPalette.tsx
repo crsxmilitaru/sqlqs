@@ -19,6 +19,7 @@ import {
   saveObjectJumpDatabaseFilter,
   saveObjectJumpTypeFilter,
 } from "../../lib/settings";
+import { bestEffortSync } from "../../lib/platform";
 import type { ContextMenuItem } from "../ui/ContextMenu";
 import {
   Icon,
@@ -115,11 +116,9 @@ function loadRecents(): JumpObject[] {
 
 function saveRecents(items: JumpObject[]): void {
   if (typeof localStorage === "undefined") return;
-  try {
+  bestEffortSync(() => {
     localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // ignore quota or serialization errors
-  }
+  });
 }
 
 function getJumpObjectSourceId(object: JumpObject): string {

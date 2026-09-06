@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiService } from "../../lib/ai";
 import { loadAiEnabled } from "../../lib/settings";
 import { getGoBackShortcutLabel, getGoForwardShortcutLabel } from "../../lib/editor-navigation";
-import { isMacOS } from "../../lib/platform";
+import { bestEffort, isMacOS } from "../../lib/platform";
 import type { SavedConnection, ServerObjectIndexStatus } from "../../lib/types";
 import type { SettingsTab } from "../settings/SettingsView";
 import Tooltip from "../ui/Tooltip";
@@ -68,32 +68,31 @@ export default function TitleBar(props: Props) {
     const unlistens: Array<() => void> = [];
     let cancelled = false;
 
-    win
-      .isMaximized()
-      .then((maximized) => {
+    void bestEffort(
+      win.isMaximized().then((maximized) => {
         if (!cancelled) setIsMaximized(maximized);
-      })
-      .catch(() => undefined);
+      }),
+    );
 
-    const refreshMaximized = async () => {
-      try {
-        const maximized = await win.isMaximized();
-        if (!cancelled) setIsMaximized(maximized);
-      } catch { /* empty */ }
-    };
+    const refreshMaximized = () =>
+      bestEffort(
+        win.isMaximized().then((maximized) => {
+          if (!cancelled) setIsMaximized(maximized);
+        }),
+      );
 
     const subscribe = (
       listenFn: (cb: () => Promise<void> | void) => Promise<() => void>,
     ) =>
-      listenFn(refreshMaximized)
-        .then((fn) => {
+      bestEffort(
+        listenFn(refreshMaximized).then((fn) => {
           if (cancelled) {
             fn();
           } else {
             unlistens.push(fn);
           }
-        })
-        .catch(() => undefined);
+        }),
+      );
 
     void subscribe((cb) => win.onResized(cb));
 
@@ -189,9 +188,7 @@ export default function TitleBar(props: Props) {
     }
 
     event.preventDefault();
-    void getCurrentWindow()
-      .startDragging()
-      .catch(() => undefined);
+    void bestEffort(getCurrentWindow().startDragging());
   }
 
   return (

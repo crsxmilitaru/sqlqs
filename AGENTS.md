@@ -134,7 +134,7 @@ Health/spawn tests run without SQL Server. Live tests (`sidecar_*_live.rs`) requ
 
 ### General
 - Prefer clear, small units of work. Remove dead code and unused imports.
-- No obvious comments. JSDoc only when types or intent are non-obvious.
+- No comments in code. Constraints, contracts, and intent belong in this file, not inline.
 - No fallbacks or keeping legacy code.
 - CRLF on Windows.
 
@@ -143,17 +143,32 @@ Health/spawn tests run without SQL Server. Live tests (`sidecar_*_live.rs`) requ
 - Never destructure props in the argument list (breaks reactivity). Use `props.x` or `mergeProps`.
 - Styling: Tailwind v4 utilities plus the existing CSS in `src/styles/`. Prefer tokens/CSS variables from `global.css` over one-off colors. Avoid inline styles.
 - New keyboard shortcuts must be registered in `src/lib/shortcuts.ts` (Settings → Shortcuts).
-- Surface errors in dialogs or status UI. No empty `catch` blocks.
+- Surface errors in dialogs or status UI. No empty `catch` blocks: return an explicit fallback for expected failures, and route fire-and-forget best-effort calls (OS integration, UI polish) through `bestEffort` / `bestEffortSync` in `src/lib/platform.ts`, the only sanctioned silent-swallow points. Never use them for operations the user depends on.
+- SQL completion: Dynamic-SQL literals (`looksLikeSql`, e.g. `SET @sql = 'SELECT ...'`) are completed as SQL rather than data strings. Stripped SQL comments and strings must remain length-aligned with the source text so cursor offsets match the original document.
 
 ### Rust host
 - Idiomatic `Result<T, E>` with user-displayable error strings from Tauri commands.
 - Sidecar lifecycle goes through `SidecarSupervisor` / `SidecarHandle`. Do not spawn the host process ad hoc.
 - Validate command inputs. Do not log passwords, API keys, or connection strings with secrets.
+- Keychain storage: writes always go to `KEYRING_SERVICE` (`SQL Query Studio`). Reads also check `LEGACY_KEYRING_SERVICE` (`sqlqs`) for seamless upgrades.
+- Single-instance forwarding: Windows and Linux use `tauri_plugin_single_instance`, while macOS handles file opens via `RunEvent::Opened`.
+- Batch splitting in `db::query::split_batches` matches SSMS rules (tracks block comments, string literals, brackets, and `GO [count]`).
+- Sidecar process supervision: `spawn_or_reuse_sidecar` serializes process launches behind a write lock to prevent duplicate instances under concurrency. Respawning clears the active connection ID so subsequent operations fail fast instead of reusing stale IDs.
+- In-flight query cancellation: Reusing a `query_id` cancels the currently running execution; superseded futures resolve with `"Query cancelled by user"` and are ignored by the frontend.
+- Script generation: `sp_executesql` is invoked via 3-part naming (`<database>.sys.sp_executesql`) so the calling session's database context is preserved.
+- Window subclassing: `MICA_SUBCLASS_ID` (`0x5351_4C51`) represents the ASCII hex encoding for `"SQLQ"`.
 
 ### .NET sidecar
 - `Sqlqs.Sidecar.Host` and libraries target `net10.0` with nullable reference types. Contracts target `netstandard2.0`.
 - Dispose SQL connections and SMO objects.
+- Surface errors in RPC results. `catch { }` on a single line is allowed only for deliberate best-effort cleanup (e.g., `RestoreDatabaseContext` re-setting the database after scripting).
 - RPC method names and DTO shapes must match the Rust client in `src-tauri/src/sidecar/`.
+- Connection serialization: `SqlConnection` does not support concurrent commands. Operations targeting a connection must acquire its lease via `ConnectionService.AcquireAsync` and serialize through its `Gate` (`SemaphoreSlim(1, 1)`).
+- Session initialization: New connections execute SSMS SET options (`ANSI_NULLS`, `ANSI_PADDING`, `ANSI_WARNINGS`, `ARITHABORT`, `CONCAT_NULL_YIELDS_NULL`, `QUOTED_IDENTIFIER ON`, `NUMERIC_ROUNDABORT OFF`, `TEXTSIZE 2147483647`). `ARITHABORT ON` is mandatory for DML against indexed views, computed-column indexes, and filtered indexes, which `Microsoft.Data.SqlClient` omits by default.
+- Authentication builder: For SQL authentication, out-of-band passwords take precedence over connection string passwords.
+- Batch query execution: `ExecuteBatchesAsync` sequentially executes batches under a single connection lease to preserve session state (transactions, temp tables, session context, SET options) across `GO` batch boundaries.
+- Backup contracts: `BackupRequest.BackupType` value domain is restricted to `FULL`, `DIFFERENTIAL`, or `LOG`.
+- Database restore: SMO `Restore` does not sever active connections; `REPLACE` operations switch the database to `SINGLE_USER WITH ROLLBACK IMMEDIATE` beforehand, and revert to `MULTI_USER` only if recovery is enabled.
 
 ## 7. Security
 

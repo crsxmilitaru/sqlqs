@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { loadStoredStringSet } from "./storage";
 
 const TOOLS_STORAGE_KEY = "sqlqs_ai_tools_enabled";
 
@@ -137,11 +138,7 @@ export const AI_TOOLS: AiTool[] = [
 ];
 
 export function loadEnabledTools(): Set<string> {
-  try {
-    const stored = localStorage.getItem(TOOLS_STORAGE_KEY);
-    if (stored) return new Set<string>(JSON.parse(stored));
-  } catch {}
-  return new Set(AI_TOOLS.map((t) => t.id));
+  return loadStoredStringSet(TOOLS_STORAGE_KEY, new Set(AI_TOOLS.map((t) => t.id)));
 }
 
 export function saveEnabledTools(enabled: Set<string>) {

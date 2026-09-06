@@ -24,7 +24,7 @@ import {
   joinPath,
   resolveSavedQueryFilePath,
 } from "../../lib/path";
-import { getPlatformClass } from "../../lib/platform";
+import { bestEffort, getPlatformClass } from "../../lib/platform";
 import { AiService } from "../../lib/ai";
 import { parseConnectionStringPreview } from "../../lib/connections";
 import { generateTabTitle } from "../../lib/sql";
@@ -615,7 +615,9 @@ export default function App() {
               input.setSelectionRange(nextCursor, nextCursor);
               input.dispatchEvent(new Event("input", { bubbles: true }));
               input.focus();
-            } catch { /* empty */ }
+            } catch (err) {
+              toast.error(`Failed to paste: ${String(err)}`);
+            }
           }
         });
 
@@ -1088,7 +1090,7 @@ export default function App() {
 
       rememberCurrentLocation();
       addTab(file.content, file.file_name, `file:${file.path}`, true);
-      void invoke("add_to_recent_docs", { path: file.path }).catch(() => undefined);
+      void bestEffort(invoke("add_to_recent_docs", { path: file.path }));
       toast.success(`Opened ${file.file_name}`);
     } catch (error) {
       toast.error(`Failed to open file: ${String(error)}`);

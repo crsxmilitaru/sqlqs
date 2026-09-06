@@ -59,7 +59,6 @@ async fn backup_inspect_restore_roundtrip_against_master() {
     let rpc = handle.rpc();
     let opened = connection::open(&rpc, config).await.expect("open");
 
-    // Use the server's own backup directory so the path is guaranteed writable for the SQL Server service account.
     let defaults = backup::defaults(&rpc, &opened.connection_id)
         .await
         .expect("defaults");
@@ -158,7 +157,6 @@ async fn backup_inspect_restore_roundtrip_against_master() {
     );
     assert!(restore_result.message.contains("RESTORE completed"));
 
-    // Cleanup: drop the restored DB, delete the backup file
     query::execute(
         &rpc,
         &opened.connection_id,

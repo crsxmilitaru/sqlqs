@@ -32,9 +32,6 @@ impl Default for AppSettings {
     }
 }
 
-// Writes always go to KEYRING_SERVICE. Reads check LEGACY_KEYRING_SERVICE too
-// so users upgrading from the old "sqlqs" service name (Windows/Linux builds
-// before the rename) keep their saved passwords.
 const KEYRING_SERVICE: &str = "SQL Query Studio";
 const LEGACY_KEYRING_SERVICE: &str = "sqlqs";
 const KEYRING_SERVICES: &[&str] = &[KEYRING_SERVICE, LEGACY_KEYRING_SERVICE];

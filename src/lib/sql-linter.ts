@@ -266,8 +266,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
   const firstKeyword =
     tokens[0].type === "keyword" ? tokens[0].value.toUpperCase() : null;
 
-  // SELECT without FROM. We only consider depth-0 tokens so scalar subqueries
-  // (SELECT (SELECT 1) AS x) and CTE-style nested SELECTs do not trigger the warning.
   if (firstKeyword === "SELECT") {
     let depth = 0;
     let hasFromAtDepth0 = false;
@@ -298,9 +296,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
         }
       }
 
-      // A qualified identifier like `schema.table` or `t.col` strongly suggests a
-      // table reference. Skip if it's followed by `(`, which indicates a function call
-      // such as `dbo.GetDate()`.
       if (
         t.type === "identifier" &&
         !t.value.startsWith("@") &&
@@ -379,7 +374,6 @@ function lintStatement(tokens: StatementTokens): Diagnostic[] {
       (t) => t.type === "keyword" && t.value.toUpperCase() === "FROM",
     );
     if (!hasFrom) {
-      // DELETE can also be used without FROM in T-SQL (DELETE tablename WHERE...)
       const nextToken = tokens[1];
       if (!nextToken || nextToken.type === "keyword") {
         diagnostics.push({

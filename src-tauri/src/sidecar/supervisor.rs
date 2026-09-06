@@ -45,8 +45,6 @@ impl SidecarHandle {
         self.rpc.call("health.ping", &empty).await
     }
 
-    /// Returns `false` once the child process has exited so callers can respawn.
-    /// Reaps the child via `try_wait` when it has already terminated.
     pub async fn is_alive(&self) -> bool {
         let mut child = self.child.lock().await;
         !matches!(child.try_wait(), Ok(Some(_)) | Err(_))

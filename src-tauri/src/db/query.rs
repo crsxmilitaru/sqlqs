@@ -1,5 +1,3 @@
-/// Split SQL text on GO batch separators, respecting strings, comments,
-/// and `GO N` repeat counts, matching SSMS behavior.
 pub fn split_batches(sql: &str) -> Vec<String> {
     let mut batches = Vec::new();
     let mut current_batch = String::new();
@@ -46,11 +44,6 @@ pub fn split_batches(sql: &str) -> Vec<String> {
     batches
 }
 
-/// Returns whether a line ends inside a block comment, given the starting
-/// state. Tracks string literals and quoted identifiers so that `/*` or `*/`
-/// inside `'...'` or `[...]` does not toggle the comment state. Once a `--`
-/// line comment starts, the rest of the line is ignored; block comment state
-/// at EOL inherits the state at the `--`.
 fn update_block_comment_state(line: &str, mut in_block: bool) -> bool {
     let bytes = line.as_bytes();
     let len = bytes.len();

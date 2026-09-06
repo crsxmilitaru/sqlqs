@@ -1,3 +1,4 @@
+import { bestEffortSync } from "./platform";
 import type { ExecutedQuery } from "./types";
 
 const STORAGE_KEY_DATABASE_USAGE = "sqlqs_database_usage_v1";
@@ -47,11 +48,9 @@ export function loadDatabaseUsage(
 
 export function saveAllDatabaseUsage(usage: ServerDatabaseUsageMap): void {
   if (typeof localStorage === "undefined") return;
-  try {
+  bestEffortSync(() => {
     localStorage.setItem(STORAGE_KEY_DATABASE_USAGE, JSON.stringify(usage));
-  } catch {
-    // ignore quota or serialization errors
-  }
+  });
 }
 
 export function recordDatabaseUsage(

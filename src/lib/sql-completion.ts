@@ -128,8 +128,6 @@ const CLAUSE_KEYWORDS: Record<string, SqlClause> = {
 };
 const IDENTIFIER_TOKEN = String.raw`(?:\[[^\]]+(?:\]\][^\]]*)*\]|"[^"]+(?:""[^"]*)*"|[#@A-Za-z_][\w@$#]*)`;
 
-// A completion request runs several helpers over the same statement and
-// document text; these per-text caches keep each pass to one execution.
 const MAX_TEXT_CACHE_ENTRIES = 8;
 
 function createTextCache<R>() {
@@ -459,8 +457,6 @@ function readBalancedParens(
 const SQL_LITERAL_RE =
   /\b(SELECT|INSERT|UPDATE|DELETE|FROM|JOIN|WHERE|GROUP|HAVING|ORDER|WITH|DECLARE|EXEC)\b/i;
 
-/** Dynamic-SQL literals (SET @sql = 'SELECT ...') look like queries and
- *  should be completed as SQL, unlike ordinary data strings. */
 function looksLikeSql(text: string): boolean {
   return text.length >= 24 && SQL_LITERAL_RE.test(text);
 }
@@ -487,8 +483,6 @@ function stripSqlCommentsAndStrings(
   return stripped;
 }
 
-/** The output must stay length-aligned with the source: cursor offsets from
- *  the original statement are compared against positions in this text. */
 function stripSqlCommentsAndStringsUncached(
   sqlText: string,
   keepSqlLiterals = false,

@@ -53,7 +53,6 @@ async fn xe_session_captures_query_completion_events() {
         start.session_name, start.events
     );
 
-    // Drive a few queries to populate the ring buffer
     for i in 0..5 {
         let sql = format!("SELECT {} AS marker_{}", i, i);
         query::execute(&rpc, &opened.connection_id, &sql, None)
@@ -61,7 +60,6 @@ async fn xe_session_captures_query_completion_events() {
             .expect("driver query should succeed");
     }
 
-    // Ring buffer has MAX_DISPATCH_LATENCY = 1 second — give the dispatcher a moment.
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
     let read = xe::read_session(&rpc, &opened.connection_id, session_name)
@@ -84,7 +82,6 @@ async fn xe_session_captures_query_completion_events() {
         names
     );
 
-    // Sample a couple of events
     for ev in read.events.iter().take(3) {
         eprintln!(
             "[test] event {} @ {} fields=[{}]",

@@ -43,10 +43,6 @@ function mapSuggestion(
   return mapped.from >= 0 && mapped.at >= 0 && mapped.to >= 0 ? mapped : null;
 }
 
-/**
- * The stored ghost is only position-mapped on doc changes; this validates it
- * against the live state so stale ghosts never render or get accepted.
- */
 function currentGhost(state: EditorState): GhostSuggestion | null {
   const ghost = state.field(ghostField, false);
   if (!ghost) return null;

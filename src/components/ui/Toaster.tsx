@@ -4,7 +4,6 @@ import { Portal } from "solid-js/web";
 export type ToastTone = "success" | "error" | "info" | "warning";
 
 export interface ToastOptions {
-  /** How long the toast stays visible, in milliseconds. Defaults to 4500. */
   duration?: number;
 }
 
@@ -31,7 +30,6 @@ function push(tone: ToastTone, message: string, options?: ToastOptions) {
   return id;
 }
 
-/** Show a transient toast notification. Available app-wide without a provider. */
 export const toast = {
   success: (message: string, options?: ToastOptions) =>
     push("success", message, options),
@@ -63,10 +61,6 @@ const TONE_STYLES: Record<ToastTone, { wrap: string; icon: string }> = {
   },
 };
 
-/**
- * Mount once near the root of the app. Renders the toast stack in a portal
- * anchored to the bottom-right of the viewport.
- */
 export default function Toaster() {
   return (
     <Portal>

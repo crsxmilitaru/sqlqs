@@ -57,7 +57,6 @@ export default function ColumnSelector(props: Props) {
   const toggleAllMatching = () => {
     const indices = filteredIndices();
     if (indices.length === 0) return;
-    // "all"/"some" visible -> hide the rest; "none" -> show all matching.
     props.onSetHidden(indices, masterState() !== "none");
   };
 

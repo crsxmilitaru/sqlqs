@@ -76,6 +76,7 @@ import {
 } from "../../lib/ai-inline-completion";
 import { preloadSchemaCatalog } from "../../lib/schema-catalog";
 import { buildAutocompletionExt, sqlCompletionSource } from "../../lib/sql-completion";
+import { toast } from "../ui/Toaster";
 import {
   acceptInlineSuggestion,
   clearInlineSuggestion,
@@ -460,7 +461,9 @@ function formatSelectionInEditor(view: EditorView): boolean {
         userEvent: "input.format",
       });
     })
-    .catch(() => undefined);
+    .catch((err) => {
+      toast.error(`Failed to format selection: ${String(err)}`);
+    });
   return true;
 }
 
@@ -1630,14 +1633,14 @@ export default function SqlEditor(props: Props) {
         const initialState = view.state;
         event.preventDefault();
         void formatSqlWithPrefs(text)
+          .catch(() => text)
           .then((formatted) => {
             if (view.state !== initialState) return;
             view.dispatch({
               ...view.state.replaceSelection(formatted),
               annotations: Transaction.userEvent.of("input.paste"),
             });
-          })
-          .catch(() => undefined);
+          });
         return true;
       },
     });

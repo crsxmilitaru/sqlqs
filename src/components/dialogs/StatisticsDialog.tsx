@@ -52,7 +52,6 @@ export default function StatisticsDialog(props: Props) {
       </div>
 
       <div class="p-6 flex-1 min-h-0 flex flex-col gap-6 overflow-y-auto overflow-x-hidden">
-        {/* KPI Cards */}
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div class="bg-surface-hover/30 p-4 rounded-xl border border-border/15 flex flex-col gap-1">
             <span class="text-xs uppercase font-medium text-text-muted/70 tracking-wider">Total CPU Time</span>
@@ -83,7 +82,6 @@ export default function StatisticsDialog(props: Props) {
           </div>
         </div>
 
-        {/* Table I/O Grid */}
         <div class="flex flex-col gap-2.5">
           <h3 class="text-s font-semibold text-text uppercase tracking-wider select-none">
             Table I/O Operations

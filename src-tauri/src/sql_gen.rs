@@ -798,8 +798,6 @@ pub fn generate_object_script_static(
             Some(format!("EXEC {qdb}.sys.sp_executesql {drop_sql}"))
         }
 
-        // sp_executesql is invoked in the target database via 3-part name so
-        // the calling session's database context is preserved.
         ("TABLE" | "VIEW" | "PROCEDURE" | "FUNCTION" | "TRIGGER", "referencing_entities") => {
             let qdb = quote_identifier(database);
             let target_lit = quote_string_literal(&format!("{}.{}", schema, name));
@@ -854,7 +852,6 @@ pub fn generate_object_script_static(
     }
 }
 
-/// Build SQL using column metadata (for script_select_columns, script_insert, script_update, script_delete, script_create view).
 pub fn generate_object_script_with_columns(
     database: &str,
     schema: &str,
@@ -938,7 +935,6 @@ pub fn generate_object_script_with_columns(
     }
 }
 
-/// Build SQL using an object definition (for view_definition, script_alter of procs/views/etc).
 pub fn generate_object_script_with_definition(
     _database: &str,
     _schema: &str,
@@ -974,7 +970,6 @@ pub fn generate_object_script_with_definition(
     }
 }
 
-/// Fallback SQL when object definition cannot be retrieved.
 pub fn generate_object_script_definition_fallback(
     database: &str,
     schema: &str,
@@ -1010,7 +1005,6 @@ pub fn generate_object_script_definition_fallback(
     }
 }
 
-/// Rewrites `CREATE <kind>` (and `CREATE OR ALTER <kind>`) to `ALTER <kind>`.
 fn alter_replace(definition: &str, keyword_pattern: &str) -> String {
     let keywords: &[&str] = match keyword_pattern {
         "PROC(?:EDURE)?" => &["procedure", "proc"],
@@ -1054,7 +1048,6 @@ fn alter_replace(definition: &str, keyword_pattern: &str) -> String {
 
         let mut cursor = skip_ws(create_end);
 
-        // Optional "OR ALTER" between CREATE and the kind keyword.
         if let Some(or_end) = match_kw(cursor, "or") {
             let after_or = skip_ws(or_end);
             if let Some(alter_end) = match_kw(after_or, "alter") {
@@ -1200,7 +1193,6 @@ mod tests {
 
     #[test]
     fn alter_replace_skips_create_in_string_or_unrelated_word() {
-        // "creates" should not match "create" — word boundary check
         let sql = "-- creates foo\nCREATE OR ALTER TRIGGER tr ON dbo.T AFTER INSERT AS SELECT 1";
         let altered = alter_replace(sql, "TRIGGER");
         assert_eq!(

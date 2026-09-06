@@ -11,6 +11,7 @@ import {
 import { Portal } from "solid-js/web";
 import { marked } from "marked";
 import DOMPurify, { type Config as DOMPurifyConfig } from "dompurify";
+import { toast } from "../ui/Toaster";
 import {
   isPermissionGranted,
   requestPermission,
@@ -1512,7 +1513,11 @@ export default function AIChatPanel(props: Props) {
                                         () => setErrorCopied(false),
                                         1500,
                                       );
-                                    } catch {}
+                                    } catch (err) {
+                                      toast.error(
+                                        `Failed to copy: ${String(err)}`,
+                                      );
+                                    }
                                   }}
                                   class="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-s font-medium text-error transition-colors hover:bg-error/15 cursor-pointer"
                                 >

@@ -1,6 +1,7 @@
 import { createSignal, onMount } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import type { ChatMessage } from "../lib/ai";
+import { bestEffortSync } from "../lib/platform";
 import { loadPreferences } from "../lib/settings";
 
 const ACTIVE_CONVERSATION_STORAGE_KEY = "sqlqs_active_conversation_id";
@@ -60,13 +61,13 @@ export function useConversationHistory() {
 
   const setActiveId = (id: string | null) => {
     setActiveIdSignal(id);
-    try {
+    bestEffortSync(() => {
       if (id) {
         localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, id);
       } else {
         localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
       }
-    } catch {}
+    });
   };
 
   const restoreActiveFromMessages = async (msgs: ChatMessage[]) => {

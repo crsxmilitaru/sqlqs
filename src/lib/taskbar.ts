@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { bestEffort } from "./platform";
 
 type TaskbarState = "indeterminate" | "error" | "none";
 
@@ -12,11 +13,13 @@ const activeOperations = new Set<number>();
 let errorResetTimer: ReturnType<typeof setTimeout> | undefined;
 
 function setTaskbarState(state: TaskbarState) {
-  void invoke("set_taskbar_progress", {
-    progress: state === "error" ? 100 : 0,
-    total: 100,
-    state,
-  }).catch(() => undefined);
+  void bestEffort(
+    invoke("set_taskbar_progress", {
+      progress: state === "error" ? 100 : 0,
+      total: 100,
+      state,
+    }),
+  );
 }
 
 function clearErrorResetTimer() {

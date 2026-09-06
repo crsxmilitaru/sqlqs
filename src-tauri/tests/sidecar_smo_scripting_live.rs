@@ -35,7 +35,6 @@ async fn script_real_table_via_smo() {
     let rpc = handle.rpc();
     let opened = connection::open(&rpc, config).await.expect("open");
 
-    // Create a real table in master.dbo with various features so SMO has something interesting to script.
     let setup = "
         IF OBJECT_ID('master.dbo.sqlqs_smo_test') IS NOT NULL DROP TABLE master.dbo.sqlqs_smo_test;
         CREATE TABLE master.dbo.sqlqs_smo_test (
@@ -111,7 +110,6 @@ async fn script_existing_system_view_via_smo() {
     let rpc = handle.rpc();
     let opened = connection::open(&rpc, config).await.expect("open");
 
-    // Pick a stable system view that exists on every SQL Server instance.
     let response = scripting::script_object(
         &rpc,
         &opened.connection_id,

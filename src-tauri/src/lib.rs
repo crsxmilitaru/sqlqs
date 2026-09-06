@@ -290,16 +290,11 @@ async fn check_update_channel<R: tauri::Runtime>(
     }
 }
 
-/// Returns a running sidecar handle, lazily spawning (or respawning) the
-/// sidecar process if it has never started or has since crashed. Spawning is
-/// serialized behind the write lock so concurrent callers can't start duplicate
-/// processes.
 async fn spawn_or_reuse_sidecar(
     sidecar: &Arc<RwLock<Option<Arc<SidecarHandle>>>>,
     connection_id: &Arc<Mutex<Option<String>>>,
     last_error: &Arc<Mutex<Option<String>>>,
 ) -> Result<Arc<SidecarHandle>, String> {
-    // Fast path: an existing, still-running sidecar.
     {
         let guard = sidecar.read().await;
         if let Some(handle) = guard.as_ref() {
@@ -310,15 +305,12 @@ async fn spawn_or_reuse_sidecar(
     }
 
     let mut guard = sidecar.write().await;
-    // Re-check under the write lock in case another caller just spawned one.
     if let Some(handle) = guard.as_ref() {
         if handle.is_alive().await {
             return Ok(Arc::clone(handle));
         }
     }
 
-    // A previously-spawned sidecar has died: drop it and invalidate the stale
-    // connection id so the app knows it must reconnect.
     if guard.take().is_some() {
         *connection_id.lock().await = None;
     }
@@ -386,9 +378,6 @@ async fn cancel_all_queries(state: &AppState) {
 }
 
 async fn sidecar_connection_id(state: &AppState) -> Result<String, String> {
-    // Ensure the sidecar is alive before reading the id: if it died and
-    // respawned, the slot was cleared and we return "Not connected" instead
-    // of a stale id that the new sidecar instance won't recognise.
     let _ = ensure_sidecar(state).await?;
     state
         .sidecar_connection_id
@@ -1178,8 +1167,6 @@ async fn execute_query_via_sidecar(
     });
     {
         let mut tokens = state.cancel_tokens.lock().await;
-        // Reusing a query_id cancels the in-flight run; the superseded future
-        // resolves with "Query cancelled by user" and the frontend ignores it.
         if let Some(previous) = tokens.insert(query_id.clone(), cancel.clone()) {
             previous.cancel();
         }
@@ -2076,7 +2063,7 @@ static MICA_REFRESH_GENERATION: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(target_os = "windows")]
-const MICA_SUBCLASS_ID: usize = 0x5351_4C51; // "SQLQ"
+const MICA_SUBCLASS_ID: usize = 0x5351_4C51;
 
 #[cfg(target_os = "windows")]
 fn apply_mica_theme_hwnd(hwnd: windows::Win32::Foundation::HWND, dark: bool) {
@@ -2889,7 +2876,6 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
 
-    // Linux & Windows keep single-instance file forwarding. Mac uses RunEvent::Opened instead.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {

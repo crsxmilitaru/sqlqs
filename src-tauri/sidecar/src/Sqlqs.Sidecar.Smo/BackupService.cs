@@ -43,6 +43,12 @@ public sealed class BackupService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var backupType = request.BackupType.Trim().ToUpperInvariant();
+        if (backupType is not ("FULL" or "DIFFERENTIAL" or "LOG"))
+        {
+            throw new ArgumentException($"Invalid backup type '{request.BackupType}'. Expected FULL, DIFFERENTIAL, or LOG.");
+        }
+
         var sqlConn = _connections.Resolve(request.ConnectionId);
         var originalDatabase = sqlConn.Database;
         try
@@ -52,12 +58,12 @@ public sealed class BackupService
             var backup = new Backup
             {
                 Database = request.Database,
-                Action = request.BackupType.ToUpperInvariant() switch
+                Action = backupType switch
                 {
                     "LOG" => BackupActionType.Log,
                     _ => BackupActionType.Database,
                 },
-                Incremental = request.BackupType.Equals("DIFFERENTIAL", StringComparison.OrdinalIgnoreCase),
+                Incremental = backupType == "DIFFERENTIAL",
                 CopyOnly = request.CopyOnly,
                 CompressionOption = request.Compression
                     ? BackupCompressionOptions.On
@@ -94,9 +100,6 @@ public sealed class BackupService
         var originalDatabase = sqlConn.Database;
         try
         {
-            // SMO's Restore does not kick existing sessions, so a REPLACE over a
-            // database that has active connections fails with "database in use".
-            // Force SINGLE_USER first (matching the previous T-SQL behavior).
             if (request.ReplaceExisting)
             {
                 SetDatabaseUserMode(sqlConn, request.TargetDatabase, "SINGLE_USER WITH ROLLBACK IMMEDIATE", requireNotRestoring: false);
@@ -125,7 +128,6 @@ public sealed class BackupService
                 restore.SqlRestore(server);
                 watch.Stop();
 
-                // Only an online (RECOVERY) database can leave single-user mode.
                 if (request.ReplaceExisting && request.Recovery)
                 {
                     SetDatabaseUserMode(
@@ -149,10 +151,7 @@ public sealed class BackupService
                     {
                         SetDatabaseUserMode(sqlConn, request.TargetDatabase, "MULTI_USER", requireNotRestoring: true);
                     }
-                    catch
-                    {
-                        // best-effort revert
-                    }
+                    catch { }
                 }
                 throw;
             }
@@ -219,11 +218,6 @@ public sealed class BackupService
         }
     }
 
-    /// <summary>
-    /// Sets the access mode of <paramref name="database"/> via ALTER DATABASE,
-    /// quoting the identifier and guarding existence so it is safe to call when
-    /// the database may be absent or mid-restore.
-    /// </summary>
     private static void SetDatabaseUserMode(
         Microsoft.Data.SqlClient.SqlConnection connection,
         string database,

@@ -313,7 +313,6 @@ describe("QueryEditorPanel", () => {
     expect(screen.getByRole("button", { name: "Find" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
 
-    // At width 480px, 4 actions stay in toolbar (Undo, Redo, Toggle Comment, Copy), Format, Upper, Lower, Wrap, Save, Find, and History move to More menu
     resizeCallback?.(
       [
         {
@@ -338,7 +337,6 @@ describe("QueryEditorPanel", () => {
 
     await user.keyboard("{Escape}");
 
-    // At width 300px, all actions move to More menu
     resizeCallback?.(
       [
         {
@@ -408,7 +406,6 @@ describe("QueryEditorPanel", () => {
 
     await screen.findByTestId("sql-editor");
 
-    // Standard buttons are enabled; undo/redo start disabled without history
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Toggle Comment" })).toBeEnabled();
@@ -420,16 +417,13 @@ describe("QueryEditorPanel", () => {
     expect(screen.getByRole("button", { name: "Find" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "History (1)" })).toBeEnabled();
 
-    // History depth enables undo / redo
     historyDepthChangeCallback?.({ canUndo: true, canRedo: true });
     await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled());
     expect(screen.getByRole("button", { name: "Redo" })).toBeEnabled();
 
-    // Selection-dependent buttons start disabled
     expect(screen.getByRole("button", { name: "UPPERCASE" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "lowercase" })).toBeDisabled();
 
-    // Selection enables them
     selectionChangeCallback?.(true);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "UPPERCASE" })).toBeEnabled(),
@@ -438,7 +432,6 @@ describe("QueryEditorPanel", () => {
       expect(screen.getByRole("button", { name: "lowercase" })).toBeEnabled(),
     );
 
-    // Clearing selection disables them again
     selectionChangeCallback?.(false);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "UPPERCASE" })).toBeDisabled(),
@@ -465,7 +458,6 @@ describe("QueryEditorPanel", () => {
 
     await screen.findByTestId("sql-editor");
 
-    // Open context menu with no selected text and no undo/redo history
     editorSelection.value = "";
     fireEvent.contextMenu(screen.getByTestId("sql-editor"), { clientX: 100, clientY: 100 });
 
@@ -486,7 +478,6 @@ describe("QueryEditorPanel", () => {
 
     await user.keyboard("{Escape}");
 
-    // Open context menu with active selected text and history
     historyDepthChangeCallback?.({ canUndo: true, canRedo: false });
     editorSelection.value = "SELECT *";
     fireEvent.contextMenu(screen.getByTestId("sql-editor"), { clientX: 100, clientY: 100 });

@@ -40,3 +40,13 @@ export function detectPlatform(): string {
   if (platform.includes("linux")) return "Linux";
   return "Unknown";
 }
+
+export async function bestEffort(operation: Promise<unknown>): Promise<void> {
+  await operation.catch(() => undefined);
+}
+
+export function bestEffortSync(action: () => void): void {
+  try {
+    action();
+  } catch {}
+}

@@ -5,7 +5,7 @@ public sealed class BackupRequest
     public string ConnectionId { get; set; } = string.Empty;
     public string Database { get; set; } = string.Empty;
     public string DestinationPath { get; set; } = string.Empty;
-    public string BackupType { get; set; } = "FULL"; // FULL | DIFFERENTIAL | LOG
+    public string BackupType { get; set; } = "FULL";
     public bool Overwrite { get; set; }
     public bool CopyOnly { get; set; }
     public bool Compression { get; set; }

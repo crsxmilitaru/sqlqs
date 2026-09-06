@@ -62,17 +62,7 @@ public sealed class QueryExecutor
         connection.InfoMessage += OnInfoMessage;
         try
         {
-            try
-            {
-                using var cmdStatsOn = new SqlCommand("SET STATISTICS TIME ON; SET STATISTICS IO ON;", connection);
-                await cmdStatsOn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-                statisticsEnabled = true;
-            }
-            catch
-            {
-                // Ignore
-            }
-
+            statisticsEnabled = await TryEnableStatisticsAsync(connection, cancellationToken).ConfigureAwait(false);
             try
             {
                 var resultSets = new List<ResultSetData>();
@@ -125,11 +115,8 @@ public sealed class QueryExecutor
                     await DisposeReaderQuietlyAsync(reader).ConfigureAwait(false);
                 }
 
-                if (statisticsEnabled)
-                {
-                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
-                    statisticsEnabled = false;
-                }
+                await ResetStatisticsAsync(connection, statisticsEnabled).ConfigureAwait(false);
+                statisticsEnabled = false;
 
                 watch.Stop();
                 var stats = ParseAndFilterStatistics(outputs, out var filteredOutputs);
@@ -147,10 +134,7 @@ public sealed class QueryExecutor
             }
             finally
             {
-                if (statisticsEnabled)
-                {
-                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
-                }
+                await ResetStatisticsAsync(connection, statisticsEnabled).ConfigureAwait(false);
             }
         }
         finally
@@ -159,11 +143,6 @@ public sealed class QueryExecutor
         }
     }
 
-    /// <summary>
-    /// Executes multiple batches sequentially under a single connection lease,
-    /// preserving session state (transactions, temp tables, SET options) across
-    /// GO boundaries. Each batch's result sets and row counts are accumulated.
-    /// </summary>
     public async Task<ExecuteSqlResponse> ExecuteBatchesAsync(
         string connectionId,
         IReadOnlyList<string> batches,
@@ -191,17 +170,7 @@ public sealed class QueryExecutor
         connection.InfoMessage += OnInfoMessage;
         try
         {
-            try
-            {
-                using var cmdStatsOn = new SqlCommand("SET STATISTICS TIME ON; SET STATISTICS IO ON;", connection);
-                await cmdStatsOn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-                statisticsEnabled = true;
-            }
-            catch
-            {
-                // Ignore
-            }
-
+            statisticsEnabled = await TryEnableStatisticsAsync(connection, cancellationToken).ConfigureAwait(false);
             try
             {
                 var allResultSets = new List<ResultSetData>();
@@ -263,11 +232,8 @@ public sealed class QueryExecutor
                     }
                 }
 
-                if (statisticsEnabled)
-                {
-                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
-                    statisticsEnabled = false;
-                }
+                await ResetStatisticsAsync(connection, statisticsEnabled).ConfigureAwait(false);
+                statisticsEnabled = false;
 
                 watch.Stop();
                 var stats = ParseAndFilterStatistics(outputs, out var filteredOutputs);
@@ -285,10 +251,7 @@ public sealed class QueryExecutor
             }
             finally
             {
-                if (statisticsEnabled)
-                {
-                    await DisableStatisticsAsync(connection).ConfigureAwait(false);
-                }
+                await ResetStatisticsAsync(connection, statisticsEnabled).ConfigureAwait(false);
             }
         }
         finally
@@ -522,9 +485,7 @@ public sealed class QueryExecutor
         {
             command.Cancel();
         }
-        catch
-        {
-        }
+        catch { }
     }
 
     private static async Task DisposeReaderQuietlyAsync(SqlDataReader? reader)
@@ -538,9 +499,7 @@ public sealed class QueryExecutor
         {
             await reader.DisposeAsync().ConfigureAwait(false);
         }
-        catch
-        {
-        }
+        catch { }
     }
 
     private static CommandBehavior ResolveReaderBehavior(string sql)
@@ -592,6 +551,32 @@ public sealed class QueryExecutor
         return BatchExclusiveDdlRegex.IsMatch(sql.AsSpan(i));
     }
 
+    private static async Task<bool> TryEnableStatisticsAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var cmdStatsOn = new SqlCommand("SET STATISTICS TIME ON; SET STATISTICS IO ON;", connection);
+            await cmdStatsOn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task ResetStatisticsAsync(SqlConnection connection, bool enabled)
+    {
+        if (enabled)
+        {
+            await DisableStatisticsAsync(connection).ConfigureAwait(false);
+        }
+    }
+
     private static async Task DisableStatisticsAsync(SqlConnection connection)
     {
         try
@@ -600,10 +585,7 @@ public sealed class QueryExecutor
             cmdStatsOff.CommandTimeout = 5;
             await cmdStatsOff.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch
-        {
-            // Ignore cleanup failures; the connection lease/next command handles broken sessions.
-        }
+        catch { }
     }
 
     private static readonly Regex CompileRegex = new(

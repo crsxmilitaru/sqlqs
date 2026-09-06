@@ -15,6 +15,7 @@ import {
   TAB_GROUP_COLORS,
   TAB_GROUP_COLOR_VARS,
 } from "./tab-groups";
+import { bestEffort } from "./platform";
 
 export type ThemeMode = "light" | "dark";
 
@@ -129,7 +130,9 @@ function resolveTheme(themeId: string): ThemeOption {
         if (theme && theme.id === themeId) {
           return theme;
         }
-      } catch {}
+      } catch {
+        return THEMES[0];
+      }
     }
   }
   return THEMES.find((theme) => theme.id === themeId) || THEMES[0];
@@ -197,11 +200,11 @@ async function applyNativeWindowTheme(windowTheme: WindowTheme) {
   const dark = windowTheme === "dark";
   preferredWindowTheme = windowTheme;
 
-  await win.setTheme(windowTheme).catch(() => undefined);
-  await invoke("set_mica_theme", { dark }).catch(() => undefined);
-  await win
-    .setEffects({ effects: [Effect.Mica], state: EffectState.Active })
-    .catch(() => undefined);
+  await bestEffort(win.setTheme(windowTheme));
+  await bestEffort(invoke("set_mica_theme", { dark }));
+  await bestEffort(
+    win.setEffects({ effects: [Effect.Mica], state: EffectState.Active }),
+  );
 }
 
 function ensureWindowThemeSync() {

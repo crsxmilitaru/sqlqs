@@ -71,7 +71,6 @@ describe("TabSearchPopup", () => {
     expect(screen.getByText("Products Inventory")).toBeInTheDocument();
     expect(screen.getByText("New Query")).toBeInTheDocument();
     expect(screen.getByText(/Recently Closed/)).toBeInTheDocument();
-    // Collapsed by default
     expect(screen.queryByText("Orders Report")).not.toBeInTheDocument();
   });
 
@@ -107,7 +106,6 @@ describe("TabSearchPopup", () => {
   it("calls onReopenTab when an expanded closed tab is clicked", () => {
     const { props } = renderPopup();
 
-    // Click to expand recently closed
     fireEvent.click(screen.getByText(/Recently Closed/));
     expect(screen.getByText("Orders Report")).toBeInTheDocument();
 

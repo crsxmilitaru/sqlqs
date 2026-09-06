@@ -19,6 +19,7 @@ import type { SavedQuery } from "../../hooks/useSavedQueries";
 import type { DatabaseObject, ExecutedQuery } from "../../lib/types";
 import { preloadSchemaCatalog } from "../../lib/schema-catalog";
 import { isSamePath } from "../../lib/path";
+import { loadStoredStringSet } from "../../lib/storage";
 import ContextMenu, { type ContextMenuItem } from "../ui/ContextMenu";
 import {
   IconChevronRight,
@@ -281,19 +282,8 @@ function maxSizedHeight(
   return Math.max(MIN_SECTION_HEIGHT, budget);
 }
 
-function loadCollapsedSections(): Set<string> {
-  try {
-    const raw = localStorage.getItem(EXPLORER_COLLAPSED_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return new Set(arr);
-    }
-  } catch {}
-  return new Set();
-}
-
 function initExpandedSections(): Set<string> {
-  const collapsed = loadCollapsedSections();
+  const collapsed = loadStoredStringSet(EXPLORER_COLLAPSED_KEY, new Set<string>());
   const expanded = new Set<string>();
   for (const s of ROOT_SECTIONS) {
     if (!collapsed.has(s)) expanded.add(s);
@@ -2178,16 +2168,8 @@ export default function ObjectExplorer(props: Props) {
                       const rowKey = `saved:${item.id}`;
                       const isSelected = () =>
                         isMenuActive(rowKey) ||
-                        isExplorerSelected(rowKey) ||
                         isRenaming() ||
                         activeSavedQuery()?.id === item.id;
-                      const savedEntries = () =>
-                        filteredSavedQueries().map((query) => ({
-                          key: `saved:${query.id}`,
-                          title: query.title,
-                          savedQueryFilePath: query.filePath,
-                          sourceId: `saved:${query.filePath}`,
-                        }));
                       const row = (
                         <div
                           ref={(el) => {
@@ -2202,25 +2184,16 @@ export default function ObjectExplorer(props: Props) {
                           onClick={(e) => {
                             if (isRenaming()) return;
                             if (e.detail > 1) return;
-                            handleExplorerSelectableClick(
-                              e,
-                              {
-                                key: rowKey,
-                                title: item.title,
-                                savedQueryFilePath: item.filePath,
-                                sourceId: `saved:${item.filePath}`,
-                              },
-                              savedEntries(),
-                              () =>
-                                props.onLoadSavedQuery?.(
-                                  item.filePath,
-                                  item.title,
-                                ),
+                            clearExplorerSelection();
+                            props.onLoadSavedQuery?.(
+                              item.filePath,
+                              item.title,
                             );
                           }}
                           onDblClick={(e) => {
                             if (isRenaming()) return;
                             e.preventDefault();
+                            clearExplorerSelection();
                             props.onLoadSavedQuery?.(
                               item.filePath,
                               item.title,

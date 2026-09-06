@@ -50,12 +50,6 @@ public sealed class ConnectionService : IAsyncDisposable
         };
     }
 
-    /// <summary>
-    /// Apply the same SET options SSMS sends when opening a new connection.
-    /// These persist for the lifetime of the connection. ARITHABORT ON in
-    /// particular is required for DML against indexed views, computed-column
-    /// indexes and filtered indexes; Microsoft.Data.SqlClient leaves it OFF.
-    /// </summary>
     private static async Task InitializeSessionAsync(SqlConnection connection, CancellationToken cancellationToken)
     {
         const string sql =
@@ -92,9 +86,7 @@ public sealed class ConnectionService : IAsyncDisposable
             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
             managed.NeedsReconnect = true;
         }
-        catch
-        {
-        }
+        catch { }
     }
 
     private static async Task<int?> ReadSessionIdAsync(SqlConnection connection, CancellationToken cancellationToken)
@@ -148,17 +140,8 @@ public sealed class ConnectionService : IAsyncDisposable
         ResolveManaged(connectionId).CurrentDatabase = database;
     }
 
-    /// <summary>
-    /// Resolves a connection without serializing access. Only call this while
-    /// already holding the connection's lease (see <see cref="AcquireAsync"/>).
-    /// </summary>
     public SqlConnection Resolve(string connectionId) => ResolveManaged(connectionId).Connection;
 
-    /// <summary>
-    /// Acquires exclusive access to a connection. A single <see cref="SqlConnection"/>
-    /// cannot service more than one command at a time, so every operation that
-    /// touches a connection must hold its lease for the full duration of the work.
-    /// </summary>
     public async Task<ConnectionLease> AcquireAsync(string connectionId, CancellationToken cancellationToken)
     {
         var id = ParseConnectionId(connectionId);
@@ -252,9 +235,6 @@ public sealed class ConnectionService : IAsyncDisposable
             throw new PlatformNotSupportedException("Windows authentication is only supported on Windows.");
         }
 
-        // Apply the password last so an out-of-band value (e.g. typed separately
-        // from a saved connection string whose password was stripped) always wins
-        // for SQL authentication, regardless of which branch built the builder.
         if (!config.UseWindowsAuth && config.Password is not null)
         {
             builder.Password = config.Password;
@@ -314,8 +294,6 @@ public sealed class ConnectionService : IAsyncDisposable
         public bool NeedsReconnect { get; set; }
         public bool IsClosing => Volatile.Read(ref _closing) != 0;
 
-        // A single SqlConnection cannot run concurrent commands; this gate
-        // serializes every operation issued against this connection.
         public SemaphoreSlim Gate { get; } = new(1, 1);
 
         private int _closing;
@@ -339,9 +317,7 @@ public sealed class ConnectionService : IAsyncDisposable
                 {
                     await Connection.DisposeAsync().ConfigureAwait(false);
                 }
-                catch
-                {
-                }
+                catch { }
 
                 Connection = new SqlConnection(ConnectionString);
                 await Connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -369,10 +345,7 @@ public sealed class ConnectionService : IAsyncDisposable
             {
                 await Connection.DisposeAsync().ConfigureAwait(false);
             }
-            catch
-            {
-                // ignore: closing is best-effort
-            }
+            catch { }
         }
     }
 }

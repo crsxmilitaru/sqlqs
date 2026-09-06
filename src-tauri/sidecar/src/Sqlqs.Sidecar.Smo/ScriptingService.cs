@@ -79,8 +79,7 @@ public sealed class ScriptingService
         {
             connection.ChangeDatabase(originalDatabase);
         }
-        catch
-        { /* empty */ }
+        catch { }
     }
 
     private static ScriptingOptions BuildScriptingOptions(ScriptOptionsDto? dto, int serverVersionMajor)

@@ -9,7 +9,7 @@ import {
   Show,
 } from "solid-js";
 import type { JSX } from "solid-js";
-import { getModifierKeyLabel } from "../../lib/platform";
+import { bestEffort, getModifierKeyLabel } from "../../lib/platform";
 import { baseFileName } from "../../lib/path";
 import { loadExecutionPreferences } from "../../lib/settings";
 import { formatSqlDateValue } from "../../lib/sql-date";
@@ -1406,17 +1406,19 @@ export default function ResultsGrid(props: Props) {
 
     if (missing === 0) return;
 
-    invoke<string[]>("extract_result_set_table_names", { sql })
-      .then((names) => {
-        setResultSetTables((prev) => {
-          const map: Record<number, string | null> = { ...prev };
-          names.forEach((name, index) => {
-            if (!map[index] && name) map[index] = name;
+    void bestEffort(
+      invoke<string[]>("extract_result_set_table_names", { sql }).then(
+        (names) => {
+          setResultSetTables((prev) => {
+            const map: Record<number, string | null> = { ...prev };
+            names.forEach((name, index) => {
+              if (!map[index] && name) map[index] = name;
+            });
+            return map;
           });
-          return map;
-        });
-      })
-      .catch(() => {});
+        },
+      ),
+    );
   });
 
   const toggleResultSet = (index: number) => {

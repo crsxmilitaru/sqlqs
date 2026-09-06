@@ -261,12 +261,13 @@ export default function BackupRestoreDialog(props: Props) {
     }
   }
 
-  async function inspectBackup() {
+  async function inspectBackup(targetPath?: string) {
+    const inspectedPath = (targetPath ?? sourcePath()).trim();
+    if (!inspectedPath) return;
     setBusyAction("inspect");
     setError(null);
     setSuccess(null);
     try {
-      const inspectedPath = sourcePath().trim();
       const files = await invoke<BackupFileInfo[]>("inspect_backup_file", {
         sourcePath: inspectedPath,
       });
@@ -301,6 +302,178 @@ export default function BackupRestoreDialog(props: Props) {
       setError(cleanError(err, "Failed to inspect backup"));
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function browseRestoreFile() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const current = sourcePath().trim();
+      const defaultPath = current || defaults()?.backup_directory || undefined;
+      const selected = await open({
+        title: "Select Backup File",
+        multiple: false,
+        directory: false,
+        defaultPath,
+        filters: [
+          {
+            name: "SQL Server Backup (*.bak, *.trn)",
+            extensions: ["bak", "trn"],
+          },
+          {
+            name: "All Files (*.*)",
+            extensions: ["*"],
+          },
+        ],
+      });
+
+      if (typeof selected === "string" && selected.trim()) {
+        handleSourcePathChange(selected);
+        await inspectBackup(selected);
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select backup file"));
+    }
+  }
+
+  async function browseRestoreFolder() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const defaultPath =
+        defaults()?.data_directory || defaults()?.backup_directory || undefined;
+      const selected = await open({
+        title: "Select Restore Destination Folder",
+        multiple: false,
+        directory: true,
+        defaultPath,
+      });
+
+      if (typeof selected === "string" && selected.trim()) {
+        const targetDb = targetDatabase().trim() || "RestoredDatabase";
+        setFileMoves(
+          backupFiles().map((file, index) => {
+            const isLog = file.file_type.toUpperCase() === "L";
+            const extension = isLog ? "ldf" : index === 0 ? "mdf" : "ndf";
+            const name = `${sanitizeFilePart(targetDb)}_${sanitizeFilePart(file.logical_name)}.${extension}`;
+            return {
+              logical_name: file.logical_name,
+              physical_name: joinServerPath(selected, name),
+            };
+          }),
+        );
+        setSuccess(`Updated restore paths to ${selected}`);
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select folder"));
+    }
+  }
+
+  async function browseRowFolder(index: number) {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const currentPath = fileMoves()[index]?.physical_name || "";
+      const lastSep = Math.max(
+        currentPath.lastIndexOf("\\"),
+        currentPath.lastIndexOf("/"),
+      );
+      const currentFolder =
+        lastSep > 0 ? currentPath.slice(0, lastSep) : "";
+      const defaultPath =
+        currentFolder || defaults()?.data_directory || undefined;
+
+      const selected = await open({
+        title: `Select folder for ${fileMoves()[index]?.logical_name || "file"}`,
+        multiple: false,
+        directory: true,
+        defaultPath,
+      });
+
+      if (typeof selected === "string" && selected.trim()) {
+        const fileName =
+          lastSep >= 0
+            ? currentPath.slice(lastSep + 1)
+            : `${fileMoves()[index]?.logical_name || "file"}.mdf`;
+        updateMove(index, joinServerPath(selected, fileName));
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select folder"));
+    }
+  }
+
+  async function browseBackupDestinationFile() {
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const current = destinationPath().trim();
+      const ext = extensionForBackup(backupType());
+      const filterLabel =
+        backupType() === "log"
+          ? "Transaction Log (*.trn)"
+          : "Database Backup (*.bak)";
+      const selected = await save({
+        title: "Select Backup Destination File",
+        defaultPath: current || defaults()?.backup_directory || undefined,
+        filters: [
+          { name: filterLabel, extensions: [ext] },
+          { name: "All Files (*.*)", extensions: ["*"] },
+        ],
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        setDestinationTouched(true);
+        setDestinationPath(selected);
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select destination file"));
+    }
+  }
+
+  async function browseBackupDestinationFolder() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const current = destinationPath().trim();
+      const lastSep = Math.max(
+        current.lastIndexOf("\\"),
+        current.lastIndexOf("/"),
+      );
+      const currentFolder =
+        lastSep > 0 ? current.slice(0, lastSep) : "";
+      const defaultPath =
+        currentFolder || defaults()?.backup_directory || undefined;
+      const selected = await open({
+        title: "Select Backup Destination Folder",
+        multiple: false,
+        directory: true,
+        defaultPath,
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        const fileName =
+          lastSep >= 0
+            ? current.slice(lastSep + 1)
+            : `${sanitizeFilePart(backupDatabase() || "database")}_${backupType()}_${todayStamp()}.${extensionForBackup(backupType())}`;
+        setDestinationTouched(true);
+        setDestinationPath(joinServerPath(selected, fileName));
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select destination folder"));
+    }
+  }
+
+  async function browseScheduleFolder() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const current = scheduleFolder().trim();
+      const defaultPath =
+        current || defaults()?.backup_directory || undefined;
+      const selected = await open({
+        title: "Select Schedule Folder",
+        multiple: false,
+        directory: true,
+        defaultPath,
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        setScheduleFolder(selected);
+      }
+    } catch (err) {
+      setError(cleanError(err, "Failed to select schedule folder"));
     }
   }
 
@@ -519,30 +692,64 @@ export default function BackupRestoreDialog(props: Props) {
                   <label class="text-s font-medium text-text-muted mb-1.5 block">
                     Destination on SQL Server
                   </label>
-                  <Input
-                    name="backup-destination-path"
-                    value={destinationPath()}
-                    placeholder={
-                      loadingDefaults()
-                        ? "Loading server default path…"
-                        : "C:\\SQLBackups\\Database_full.bak"
-                    }
-                    onInput={(e) => {
-                      setDestinationTouched(true);
-                      setDestinationPath(e.currentTarget.value);
-                    }}
-                  />
+                  <div class="flex items-center gap-2">
+                    <Input
+                      name="backup-destination-path"
+                      value={destinationPath()}
+                      placeholder={
+                        loadingDefaults()
+                          ? "Loading server default path…"
+                          : "C:\\SQLBackups\\Database_full.bak"
+                      }
+                      onInput={(e) => {
+                        setDestinationTouched(true);
+                        setDestinationPath(e.currentTarget.value);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={browseBackupDestinationFile}
+                      disabled={busy()}
+                      class="btn btn-secondary px-3 shrink-0"
+                      title="Select destination backup file"
+                    >
+                      <Icon name="file" />
+                      File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={browseBackupDestinationFolder}
+                      disabled={busy()}
+                      class="btn btn-secondary px-3 shrink-0"
+                      title="Select destination folder"
+                    >
+                      <Icon name="folder-open" />
+                      Folder
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label class="text-s font-medium text-text-muted mb-1.5 block">
                     Schedule Folder on SQL Server
                   </label>
-                  <Input
-                    name="backup-schedule-folder"
-                    value={scheduleFolder()}
-                    placeholder="C:\\SQLBackups"
-                    onInput={(e) => setScheduleFolder(e.currentTarget.value)}
-                  />
+                  <div class="flex items-center gap-2">
+                    <Input
+                      name="backup-schedule-folder"
+                      value={scheduleFolder()}
+                      placeholder="C:\\SQLBackups"
+                      onInput={(e) => setScheduleFolder(e.currentTarget.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={browseScheduleFolder}
+                      disabled={busy()}
+                      class="btn btn-secondary px-3 shrink-0"
+                      title="Select schedule folder"
+                    >
+                      <Icon name="folder-open" />
+                      Folder
+                    </button>
+                  </div>
                 </div>
                 <div class="grid grid-cols-3 gap-3">
                   <div>
@@ -672,10 +879,20 @@ export default function BackupRestoreDialog(props: Props) {
                     }
                   />
                 </div>
-                <div class="flex items-end">
+                <div class="flex items-end gap-2">
                   <button
                     type="button"
-                    onClick={inspectBackup}
+                    onClick={browseRestoreFile}
+                    disabled={busy()}
+                    class="btn btn-secondary px-4"
+                    title="Select backup file"
+                  >
+                    <Icon name="folder-open" />
+                    Browse
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => inspectBackup()}
                     disabled={busy() || !sourcePath().trim()}
                     class="btn btn-secondary px-4"
                   >
@@ -702,7 +919,17 @@ export default function BackupRestoreDialog(props: Props) {
                     onInput={(e) => setTargetDatabase(e.currentTarget.value)}
                   />
                 </div>
-                <div class="flex items-end">
+                <div class="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={browseRestoreFolder}
+                    disabled={busy() || backupFiles().length === 0}
+                    class="btn btn-secondary px-4"
+                    title="Select destination folder for restored files"
+                  >
+                    <Icon name="folder-open" />
+                    Folder
+                  </button>
                   <button
                     type="button"
                     onClick={refreshRestoreMoves}
@@ -710,6 +937,7 @@ export default function BackupRestoreDialog(props: Props) {
                       backupFiles().length === 0 || !targetDatabase().trim()
                     }
                     class="btn btn-secondary px-4"
+                    title="Reset restore paths to SQL Server defaults"
                   >
                     <Icon name="wand-magic-sparkles" />
                     Paths
@@ -750,13 +978,24 @@ export default function BackupRestoreDialog(props: Props) {
                           <span class="text-s text-text-muted">
                             {formatSize(file()?.size_bytes ?? 0)}
                           </span>
-                          <Input
-                            name={`restore-move-path-${index()}`}
-                            value={move.physical_name}
-                            onInput={(e) =>
-                              updateMove(index(), e.currentTarget.value)
-                            }
-                          />
+                          <div class="flex items-center gap-2">
+                            <Input
+                              name={`restore-move-path-${index()}`}
+                              value={move.physical_name}
+                              onInput={(e) =>
+                                updateMove(index(), e.currentTarget.value)
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => browseRowFolder(index())}
+                              disabled={busy()}
+                              class="btn btn-secondary h-[32px] px-2.5 shrink-0"
+                              title="Select folder for this file"
+                            >
+                              <Icon name="folder-open" class="text-xs" />
+                            </button>
+                          </div>
                         </div>
                       );
                     }}

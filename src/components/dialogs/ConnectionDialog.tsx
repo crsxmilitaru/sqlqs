@@ -70,7 +70,9 @@ export default function ConnectionDialog(props: Props) {
           loadConnection(last);
         }
       }
-    } catch {}
+    } catch (err) {
+      toast.error(`Failed to load saved connections: ${String(err)}`);
+    }
   }
 
   async function loadConnection(saved: SavedConnection) {
@@ -103,7 +105,11 @@ export default function ConnectionDialog(props: Props) {
         setPassword(pass);
         setRememberPassword(true);
       }
-    } catch {}
+    } catch (err) {
+      toast.error(
+        `Failed to load saved password for "${saved.name}": ${String(err)}`,
+      );
+    }
   }
 
   function generateSaveName(srv: string, user: string, winAuth: boolean) {
