@@ -1,6 +1,6 @@
 {
   "name": "sqlqs",
-  "version": "0.5.0-preview",
+  "version": "0.6.0-preview",
   "description": "SQL Query Studio - A lightweight SQL editor",
   "author": "Cristian Militaru",
   "publisher": "crsx",
@@ -43,7 +43,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.{ts,tsx}",
     "lint:fix": "eslint src/**/*.{ts,tsx} --fix",
-    "release": "node scripts/run-release-workflow.mjs"
+    "release": "node scripts/run-release-workflow.mjs",
+    "release:preview": "gh workflow run preview.yml --ref dev"
   },
   "dependencies": {
     "@codemirror/lang-sql": "^6.10.0",

@@ -1,9 +1,13 @@
 name: Preview
 
 on:
-  push:
-    branches:
-      - dev
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The dev branch ref to build
+        required: false
+        default: dev
+        type: string
 
 permissions:
   contents: write

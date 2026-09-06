@@ -230,6 +230,21 @@ async function main() {
       run("git push origin dev", true);
     }
     console.log(`\nSuccess: Released and pushed stable v${releaseVersion} to GitHub.`);
+
+    if (mode === "promote") {
+      const released = parseVersion(releaseVersion);
+      const nextPreview = `${released.major}.${released.minor + 1}.0-preview`;
+      console.log(`\nStep 9: Bumping dev to v${nextPreview}...`);
+      run("git fetch origin dev", true);
+      assertNoUnpushedCommits("dev");
+      run("git checkout dev", true);
+      run("git reset --hard origin/dev", true);
+      run(`node scripts/set-version.mjs ${nextPreview}`, true);
+      commitVersionFiles(`Bump dev to v${nextPreview}`);
+      run("git push origin dev", true);
+      run("git checkout master", true);
+      console.log(`OK: Dev bumped to v${nextPreview}.`);
+    }
   } else if (workflow === "preview") {
     console.log("Step 5: Select preview bump type:");
     console.log("  [next]  Reuse the current preview series (e.g. 1.1.0-preview)");
@@ -265,8 +280,12 @@ async function main() {
     }
 
     run("git push origin dev", true);
+    console.log("OK: Pushed dev.\n");
+
+    console.log("Step 9: Triggering Preview workflow...");
+    run("gh workflow run preview.yml --ref dev", true);
     console.log(
-      `\nSuccess: Pushed dev. Preview CI will publish v${previewVersion}.`,
+      `\nSuccess: Preview workflow triggered for v${previewVersion}.`,
     );
   }
 }
